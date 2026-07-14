@@ -12,7 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 
-import type { SidebarNavItem } from '@/components/layout';
+import { BrandLogo, type SidebarNavItem } from '@/components/layout';
 import { ROUTES } from '@/constants/routes';
 import { DashboardLayout } from '@/layouts/dashboard-layout';
 
@@ -33,10 +33,7 @@ const TRAINER_NAV_ITEMS: SidebarNavItem[] = [
 /** Trainer area shell. */
 function TrainerLayout() {
   return (
-    <DashboardLayout
-      navItems={TRAINER_NAV_ITEMS}
-      brand={<span className="font-semibold">Databeat Trainer</span>}
-    />
+    <DashboardLayout navItems={TRAINER_NAV_ITEMS} brand={<BrandLogo label="Trainer" />} />
   );
 }
 

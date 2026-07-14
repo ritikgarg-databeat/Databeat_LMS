@@ -21,6 +21,9 @@
   --animate-shimmer: shimmer 2.2s linear infinite;
   --animate-glow-pulse: glow-pulse 2.4s ease-in-out infinite;
   --animate-gradient-x: gradient-x 8s ease infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-delayed: float 6s ease-in-out 2s infinite;
+  --animate-float-slow: float 7.5s ease-in-out 1s infinite;
 
   @keyframes fade-in {
     from {
@@ -78,6 +81,18 @@
     }
     50% {
       background-position: 100% 50%;
+    }
+  }
+  /* Gentle ambient bob for decorative hero/marketing elements (floating cards, icon chips) —
+     translate only, no scale/rotate, so it reads as "alive" rather than distracting. Use the
+     `-delayed` variant on a second element in the same view so they don't move in lockstep. */
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
     }
   }
 }
@@ -289,6 +304,19 @@
   @media (prefers-reduced-motion: no-preference) {
     .animate-shimmer {
       animation: var(--animate-shimmer);
+    }
+  }
+  /* Ambient floating decoration (marketing pages only) — CSS-driven so it runs for free
+     alongside Framer Motion's JS-driven entrance/scroll animations rather than fighting them. */
+  @media (prefers-reduced-motion: no-preference) {
+    .animate-float {
+      animation: var(--animate-float);
+    }
+    .animate-float-delayed {
+      animation: var(--animate-float-delayed);
+    }
+    .animate-float-slow {
+      animation: var(--animate-float-slow);
     }
   }
 }

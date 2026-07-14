@@ -10,7 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 
-import type { SidebarNavItem } from '@/components/layout';
+import { BrandLogo, type SidebarNavItem } from '@/components/layout';
 import { ROUTES } from '@/constants/routes';
 import { DashboardLayout } from '@/layouts/dashboard-layout';
 
@@ -33,10 +33,7 @@ const ADMIN_NAV_ITEMS: SidebarNavItem[] = [
 /** Super Admin area shell. */
 function AdminLayout() {
   return (
-    <DashboardLayout
-      navItems={ADMIN_NAV_ITEMS}
-      brand={<span className="font-semibold">Databeat Admin</span>}
-    />
+    <DashboardLayout navItems={ADMIN_NAV_ITEMS} brand={<BrandLogo label="Admin" />} />
   );
 }
 

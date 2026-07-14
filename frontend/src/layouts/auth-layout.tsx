@@ -1,8 +1,8 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { GraduationCap } from 'lucide-react';
 import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 
+import { BrandLogo } from '@/components/layout';
 import { LoadingScreen } from '@/components/shared';
 import { BrandingPanel } from '@/features/auth/components';
 
@@ -21,11 +21,8 @@ function AuthLayout() {
 
       <div className="flex flex-1 flex-col items-center justify-center p-4 sm:p-6">
         {/* Compact mobile/tablet header banner — replaces the branding panel below `lg:`. */}
-        <div className="mb-6 flex items-center gap-2 text-lg font-semibold lg:hidden">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <GraduationCap className="size-5" aria-hidden="true" />
-          </span>
-          Databeat LMS
+        <div className="mb-6 lg:hidden">
+          <BrandLogo imgClassName="h-9" />
         </div>
 
         <motion.div

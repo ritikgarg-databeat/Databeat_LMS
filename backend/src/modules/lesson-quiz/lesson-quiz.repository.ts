@@ -1,10 +1,21 @@
 import type { LessonQuizAttemptStatus, Prisma, Role } from '@prisma/client';
 
 import { BaseRepository } from '@/repositories/base.repository';
+import { storageProvider } from '@/storage';
+import { logger } from '@/utils/logger';
 
+import { extractTextFromResourceFile } from './content-extractor';
 import type { LessonContentForQuiz } from './lesson-quiz.types';
 
 const TEXT_BACKED_RESOURCE_TYPES = new Set(['MARKDOWN', 'CODE_SNIPPET']);
+
+/** File-backed resource types worth extracting text from for quiz generation — PDF/DOCX/PPTX
+ * are typical "theory" uploads; VIDEO/IMAGE/ZIP have no reasonably extractable text. */
+const EXTRACTABLE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
 
 // Data-access layer for the lesson-quiz module. Only this class may query Prisma directly
 // (see ARCHITECTURE.md §3.1). Works directly against Lesson/CourseModule/Course/GroupMember —
@@ -38,11 +49,12 @@ export class LessonQuizRepository extends BaseRepository {
   }
 
   /**
-   * Gathers the same "quizzable" text this lesson exposes to a trainee: its own description
-   * plus every MARKDOWN/CODE_SNIPPET resource's `content`, in `order`. Mirrors
-   * `ai/context-builder.ts#buildLessonContext`'s approach (a direct Prisma query, not an
-   * import of that module) — file-backed resources (PDF/VIDEO/...) never contribute content
-   * here, same as there.
+   * Gathers the "quizzable" text this lesson exposes: its own description, every
+   * MARKDOWN/CODE_SNIPPET resource's `content` (mirroring `ai/context-builder.ts`'s approach —
+   * a direct Prisma query, not an import of that module), PLUS best-effort extracted text from
+   * uploaded PDF/DOCX/PPTX resources (see content-extractor.ts) — most real lesson "theory" is
+   * uploaded as a file, not pasted as Markdown, so skipping file-backed resources here would
+   * leave the quiz gate silently inert for the majority of real lessons.
    */
   async findLessonContentForQuiz(lessonId: string): Promise<LessonContentForQuiz | null> {
     const lesson = await this.db.lesson.findUnique({
@@ -51,10 +63,29 @@ export class LessonQuizRepository extends BaseRepository {
     });
     if (!lesson) return null;
 
-    const content = lesson.resources
+    const textContent = lesson.resources
       .filter((resource) => resource.content && TEXT_BACKED_RESOURCE_TYPES.has(resource.type))
-      .map((resource) => resource.content)
-      .join('\n\n');
+      .map((resource) => resource.content as string);
+
+    const extractableResources = lesson.resources.filter(
+      (resource) => resource.relativePath && resource.mimeType && EXTRACTABLE_MIME_TYPES.has(resource.mimeType),
+    );
+    const extractedContent = await Promise.all(
+      extractableResources.map(async (resource) => {
+        try {
+          const stream = await storageProvider.getReadStream({ relativePath: resource.relativePath as string });
+          return await extractTextFromResourceFile(stream, resource.mimeType);
+        } catch (error) {
+          logger.warn('Failed to read lesson resource file for quiz generation', {
+            error,
+            resourceId: resource.id,
+          });
+          return '';
+        }
+      }),
+    );
+
+    const content = [...textContent, ...extractedContent].filter(Boolean).join('\n\n');
 
     return { lessonTitle: lesson.title, lessonDescription: lesson.description, content };
   }

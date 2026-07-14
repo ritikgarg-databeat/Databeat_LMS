@@ -9,7 +9,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
-import type { SidebarNavItem } from '@/components/layout';
+import { BrandLogo, type SidebarNavItem } from '@/components/layout';
 import { ROUTES } from '@/constants/routes';
 import { DashboardLayout } from '@/layouts/dashboard-layout';
 
@@ -27,10 +27,7 @@ const TRAINEE_NAV_ITEMS: SidebarNavItem[] = [
 /** Trainee area shell. */
 function TraineeLayout() {
   return (
-    <DashboardLayout
-      navItems={TRAINEE_NAV_ITEMS}
-      brand={<span className="font-semibold">Databeat Learn</span>}
-    />
+    <DashboardLayout navItems={TRAINEE_NAV_ITEMS} brand={<BrandLogo label="Learn" />} />
   );
 }
 

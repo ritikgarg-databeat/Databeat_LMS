@@ -14,11 +14,17 @@ premature cross-module coupling, matching the progress/resources modules' preced
 1. A trainee's client calls `GET /lessons/:id/quiz` when they click "Mark as complete" (not on
    lesson load — this can trigger a real, billed LLM call).
 2. If no `LessonQuizAttempt` row exists for `(lessonId, userId)` yet, the service gathers the
-   lesson's own text content (description + MARKDOWN/CODE_SNIPPET resource `content`, same
-   sources `ai/context-builder.ts` uses). Below `LESSON_QUIZ_MIN_CONTENT_CHARS` of real content,
-   or if the AI provider is unavailable/returns unparseable output twice, the response is
-   `{ required: false }` — the client calls `POST /lessons/:id/progress {status: COMPLETED}`
-   directly, identical to the pre-quiz-gate behavior.
+   lesson's own text content: description + MARKDOWN/CODE_SNIPPET resource `content` (same
+   sources `ai/context-builder.ts` uses), PLUS best-effort extracted text from any uploaded
+   PDF/DOCX/PPTX resources (`content-extractor.ts` — `pdf-parse`/`mammoth`/manual PPTX-XML
+   parsing via `jszip`). Most real lesson "theory" is uploaded as a file rather than pasted as
+   Markdown, so the file-extraction path is what makes the gate actually fire for typical
+   content — without it, every file-only lesson would silently skip the quiz. Below
+   `LESSON_QUIZ_MIN_CONTENT_CHARS` of real content (e.g. a scanned/image-only PDF with no text
+   layer, or a video/image-only lesson), or if the AI provider is unavailable/returns
+   unparseable output twice, the response is `{ required: false }` — the client calls
+   `POST /lessons/:id/progress {status: COMPLETED}` directly, identical to the pre-quiz-gate
+   behavior.
 3. Otherwise a `GENERATED` attempt is created (questions + `correctOptionId` stored server-side,
    never serialized to the client) and returned sanitized: `{ required: true, status:
    'GENERATED', questions: [...] }` (no correct-answer field).

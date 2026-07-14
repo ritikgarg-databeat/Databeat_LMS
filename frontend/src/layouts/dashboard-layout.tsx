@@ -44,18 +44,23 @@ function DashboardLayout({ navItems, brand, breadcrumbArea }: DashboardLayoutPro
           avatarPath={user?.avatar}
           onLogout={() => void handleLogout()}
         />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex flex-1 flex-col overflow-y-auto">
           {/*
            * Suspense lives here (not at the top of the route tree) so only the content area
            * shows a fallback while a route's lazy chunk loads — the sidebar/header/footer chrome
            * around it stays mounted the whole time. All three role shells route through this one
            * component, so this single boundary covers Admin/Trainer/Trainee navigation.
            */}
-          <Suspense fallback={<LoadingScreen fullScreen={false} />}>
-            <Outlet />
-          </Suspense>
+          <div className="flex-1 p-4 md:p-6">
+            <Suspense fallback={<LoadingScreen fullScreen={false} />}>
+              <Outlet />
+            </Suspense>
+          </div>
+          {/* Inside the scrollable region (not a sibling of `<main>`) so it flows at the end of
+           * each page's actual content instead of staying permanently pinned to the viewport
+           * bottom on every page, shrinking the usable content height. */}
+          <Footer />
         </main>
-        <Footer />
       </div>
     </div>
   );

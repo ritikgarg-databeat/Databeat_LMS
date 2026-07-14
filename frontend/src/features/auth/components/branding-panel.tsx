@@ -1,6 +1,8 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { BarChart3, Brain, GraduationCap, Sparkles, TrendingUp, Users } from 'lucide-react';
 
+import databeatLogoDark from '@/assets/images/databeat-logo-dark.png';
+
 /** Bar heights (%) for the decorative chart shape — purely illustrative, not real data. */
 const CHART_BARS = [42, 68, 54, 85, 63, 91];
 
@@ -93,11 +95,11 @@ function BrandingPanel() {
         }}
       />
 
-      <div className="relative z-10 flex items-center gap-2 text-lg font-semibold">
-        <span className="flex size-8 items-center justify-center rounded-lg bg-primary-foreground/15">
-          <GraduationCap className="size-5" aria-hidden="true" />
-        </span>
-        Databeat LMS
+      {/* Always the white-text logo variant, regardless of the app's own light/dark theme
+       * toggle — this panel's background is a fixed, always-colorful brand gradient (never a
+       * neutral light surface), so the light-text (black) variant would never be legible here. */}
+      <div className="relative z-10 flex items-center">
+        <img src={databeatLogoDark} alt="Databeat" className="h-10 w-auto" />
       </div>
 
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8 py-12">

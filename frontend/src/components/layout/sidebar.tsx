@@ -49,7 +49,7 @@ function Sidebar({ items, header, footer, className, ...props }: SidebarProps) {
         )}
         {...props}
       >
-        {header && !isCollapsed ? <div className="flex h-14 items-center border-b px-4">{header}</div> : null}
+        {header && !isCollapsed ? <div className="flex h-16 items-center border-b px-4">{header}</div> : null}
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="flex flex-col gap-1" aria-label="Primary navigation">
             {items.map(({ label, href, icon: Icon }) => (
