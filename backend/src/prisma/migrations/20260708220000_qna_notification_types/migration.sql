@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "NotificationType" ADD VALUE 'QNA_ANSWER_POSTED';
+ALTER TYPE "NotificationType" ADD VALUE 'QNA_ANSWER_VERIFIED';

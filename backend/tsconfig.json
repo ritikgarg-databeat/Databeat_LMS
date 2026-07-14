@@ -1,0 +1,64 @@
+{
+  "compilerOptions": {
+    /* Output */
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "sourceMap": true,
+    "declaration": false,
+    "removeComments": false,
+
+    /* Incremental compilation. The cache lives inside outDir on purpose: `rimraf dist` in
+       the build script must wipe it together with the compiled output, or tsc's incremental
+       skip-logic can trust a stale cache and silently no-op a build after a clean. */
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+
+    /* Interop */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    /* Path aliases (rewritten to relative paths at build time by tsc-alias; resolved at
+       dev time by tsconfig-paths — see package.json scripts). Resolved relative to this
+       file since TS 4.1+; no baseUrl needed (baseUrl is deprecated as of TS 6.0). */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* Strict mode */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true
+    // noUnusedParameters is intentionally off: constructor parameter properties
+    // (`constructor(private readonly x: T)`) are flagged as "unused" by this check even
+    // though they declare a class field for later use — a normal DI pattern in the module
+    // service/repository/controller shells. ESLint's unused-imports rule (argsIgnorePattern
+    // '^_') covers genuinely-unused function parameters instead — see eslint.config.js.
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "logs", "uploads", "storage"],
+
+  /* ts-node (dev server via nodemon) builds its type-checking program lazily from the
+     entry script's require graph by default, so ambient-only declaration files that
+     nothing imports (src/types/express.d.ts) never enter the program and `req.user`
+     resolves as unknown. `files: true` makes it seed the program from this tsconfig's
+     "include" up front instead, matching what `tsc --noEmit` already checks. */
+  "ts-node": {
+    "files": true
+  }
+}

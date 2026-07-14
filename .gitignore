@@ -1,0 +1,30 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+*.tsbuildinfo
+
+# Environment variables (never commit secrets — see each project's .env.example)
+.env
+.env.*
+!.env.example
+
+# Backend runtime data (never committed)
+backend/src/logs/*
+!backend/src/logs/.gitkeep
+backend/src/uploads/*
+!backend/src/uploads/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.local

@@ -1,0 +1,346 @@
+/* Tailwind v4 entrypoint. All utility classes are generated from this file. */
+@import 'tailwindcss';
+
+/*
+ * Design tokens (single source of truth for spacing, color, radius, typography).
+ * Exposed as CSS variables so both Tailwind utilities (`bg-background`, `text-foreground`, ...)
+ * and shadcn/ui components can consume the same theme without duplication.
+ */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-slide-up: slide-up 0.2s ease-out;
+  --animate-scale-in: scale-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-glow-pulse: glow-pulse 2.4s ease-in-out infinite;
+  --animate-gradient-x: gradient-x 8s ease infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  /* Dialogs/dropdowns/popovers/menus — a slightly more confident entrance than a bare fade. */
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  /* Skeleton loading sheen — paired with a background-size:200% + bg-gradient at the call site. */
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  /* Ambient emphasis for "live"/active indicators (e.g. an in-progress badge) — opacity only, never scale, so it stays calm. */
+  @keyframes glow-pulse {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  /* Slow-drifting gradient position for hero/CTA backgrounds — paired with a background-size:200% gradient. */
+  @keyframes gradient-x {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+}
+
+/*
+ * Semantic color tokens, light theme. Consumed via `bg-background`, `text-foreground`,
+ * `border-border`, etc. Component code should never reference raw palette values directly.
+ */
+:root {
+  --radius: 0.5rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+
+  /* Brand primary — vivid indigo-violet. Replaces the old grayscale --primary; every
+     component reading this token (buttons, links, active nav state, focus rings) picks up
+     real brand color automatically, with no per-component changes required. */
+  --primary: oklch(0.53 0.23 275);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+
+  /* Secondary brand hue — warm coral, complementary to the indigo primary. For deliberate
+     highlight moments (gradients, decorative badges, CTA emphasis) — NOT a replacement for
+     --accent above, which stays a neutral hover-surface color used across dozens of existing
+     components (menu items, tabs, etc.) that must not turn saturated. */
+  --brand-accent: oklch(0.72 0.19 45);
+  --brand-accent-foreground: oklch(0.16 0.02 45);
+
+  /* Hero/CTA gradient stops — indigo sweeping into magenta-violet. */
+  --gradient-from: oklch(0.53 0.23 275);
+  --gradient-via: oklch(0.58 0.24 300);
+  --gradient-to: oklch(0.64 0.22 330);
+
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --success: oklch(0.6 0.14 155);
+  --success-foreground: oklch(0.985 0 0);
+
+  --warning: oklch(0.75 0.15 85);
+  --warning-foreground: oklch(0.145 0 0);
+
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.53 0.23 275 / 0.45);
+
+  /* Colored elevation — a soft brand-tinted glow for hover/focus lift, layered alongside a
+     plain shadow rather than replacing it (see components consuming --shadow-glow). */
+  --shadow-glow: 0 8px 30px -8px oklch(0.53 0.23 275 / 0.35);
+}
+
+/* Dark theme overrides — activated by adding `class="dark"` to <html> (see ThemeProvider). */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+
+  /* Card/popover surfaces are deliberately several steps lighter than --background (not the
+     previous 0.205 vs 0.145 — a gap of only 0.06, too close to read as a distinct floating
+     surface) so any elevated surface — a card, a dropdown, a dialog — is unambiguously
+     lighter than the page behind it, with or without its border rendering. */
+  --card: oklch(0.24 0 0);
+  --card-foreground: oklch(0.985 0 0);
+
+  --popover: oklch(0.26 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+
+  /* Brand primary, dark mode — a mid-lightness indigo so white text stays legible on it
+     (matching the light theme's white-on-indigo button rather than inverting to dark text). */
+  --primary: oklch(0.62 0.2 275);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+
+  --brand-accent: oklch(0.78 0.17 45);
+  --brand-accent-foreground: oklch(0.16 0.02 45);
+
+  --gradient-from: oklch(0.62 0.2 275);
+  --gradient-via: oklch(0.6 0.22 300);
+  --gradient-to: oklch(0.66 0.21 330);
+
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --success: oklch(0.7 0.14 155);
+  --success-foreground: oklch(0.145 0 0);
+
+  --warning: oklch(0.8 0.15 85);
+  --warning-foreground: oklch(0.145 0 0);
+
+  /* Raised from 10%/15% opacity — the previous values were too subtle once paired with the
+     lighter card/popover surfaces above; a floating surface needs a visible edge in dark mode
+     since there's no drop-shadow-on-white to fall back on the way light mode has. */
+  --border: oklch(1 0 0 / 16%);
+  --input: oklch(1 0 0 / 20%);
+  --ring: oklch(0.62 0.2 275 / 0.5);
+
+  --shadow-glow: 0 8px 30px -8px oklch(0.62 0.2 275 / 0.45);
+}
+
+/* Maps the semantic tokens above to Tailwind utility names (bg-background, text-primary, ...). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-foreground: var(--brand-accent-foreground);
+  --radius-sm: calc(var(--radius) - 0.25rem);
+  --radius-md: calc(var(--radius) - 0.125rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+  --shadow-glow: var(--shadow-glow);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Shared brand utilities — one implementation reused across the landing page, */
+/* auth screens, dashboards, etc. rather than every consumer hand-rolling its   */
+/* own gradient/glow/shimmer CSS slightly differently.                         */
+/* -------------------------------------------------------------------------- */
+@layer utilities {
+  /* Diagonal brand gradient background — hero sections, CTA bands, marketing chrome. */
+  .bg-brand-gradient {
+    background-image: linear-gradient(115deg, var(--gradient-from), var(--gradient-via) 55%, var(--gradient-to));
+  }
+  /* Slow-drifting variant of the above — pairs with the `gradient-x` keyframe (200% bg-size
+     required for the drift to be visible; reduced-motion users get the static gradient). */
+  .bg-brand-gradient-animated {
+    background-image: linear-gradient(115deg, var(--gradient-from), var(--gradient-via) 55%, var(--gradient-to));
+    background-size: 200% 200%;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .bg-brand-gradient-animated {
+      animation: var(--animate-gradient-x);
+    }
+  }
+  /* Gradient text — headline emphasis. Requires the element to also have no explicit `color`. */
+  .text-brand-gradient {
+    background-image: linear-gradient(115deg, var(--gradient-from), var(--gradient-via) 55%, var(--gradient-to));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  /* Brand-tinted elevation on hover — combine with an existing `shadow-*` for a layered lift,
+     e.g. `className="shadow-md hover:shadow-glow transition-shadow"`. */
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+  /* Skeleton shimmer sheen — swap a plain `animate-pulse` Skeleton for this where a more
+     premium loading feel is warranted (e.g. above-the-fold dashboard cards). */
+  .animate-shimmer {
+    background-image: linear-gradient(
+      100deg,
+      transparent 30%,
+      oklch(1 0 0 / 12%) 45%,
+      oklch(1 0 0 / 12%) 55%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .animate-shimmer {
+      animation: var(--animate-shimmer);
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Data-viz tokens (--viz-*) — analytics chart primitives (Prompt 8).          */
+/* Consumed by features/analytics/components/* as `var(--viz-...)` strings in  */
+/* Recharts fill/stroke props — SVG resolves CSS variables, so charts re-theme */
+/* with the `.dark` class automatically; no JS theme plumbing.                 */
+/*                                                                             */
+/* --viz-series-1..8 is a FIXED categorical slot order — the order itself is   */
+/* the colorblind-safety mechanism (validated adjacent-pair CVD separation:    */
+/* light worst ΔE 24.2; dark 10.3, a floor band — so dark mode REQUIRES        */
+/* legends/labels as secondary identity encoding). Never reorder or cycle.     */
+/* --viz-seq-1..7 is the sequential blue ramp (light → dark) for magnitude     */
+/* encodings (heatmap); intentionally identical in both themes.                */
+/* -------------------------------------------------------------------------- */
+:root {
+  --viz-series-1: #2a78d6;
+  --viz-series-2: #1baf7a;
+  --viz-series-3: #eda100;
+  --viz-series-4: #008300;
+  --viz-series-5: #4a3aa7;
+  --viz-series-6: #e34948;
+  --viz-series-7: #e87ba4;
+  --viz-series-8: #eb6834;
+
+  --viz-seq-1: #cde2fb;
+  --viz-seq-2: #9ec5f4;
+  --viz-seq-3: #6da7ec;
+  --viz-seq-4: #3987e5;
+  --viz-seq-5: #256abf;
+  --viz-seq-6: #1c5cab;
+  --viz-seq-7: #104281;
+
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-muted: #898781;
+}
+
+.dark {
+  --viz-series-1: #3987e5;
+  --viz-series-2: #199e70;
+  --viz-series-3: #c98500;
+  --viz-series-4: #008300;
+  --viz-series-5: #9085e9;
+  --viz-series-6: #e66767;
+  --viz-series-7: #d55181;
+  --viz-series-8: #d95926;
+
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+  /* --viz-seq-* and --viz-muted are intentionally shared with light mode. */
+}
+/* ------------------------------ end --viz-* ------------------------------- */

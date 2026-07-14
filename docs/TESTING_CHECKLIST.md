@@ -1,0 +1,154 @@
+# Final Testing Checklist
+
+Manual QA checklist for Databeat LMS v1.0, organized by feature area (Prompt 10 § Part 11).
+This is a **manual verification checklist**, not an automated test suite — `backend/package.json`'s
+`test` script is currently a placeholder (`echo "No tests yet"`); adding real automated
+integration/E2E tests is a good next investment beyond this v1.0 release.
+
+Every item below has already been exercised at least once via live curl/Playwright
+verification during development (not just written from a template) — this checklist is meant
+to be re-run before any future release, not just filed away. Check off each item against a
+real running instance (seeded test accounts below) before shipping a new build.
+
+**Seeded accounts** (from `npm run seed` + `npm run seed:demo`):
+| Role | Email | Password |
+|---|---|---|
+| Super Admin | (per your `ADMIN_EMAIL`) | (per your `ADMIN_PASSWORD`, forced to change on first login) |
+| Demo Trainer | `ananya.rao@demo.databeat.lms` | `DemoTrainer#2026` |
+| Demo Trainee | `rahul.verma@demo.databeat.lms` | `DemoTrainee#2026` |
+
+---
+
+## Authentication
+
+- [ ] Login with correct credentials succeeds and redirects to the correct role dashboard.
+- [ ] Login with wrong password shows a clear error, doesn't leak whether the email exists.
+- [ ] A freshly-seeded Super Admin (never changed their password) is forced into the
+      change-password flow immediately after login, and blocked from every other API call
+      until it's done (verify by trying to navigate elsewhere — should redirect back).
+- [ ] After changing the forced password, the user lands on their normal dashboard and every
+      feature is accessible.
+- [ ] "Remember me" checked at login produces a 30-day session (survives longer than a normal
+      7-day session — check the refresh cookie's `Max-Age` in dev tools).
+- [ ] Logout actually invalidates the session server-side (the old refresh token can't be
+      replayed to get a new access token after logout).
+- [ ] An expired/near-expired access token silently refreshes via the refresh cookie without
+      forcing a re-login (no visible interruption while using the app).
+- [ ] Voluntarily changing your password from Settings (not the forced first-login flow) works
+      and doesn't log you out of your own current session.
+- [ ] Directly navigating to `/admin`, `/trainer`, or `/trainee` while logged out redirects to
+      `/login`.
+
+## Users
+
+- [ ] Super Admin can create a Trainer account; the new trainer can log in with the assigned
+      credentials.
+- [ ] Super Admin/Trainer can edit a user's profile fields (name, department, experience level).
+- [ ] Deactivating a user blocks their next login attempt with a clear "account disabled"
+      message (existing sessions should also stop working, not just future logins).
+- [ ] Reactivating a deactivated user restores login access.
+- [ ] A Trainee cannot reach any user-management screen or API route (403, not a silent
+      empty page).
+
+## Departments & Groups
+
+- [ ] Create a department, then a group inside it, with a trainer and experience level
+      assigned.
+- [ ] Assign trainees to a group (bulk-add and single-add both work).
+- [ ] A Trainer can only manage groups they're assigned to (not every group in the org) where
+      the feature is scoped that way (e.g. sending an announcement) — verify against a group
+      that trainer does NOT own returns 403.
+- [ ] Archiving/restoring a group works and is reflected immediately in list views.
+
+## Classroom
+
+- [ ] Create a course, add a module, add a lesson with content.
+- [ ] Upload a lesson resource (file) and confirm it's downloadable by an assigned trainee.
+- [ ] Assign a course to a group; a trainee in that group sees it on their dashboard/classroom
+      page; a trainee NOT in that group does not.
+- [ ] Trainee lesson-progress tracking updates as lessons are viewed/completed, and reflects
+      correctly on both the trainee's own progress page and the trainer's group-analytics view.
+
+## Assessments
+
+- [ ] Create an assessment, add questions from the question bank, assign to a group.
+- [ ] A trainee in the assigned group can start an attempt, answer questions, and submit within
+      the time limit.
+- [ ] Submitting past the due date/time limit is handled gracefully (either blocked or
+      auto-submitted, per the existing design — not a crash).
+- [ ] Auto-graded question types show a score immediately (if "show results immediately" is
+      enabled); manually-graded types correctly show as pending until a trainer grades them.
+- [ ] Trainer can view and grade pending manual-grading attempts; the trainee sees the final
+      grade once graded.
+
+## Calendar
+
+- [ ] Create a calendar event and assign it to a department, group, or individual user (test at
+      least one of each assignment type).
+- [ ] The event appears on the calendar of every user actually covered by that assignment (and
+      NOT for users outside it).
+- [ ] Editing/rescheduling an event triggers an update notification to affected users (see
+      Notifications section).
+
+## AI Tutor
+
+- [ ] Ask the AI a question from within a lesson — response is contextual to that lesson's
+      content, not generic.
+- [ ] Conversation history persists and is retrievable on returning to the same lesson/chat.
+- [ ] With `ANTHROPIC_API_KEY` unset, `/ai/chat` degrades gracefully (503 with a clear message)
+      rather than crashing the whole app at boot or on request.
+- [ ] AI rate limiting kicks in appropriately under rapid repeated requests from the same user
+      (doesn't block other users).
+
+## Q&A
+
+- [ ] Ask a question (optionally scoped to a group/course/lesson) as a trainee.
+- [ ] A trainer/eligible trainee can post an answer; the question's author is notified.
+- [ ] A trainer can mark an answer as verified; the "verified" badge appears everywhere that
+      answer is shown.
+- [ ] Visibility rules hold: a question scoped to a specific group is not visible to users
+      outside that group.
+
+## Analytics
+
+- [ ] Trainer dashboard shows real, correct aggregate numbers (trainee count, group count,
+      average completion/score) matching what's actually in the data — not stale/cached
+      incorrect values after a recent change.
+- [ ] Reports export (CSV) succeeds and the exported data matches what's shown on-screen.
+- [ ] A Trainee cannot access another trainee's individual analytics (403) but CAN see their
+      own; a Trainer/Admin can see any trainee's (staff-level access).
+
+## Notifications
+
+- [ ] Course/assessment assignment, upcoming deadlines, new Q&A answers, and trainer
+      announcements each generate a notification for the right recipients.
+- [ ] Marking a notification read/unread and deleting it work and persist correctly.
+- [ ] Muting a notification type in Settings actually suppresses future notifications of that
+      type (confirmed: no new row created, not just hidden client-side) — and an announcement
+      sent while muted correctly reports a lower "notified" count than the group's full size.
+
+## Settings
+
+- [ ] Theme preference (light/dark/system) persists across sessions and devices (stored
+      server-side, not just localStorage).
+- [ ] Avatar upload/removal works and the new avatar actually displays everywhere it should
+      (header, profile page, settings) — not just accepted by the API with no visible change.
+- [ ] Super Admin-only Platform Settings (platform name, support email, maintenance mode) are
+      inaccessible (403) to Trainer/Trainee roles.
+- [ ] Clearing a previously-set support email (leaving the field blank and saving) actually
+      clears it rather than erroring or silently keeping the old value.
+
+## Cross-cutting
+
+- [ ] Responsive layout holds at desktop, tablet, and mobile widths on the landing page, login,
+      both dashboards, and at least one data table/form-heavy screen (no horizontal overflow,
+      no unreadable/overlapping content).
+- [ ] Keyboard-only navigation reaches every interactive element on the login page and the
+      primary dashboard nav, with visible focus indicators throughout.
+- [ ] No console errors during a full login → browse-every-major-section → logout cycle for
+      each of the three roles (occasional benign items are expected and already documented as
+      such: a `401` on `/auth/refresh` for an anonymous visitor's silent session-restore check
+      is normal, not a bug).
+- [ ] Production build (`npm run build` in both `frontend/` and `backend/`) completes cleanly
+      with no errors, and the built frontend correctly calls the built backend end to end (not
+      just the dev servers).

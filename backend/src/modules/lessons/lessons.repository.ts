@@ -1,0 +1,112 @@
+import type { Prisma, Role } from '@prisma/client';
+
+import { BaseRepository } from '@/repositories/base.repository';
+
+import type { ReorderItem } from './lessons.types';
+
+const resourceCountInclude = {
+  _count: { select: { resources: true } },
+} satisfies Prisma.LessonInclude;
+
+// Data-access layer for the lessons module. Only this class may query Prisma directly
+// once models exist (see ARCHITECTURE.md §3.1) — services must go through it, never Prisma directly.
+export class LessonsRepository extends BaseRepository {
+  findByModuleId(moduleId: string) {
+    return this.db.lesson.findMany({
+      where: { moduleId },
+      orderBy: { order: 'asc' },
+      include: resourceCountInclude,
+    });
+  }
+
+  findById(id: string) {
+    return this.db.lesson.findUnique({ where: { id } });
+  }
+
+  /**
+   * Flat lookup for `GET /lessons/:id`, used by both the trainer editor and the trainee
+   * viewer (Prompt 5). `progress` is scoped to `userId` so it resolves to at most one row —
+   * the caller (LessonsService) takes `progress[0] ?? null`.
+   */
+  findDetailedById(id: string, userId: string) {
+    return this.db.lesson.findUnique({
+      where: { id },
+      include: {
+        resources: { orderBy: { order: 'asc' } },
+        module: {
+          select: {
+            id: true,
+            title: true,
+            course: { select: { id: true, title: true, status: true } },
+          },
+        },
+        progress: { where: { userId } },
+      },
+    });
+  }
+
+  findManyByIds(moduleId: string, ids: string[]) {
+    return this.db.lesson.findMany({ where: { moduleId, id: { in: ids } }, select: { id: true } });
+  }
+
+  /** Used to confirm a reorder submits EVERY sibling lesson, not a partial subset (would otherwise leave stale/duplicate `order` values on the untouched rest). */
+  countByModuleId(moduleId: string) {
+    return this.db.lesson.count({ where: { moduleId } });
+  }
+
+  /** Feature-local existence check — the modules module owns CourseModule but isn't a dependency here. */
+  findModuleById(moduleId: string) {
+    return this.db.courseModule.findUnique({ where: { id: moduleId } });
+  }
+
+  async findNextOrder(moduleId: string): Promise<number> {
+    const top = await this.db.lesson.findFirst({
+      where: { moduleId },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    });
+    return top ? top.order + 1 : 0;
+  }
+
+  create(data: Prisma.LessonCreateInput) {
+    return this.db.lesson.create({ data });
+  }
+
+  update(id: string, data: Prisma.LessonUpdateInput) {
+    return this.db.lesson.update({ where: { id }, data });
+  }
+
+  delete(id: string) {
+    return this.db.lesson.delete({ where: { id } });
+  }
+
+  reorder(updates: ReorderItem[]) {
+    return this.db.$transaction(updates.map(({ id, order }) => this.db.lesson.update({ where: { id }, data: { order } })));
+  }
+
+  /**
+   * Stable contract consumed by the resources and progress modules (built in parallel —
+   * Prompt 5 § SECURITY). Trainers/Super Admins always have access; a Trainee needs the
+   * lesson's course to be published and group-assigned to them, AND the lesson's own module
+   * and the lesson itself to both be published.
+   */
+  async isAccessibleToUser(lessonId: string, userId: string, role: Role): Promise<boolean> {
+    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+
+    const lesson = await this.db.lesson.findUnique({
+      where: { id: lessonId },
+      include: { module: { include: { course: true } } },
+    });
+    if (!lesson) return false;
+    if (!lesson.isPublished) return false;
+    if (!lesson.module.isPublished) return false;
+
+    const { course } = lesson.module;
+    if (course.status !== 'PUBLISHED' || course.deletedAt !== null) return false;
+
+    const membership = await this.db.groupMember.findFirst({
+      where: { userId, group: { courseAssignments: { some: { courseId: course.id } } } },
+    });
+    return membership !== null;
+  }
+}

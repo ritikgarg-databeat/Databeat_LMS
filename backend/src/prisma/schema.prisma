@@ -1,0 +1,1287 @@
+// Databeat LMS — Prisma schema.
+// Phase: Dashboards & Analytics (Prompt 8) — UserDailyActivity, UserPerformanceSnapshot,
+// CourseAnalyticsSnapshot, AssessmentAnalyticsSnapshot, AnalyticsInsight (aggregation/cache
+// tables, separated from the transactional models and recomputable from them at any time).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7: no `url` here. The CLI (migrate/studio) reads the connection string from
+  // prisma.config.ts; the running app supplies its own Neon driver adapter at runtime
+  // (see src/config/prisma.ts). See https://pris.ly/d/prisma7-client-config.
+}
+
+enum Role {
+  SUPER_ADMIN
+  TRAINER
+  TRAINEE
+}
+
+enum DepartmentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum GroupStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// Immutable, append-only record of security-relevant actions (ARCHITECTURE.md §17).
+enum AuditAction {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  PASSWORD_CHANGED
+  PASSWORD_RESET_BY_ADMIN
+  USER_CREATED
+  USER_UPDATED
+  USER_DEACTIVATED
+  USER_REACTIVATED
+  USER_ROLE_CHANGED
+  DEPARTMENT_CREATED
+  DEPARTMENT_UPDATED
+  DEPARTMENT_STATUS_CHANGED
+  GROUP_CREATED
+  GROUP_UPDATED
+  GROUP_ARCHIVED
+  GROUP_RESTORED
+  GROUP_DELETED
+  GROUP_MEMBER_ADDED
+  GROUP_MEMBER_REMOVED
+  GROUP_MEMBER_TRANSFERRED
+  GROUP_BULK_IMPORT
+  GROUP_TRAINER_ASSIGNED
+  COURSE_CREATED
+  COURSE_UPDATED
+  COURSE_STATUS_CHANGED
+  COURSE_DELETED
+  COURSE_ASSIGNED_TO_GROUP
+  COURSE_UNASSIGNED_FROM_GROUP
+  MODULE_CREATED
+  MODULE_UPDATED
+  MODULE_DELETED
+  MODULE_REORDERED
+  LESSON_CREATED
+  LESSON_UPDATED
+  LESSON_DELETED
+  LESSON_REORDERED
+  RESOURCE_UPLOADED
+  RESOURCE_DELETED
+  QUESTION_CREATED
+  QUESTION_UPDATED
+  QUESTION_STATUS_CHANGED
+  QUESTION_DELETED
+  ASSESSMENT_CREATED
+  ASSESSMENT_UPDATED
+  ASSESSMENT_STATUS_CHANGED
+  ASSESSMENT_DELETED
+  ASSESSMENT_ASSIGNED_TO_GROUP
+  ASSESSMENT_UNASSIGNED_FROM_GROUP
+  ASSESSMENT_QUESTION_ADDED
+  ASSESSMENT_QUESTION_REMOVED
+  ASSESSMENT_QUESTIONS_REORDERED
+  ASSESSMENT_ATTEMPT_SUBMITTED
+  ASSESSMENT_ANSWER_GRADED
+  CALENDAR_EVENT_CREATED
+  CALENDAR_EVENT_UPDATED
+  CALENDAR_EVENT_DELETED
+  QNA_QUESTION_CREATED
+  QNA_QUESTION_UPDATED
+  QNA_QUESTION_DELETED
+  QNA_QUESTION_STATUS_CHANGED
+  QNA_ANSWER_CREATED
+  QNA_ANSWER_UPDATED
+  QNA_ANSWER_DELETED
+  QNA_ANSWER_VERIFIED
+  QNA_ANSWER_PINNED
+  AI_CONVERSATION_DELETED
+}
+
+enum QuestionCategory {
+  PYTHON
+  SQL
+  STATISTICS
+  DATA_ANALYTICS
+  MACHINE_LEARNING
+  POWER_BI
+  EXCEL
+  SPARK
+  HADOOP
+  GENERAL
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+/// Architecture allows new types to be added later (Prompt 6 § QUESTION TYPES) — the first three
+/// (plus FILL_IN_THE_BLANK, "simple" matching) are auto-gradable via QuestionOption.isCorrect or
+/// Question.correctAnswers; the rest always route to manual trainer review (see
+/// AssessmentAnswer.isCorrect, left null until a trainer grades it).
+enum QuestionType {
+  SINGLE_CORRECT_MCQ
+  MULTIPLE_CORRECT
+  TRUE_FALSE
+  FILL_IN_THE_BLANK
+  SHORT_ANSWER
+  LONG_ANSWER
+  SQL_QUERY
+  CODE_SNIPPET
+  FILE_UPLOAD
+}
+
+enum QuestionStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AssessmentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AssessmentAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  PENDING_REVIEW
+  GRADED
+}
+
+enum CalendarEventType {
+  CLASS
+  LIVE_SESSION
+  ASSESSMENT
+  DEADLINE
+  HOLIDAY
+  MEETING
+  REMINDER
+}
+
+enum NotificationType {
+  ASSESSMENT_ASSIGNED
+  ASSESSMENT_DEADLINE_APPROACHING
+  CALENDAR_EVENT_CREATED
+  CALENDAR_EVENT_UPDATED
+  QNA_ANSWER_POSTED
+  QNA_ANSWER_VERIFIED
+  /// Prompt 9 § NOTIFICATION SYSTEM — fired when a course is assigned to a group (courses.service.ts).
+  COURSE_ASSIGNED
+  /// Prompt 9 § NOTIFICATION SYSTEM — a trainer-authored broadcast to their groups' trainees.
+  TRAINER_ANNOUNCEMENT
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum CourseDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// Shared by Lesson (its primary/default content type) and LessonResource (what each
+/// attached resource actually is) — Prompt 5 § LESSON RESOURCE TYPES. Adding a new type is
+/// an enum + renderer addition, not a schema redesign (the resource row shape already
+/// generalizes: file-backed types use relativePath/mimeType, text-backed types use content).
+enum ResourceType {
+  MARKDOWN
+  PDF
+  VIDEO
+  IMAGE
+  PRESENTATION
+  DOCUMENT
+  ZIP
+  EXTERNAL_LINK
+  CODE_SNIPPET
+}
+
+enum LessonProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum LessonQuizAttemptStatus {
+  GENERATED
+  SUBMITTED
+}
+
+model User {
+  id                String           @id @default(uuid())
+  firstName         String
+  lastName          String
+  email             String           @unique
+  passwordHash      String
+  role              Role
+  departmentId      String?
+  department        Department?      @relation(fields: [departmentId], references: [id])
+  experienceLevelId String?
+  experienceLevel   ExperienceLevel? @relation(fields: [experienceLevelId], references: [id])
+  avatar            String?
+  isActive          Boolean          @default(true)
+  isEmailVerified   Boolean          @default(false)
+  /// Backend-synced theme choice (Prompt 9 § SETTINGS) — the frontend's `ThemeProvider` still
+  /// keeps its own localStorage copy for pre-auth/offline-first paint; this is the
+  /// cross-device source of truth, pulled once on login and pushed on change.
+  themePreference   ThemePreference  @default(SYSTEM)
+  lastLogin         DateTime?
+  passwordChangedAt DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  groupMemberships         GroupMember[]
+  refreshTokens            RefreshToken[]
+  auditLogsAsActor         AuditLog[]                  @relation("AuditLogActor")
+  auditLogsAsTarget        AuditLog[]                  @relation("AuditLogTarget")
+  createdDepartments       Department[]                @relation("DepartmentCreatedBy")
+  createdGroups            Group[]                     @relation("GroupCreatedBy")
+  trainerGroups            Group[]                     @relation("GroupTrainer")
+  addedGroupMembers        GroupMember[]               @relation("GroupMemberAddedBy")
+  createdCourses           Course[]                    @relation("CourseCreatedBy")
+  assignedCourseGroups     CourseGroupAssignment[]     @relation("CourseGroupAssignedBy")
+  createdLessonResources   LessonResource[]            @relation("LessonResourceCreatedBy")
+  lessonProgress           LessonProgress[]
+  lessonQuizAttempts       LessonQuizAttempt[]
+  createdQuestions         Question[]                  @relation("QuestionCreatedBy")
+  createdAssessments       Assessment[]                @relation("AssessmentCreatedBy")
+  assignedAssessmentGroups AssessmentGroupAssignment[] @relation("AssessmentGroupAssignedBy")
+  assessmentAttempts       AssessmentAttempt[]
+  gradedAssessmentAnswers  AssessmentAnswer[]          @relation("AssessmentAnswerGradedBy")
+  createdCalendarEvents    CalendarEvent[]             @relation("CalendarEventCreatedBy")
+  calendarEventAssignments CalendarEventAssignment[]   @relation("CalendarEventAssignmentUser")
+  notifications            Notification[]
+  aiConversations          AiConversation[]
+  qnaQuestions             QnaQuestion[]               @relation("QnaQuestionAuthor")
+  qnaAnswers               QnaAnswer[]                 @relation("QnaAnswerAuthor")
+  qnaAnswersVerified       QnaAnswer[]                 @relation("QnaAnswerVerifiedBy")
+  qnaComments              QnaComment[]                @relation("QnaCommentAuthor")
+  qnaVotes                 QnaVote[]
+  qnaAttachmentsUploaded   QnaAttachment[]             @relation("QnaAttachmentUploadedBy")
+  dailyActivity            UserDailyActivity[]
+  performanceSnapshot      UserPerformanceSnapshot?
+  notificationPreference   NotificationPreference?
+  platformSettingsUpdates  PlatformSettings[]          @relation("PlatformSettingsUpdatedBy")
+
+  @@index([role])
+  @@index([departmentId])
+  @@index([experienceLevelId])
+  @@index([isActive])
+  @@map("users")
+}
+
+model Department {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  code        String           @unique
+  description String?
+  status      DepartmentStatus @default(ACTIVE)
+  createdById String?
+  createdBy   User?            @relation("DepartmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  users                    User[]
+  groups                   Group[]
+  courses                  Course[]
+  calendarEventAssignments CalendarEventAssignment[]
+  qnaQuestions             QnaQuestion[]
+
+  @@index([status])
+  @@map("departments")
+}
+
+/// Extensible, DB-driven lookup — adding a level (e.g. "Lead") is a data insert, never a
+/// migration or code change (Prompt 4 § EXPERIENCE LEVELS). Shared by User and Group.
+model ExperienceLevel {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users   User[]
+  groups  Group[]
+  courses Course[]
+
+  @@map("experience_levels")
+}
+
+/// A training batch — the unit every future module (Classroom, Calendar, Assessments,
+/// Q&A, Notifications, Analytics) assigns content/activity to (Prompt 4 § CORE CONCEPT).
+model Group {
+  id                String           @id @default(uuid())
+  name              String
+  code              String           @unique
+  departmentId      String
+  department        Department       @relation(fields: [departmentId], references: [id])
+  experienceLevelId String?
+  experienceLevel   ExperienceLevel? @relation(fields: [experienceLevelId], references: [id])
+  trainerId         String?
+  trainer           User?            @relation("GroupTrainer", fields: [trainerId], references: [id], onDelete: SetNull)
+  description       String?
+  status            GroupStatus      @default(ACTIVE)
+  startDate         DateTime?
+  endDate           DateTime?
+  capacity          Int?
+  createdById       String?
+  createdBy         User?            @relation("GroupCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// Soft delete — distinct from `status: ARCHIVED` (reversible lifecycle state vs.
+  /// "removed from normal views" per Prompt 4's separate Archive/Delete actions).
+  deletedAt         DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  members                    GroupMember[]
+  courseAssignments          CourseGroupAssignment[]
+  assessmentGroupAssignments AssessmentGroupAssignment[]
+  calendarEventAssignments   CalendarEventAssignment[]
+  qnaQuestions               QnaQuestion[]
+
+  @@index([departmentId])
+  @@index([experienceLevelId])
+  @@index([trainerId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("groups")
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  addedById String?
+  addedBy   User?    @relation("GroupMemberAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  joinedAt  DateTime @default(now())
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("group_members")
+}
+
+/// Refresh tokens are stored hashed, never in plaintext (ARCHITECTURE.md §9). Rotation is
+/// tracked via `replacedById` so reuse of a revoked token can be detected and the whole
+/// chain revoked.
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?   @unique
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Append-only — no update/delete paths are exposed at the application layer.
+model AuditLog {
+  id           String      @id @default(uuid())
+  action       AuditAction
+  actorId      String?
+  actor        User?       @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUserId String?
+  targetUser   User?       @relation("AuditLogTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  ipAddress    String?
+  metadata     Json?
+  createdAt    DateTime    @default(now())
+
+  @@index([actorId])
+  @@index([targetUserId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Top of the Course → Module → Lesson → Resource hierarchy (Prompt 5 § CLASSROOM HIERARCHY).
+/// `deletedAt` (soft delete) is distinct from `status: ARCHIVED` (reversible lifecycle state),
+/// mirroring the Group entity's precedent from Prompt 4.
+model Course {
+  id                       String           @id @default(uuid())
+  title                    String
+  description              String?
+  thumbnail                String?
+  departmentId             String?
+  department               Department?      @relation(fields: [departmentId], references: [id])
+  experienceLevelId        String?
+  experienceLevel          ExperienceLevel? @relation(fields: [experienceLevelId], references: [id])
+  estimatedDurationMinutes Int?
+  difficulty               CourseDifficulty @default(BEGINNER)
+  status                   CourseStatus     @default(DRAFT)
+  createdById              String?
+  createdBy                User?            @relation("CourseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt                DateTime?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  modules           CourseModule[]
+  groupAssignments  CourseGroupAssignment[]
+  qnaQuestions      QnaQuestion[]
+  analyticsSnapshot CourseAnalyticsSnapshot?
+
+  @@index([departmentId])
+  @@index([experienceLevelId])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("courses")
+}
+
+/// Prisma model is named `CourseModule` (not `Module`) to stay unambiguous next to ES modules
+/// and this app's own `src/modules/*` folder convention — the backend module folder/routes
+/// still use the plain "modules" name per Prompt 5's spec.
+model CourseModule {
+  id                       String   @id @default(uuid())
+  courseId                 String
+  course                   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title                    String
+  description              String?
+  order                    Int
+  estimatedDurationMinutes Int?
+  isPublished              Boolean  @default(false)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  lessons      Lesson[]
+  qnaQuestions QnaQuestion[]
+
+  @@index([courseId])
+  @@index([courseId, order])
+  @@map("course_modules")
+}
+
+model Lesson {
+  id                       String       @id @default(uuid())
+  moduleId                 String
+  module                   CourseModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title                    String
+  description              String?
+  type                     ResourceType
+  order                    Int
+  estimatedDurationMinutes Int?
+  isPublished              Boolean      @default(false)
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  resources       LessonResource[]
+  progress        LessonProgress[]
+  aiConversations AiConversation[]
+  qnaQuestions    QnaQuestion[]
+  quizAttempts    LessonQuizAttempt[]
+
+  @@index([moduleId])
+  @@index([moduleId, order])
+  @@map("lessons")
+}
+
+/// File-backed resources (PDF/VIDEO/IMAGE/PRESENTATION/DOCUMENT/ZIP) populate
+/// relativePath/originalFilename/mimeType/fileSizeBytes and leave `content` null.
+/// Text-backed resources (MARKDOWN/CODE_SNIPPET) and EXTERNAL_LINK populate `content`
+/// (raw text or a URL respectively) and leave the file fields null.
+model LessonResource {
+  id               String       @id @default(uuid())
+  lessonId         String
+  lesson           Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  type             ResourceType
+  title            String
+  relativePath     String?
+  originalFilename String?
+  mimeType         String?
+  fileSizeBytes    Int?
+  content          String?
+  order            Int          @default(0)
+  createdById      String?
+  createdBy        User?        @relation("LessonResourceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([lessonId])
+  @@map("lesson_resources")
+}
+
+/// Join table granting every member of `group` access to `course` (Prompt 5 § COURSE
+/// ASSIGNMENT) — mirrors GroupMember's shape. A Trainee's accessible courses are always
+/// derived through their group memberships, never assigned to a user directly.
+model CourseGroupAssignment {
+  id           String   @id @default(uuid())
+  courseId     String
+  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  groupId      String
+  group        Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedBy   User?    @relation("CourseGroupAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt   DateTime @default(now())
+
+  @@unique([courseId, groupId])
+  @@index([courseId])
+  @@index([groupId])
+  @@map("course_group_assignments")
+}
+
+/// Per-trainee, per-lesson tracking (Prompt 5 § PROGRESS TRACKING). Course/module completion
+/// percentages are computed on demand from these rows rather than denormalized, avoiding a
+/// second write path that could drift out of sync with the underlying lesson data.
+model LessonProgress {
+  id               String               @id @default(uuid())
+  userId           String
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId         String
+  lesson           Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  status           LessonProgressStatus @default(NOT_STARTED)
+  timeSpentSeconds Int                  @default(0)
+  lastViewedAt     DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+  @@index([userId, lastViewedAt])
+  @@map("lesson_progress")
+}
+
+/// One AI-generated completion quiz per (lesson, trainee) — gates "Mark as complete" on the
+/// trainee lesson viewer. `questions` carries each option's correctOptionId server-side only;
+/// never serialized to the client until the attempt is SUBMITTED (same "hide until graded" rule
+/// AssessmentAnswer.isCorrect already follows). No retakes: GENERATED -> SUBMITTED is one-way.
+model LessonQuizAttempt {
+  id              String                  @id @default(uuid())
+  lessonId        String
+  lesson          Lesson                  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          LessonQuizAttemptStatus @default(GENERATED)
+  questions       Json
+  selectedAnswers Json?
+  score           Int?
+  totalQuestions  Int
+  percentage      Int?
+  generatedAt     DateTime                @default(now())
+  submittedAt     DateTime?
+
+  @@unique([lessonId, userId])
+  @@index([userId])
+  @@map("lesson_quiz_attempts")
+}
+
+/// Reusable question bank (Prompt 6 § MODULE 1), independent of any specific assessment — a
+/// flat top-level entity like Department/ExperienceLevel, referenced by AssessmentQuestion via
+/// FK rather than owned by it. `deletedAt` (soft delete) stays distinct from `status`
+/// (ACTIVE/ARCHIVED, a reversible visibility toggle) mirroring the Course/Group precedent.
+model Question {
+  id             String             @id @default(uuid())
+  title          String
+  type           QuestionType
+  category       QuestionCategory
+  difficulty     QuestionDifficulty
+  status         QuestionStatus     @default(ACTIVE)
+  explanation    String?
+  /// string[] of acceptable answers — FILL_IN_THE_BLANK/SQL_QUERY only (case/whitespace-
+  /// normalized comparison at grading time); null for MCQ-family types (see QuestionOption)
+  /// and manual-only types (SHORT_ANSWER/LONG_ANSWER/CODE_SNIPPET/FILE_UPLOAD).
+  correctAnswers Json?
+  /// CODE_SNIPPET only — optional boilerplate shown to the trainee; `language` is a free-text
+  /// syntax-highlighting hint (e.g. "python", "sql"), not a constrained enum.
+  starterCode    String?
+  language       String?
+  createdById    String?
+  createdBy      User?              @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  options             QuestionOption[]
+  assessmentQuestions AssessmentQuestion[]
+
+  @@index([category])
+  @@index([difficulty])
+  @@index([type])
+  @@index([status])
+  @@index([deletedAt])
+  @@map("questions")
+}
+
+/// MCQ-family answer options. SINGLE_CORRECT_MCQ / MULTIPLE_CORRECT / TRUE_FALSE all share this
+/// exact shape (TRUE_FALSE is simply a 2-option case), so grading logic is unified across all
+/// three: compare the set of selected option ids against the set of `isCorrect` option ids.
+model QuestionOption {
+  id         String   @id @default(uuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  order      Int
+
+  @@index([questionId])
+  @@map("question_options")
+}
+
+/// Trainer-authored assessment configuration (Prompt 6 § ASSESSMENT MANAGEMENT). `maxMarks` is
+/// deliberately NOT a stored field — it's computed on demand as the sum of this assessment's
+/// AssessmentQuestion.marks, the same on-demand-aggregate approach used for course/module
+/// completion percentages in Prompt 5, avoiding a second write path that could drift out of
+/// sync whenever questions are added/removed/re-weighted.
+model Assessment {
+  id                          String           @id @default(uuid())
+  title                       String
+  description                 String?
+  durationMinutes             Int
+  passingPercentage           Int
+  availableFrom               DateTime?
+  dueDate                     DateTime?
+  instructions                String?
+  negativeMarkingEnabled      Boolean          @default(false)
+  /// Flat points deducted per wrong (attempted, not skipped) auto-graded answer — only
+  /// meaningful when negativeMarkingEnabled is true.
+  negativeMarksPerWrongAnswer Float?
+  randomizeQuestions          Boolean          @default(false)
+  showResultImmediately       Boolean          @default(true)
+  status                      AssessmentStatus @default(DRAFT)
+  createdById                 String?
+  createdBy                   User?            @relation("AssessmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt                   DateTime?
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
+
+  questions         AssessmentQuestion[]
+  groupAssignments  AssessmentGroupAssignment[]
+  attempts          AssessmentAttempt[]
+  analyticsSnapshot AssessmentAnalyticsSnapshot?
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("assessments")
+}
+
+/// Snapshots the bank Question's content at the moment it's added to an assessment (Prompt 6 §
+/// QUESTION SELECTION — "Store question versions to avoid breaking historical attempts").
+/// `questionId` is kept only for traceability back to the bank entry; every field needed to
+/// render and grade this question within THIS assessment is denormalized onto this row, so a
+/// later edit (or deletion) of the bank question never changes an already-published assessment
+/// or any attempt already made against it.
+model AssessmentQuestion {
+  id           String     @id @default(uuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionId   String?
+  question     Question?  @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  order        Int
+  marks        Int
+
+  snapshotTitle          String
+  snapshotType           QuestionType
+  snapshotExplanation    String?
+  /// Snapshot of QuestionOption rows — `[{id, text, isCorrect, order}]` — MCQ-family types only.
+  snapshotOptions        Json?
+  snapshotCorrectAnswers Json?
+  snapshotStarterCode    String?
+  snapshotLanguage       String?
+
+  createdAt DateTime @default(now())
+
+  answers AssessmentAnswer[]
+
+  @@unique([assessmentId, order])
+  @@index([assessmentId])
+  @@index([questionId])
+  @@map("assessment_questions")
+}
+
+/// Mirrors CourseGroupAssignment's shape exactly (Prompt 5 precedent) — a Trainee's accessible
+/// assessments are always derived through their group memberships, never assigned directly.
+model AssessmentGroupAssignment {
+  id           String     @id @default(uuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  groupId      String
+  group        Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedById String?
+  assignedBy   User?      @relation("AssessmentGroupAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt   DateTime   @default(now())
+
+  @@unique([assessmentId, groupId])
+  @@index([assessmentId])
+  @@index([groupId])
+  @@map("assessment_group_assignments")
+}
+
+/// One row per trainee per assessment, EVER (Prompt 6 § SECURITY — "prevent multiple active
+/// submissions"): this phase does not support retakes, so `@@unique([assessmentId, userId])`
+/// both enforces that policy and makes "resume" trivial (there is only ever one attempt to
+/// resume, looked up by the same unique key). `questionOrder` stores a shuffled
+/// AssessmentQuestion-id order captured once at start time when the assessment has
+/// `randomizeQuestions` on, so the presented order stays stable for the rest of that attempt
+/// instead of re-shuffling on every fetch.
+model AssessmentAttempt {
+  id               String                  @id @default(uuid())
+  assessmentId     String
+  assessment       Assessment              @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status           AssessmentAttemptStatus @default(IN_PROGRESS)
+  /// string[] of AssessmentQuestion ids in presentation order — null when randomizeQuestions
+  /// is off (canonical `order` is used directly).
+  questionOrder    Json?
+  startedAt        DateTime                @default(now())
+  submittedAt      DateTime?
+  gradedAt         DateTime?
+  autoScore        Float?
+  manualScore      Float?
+  totalScore       Float?
+  percentage       Float?
+  passed           Boolean?
+  timeSpentSeconds Int                     @default(0)
+
+  answers AssessmentAnswer[]
+
+  @@unique([assessmentId, userId])
+  @@index([assessmentId])
+  @@index([userId])
+  @@map("assessment_attempts")
+}
+
+/// One row per question per attempt. `isCorrect`/`marksAwarded` stay null until graded — set
+/// immediately by auto-grading for objective types, or later by a trainer via the manual-review
+/// endpoint for subjective/file-upload types (Prompt 6 § AUTO GRADING / RESULTS).
+model AssessmentAnswer {
+  id                   String             @id @default(uuid())
+  attemptId            String
+  attempt              AssessmentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  assessmentQuestionId String
+  assessmentQuestion   AssessmentQuestion @relation(fields: [assessmentQuestionId], references: [id], onDelete: Cascade)
+
+  /// string[] of selected snapshot-option ids — MCQ-family types only.
+  selectedOptionIds    Json?
+  /// FILL_IN_THE_BLANK / SHORT_ANSWER / LONG_ANSWER / SQL_QUERY / CODE_SNIPPET.
+  textAnswer           String?
+  /// FILE_UPLOAD only — reuses the same StorageProvider abstraction as lesson resources.
+  fileRelativePath     String?
+  fileOriginalFilename String?
+
+  isCorrect    Boolean?
+  marksAwarded Float?
+  gradedById   String?
+  gradedBy     User?     @relation("AssessmentAnswerGradedBy", fields: [gradedById], references: [id], onDelete: SetNull)
+  gradedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([attemptId, assessmentQuestionId])
+  @@index([attemptId])
+  @@map("assessment_answers")
+}
+
+/// Standalone calendar events (Prompt 6 § MODULE 2). Deliberately NOT auto-synced from
+/// Assessment.availableFrom/dueDate — mirrors the on-demand-computation precedent from Prompt
+/// 5's progress tracking, avoiding a second write path that could drift out of sync. A
+/// trainee's calendar view merges these with their assigned assessments' own dates at read
+/// time (frontend-side), rather than this module needing to know about assessments at all.
+model CalendarEvent {
+  id          String            @id @default(uuid())
+  title       String
+  description String?
+  type        CalendarEventType
+  startAt     DateTime
+  endAt       DateTime?
+  allDay      Boolean           @default(false)
+  location    String?
+  createdById String?
+  createdBy   User?             @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  assignments CalendarEventAssignment[]
+
+  @@index([startAt])
+  @@index([type])
+  @@index([deletedAt])
+  @@map("calendar_events")
+}
+
+/// Exactly one of departmentId/groupId/userId should be set per row (enforced at the app layer,
+/// not the DB, to keep this join table generic across assignment scopes). `userId` is
+/// future-ready for individual assignment (Prompt 6 § CALENDAR lists it as "future-ready") —
+/// no current endpoint sets it yet, but the shape already supports it without a migration.
+model CalendarEventAssignment {
+  id           String        @id @default(uuid())
+  eventId      String
+  event        CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  departmentId String?
+  department   Department?   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  groupId      String?
+  group        Group?        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?         @relation("CalendarEventAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now())
+
+  @@index([eventId])
+  @@index([departmentId])
+  @@index([groupId])
+  @@index([userId])
+  @@map("calendar_event_assignments")
+}
+
+/// Basic in-app notifications (Prompt 6 § NOTIFICATIONS). Real-time delivery is explicitly
+/// out of scope for this phase ("can be added later") — rows are created synchronously by the
+/// module whose action triggered them (assessment assignment, calendar event create/update) via
+/// a shared `notificationsService.notify(...)` helper, and deadline-approaching reminders are
+/// generated lazily on-access (when a trainee's notification list is fetched) rather than by a
+/// background scheduler, since no scheduler infrastructure exists yet in this project.
+model Notification {
+  id                String           @id @default(uuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              NotificationType
+  title             String
+  message           String
+  isRead            Boolean          @default(false)
+  /// Lightweight polymorphic reference (e.g. "assessment" / "calendar_event") for a frontend
+  /// deep-link — not a DB-level FK, so it survives the referenced row being hard-deleted.
+  relatedEntityType String?
+  relatedEntityId   String?
+  createdAt         DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// Per-user notification opt-outs (Prompt 9 § SETTINGS / NOTIFICATION SYSTEM). One row per user,
+/// created lazily on first preference read/write (absent = "nothing muted", the default).
+/// Deliberately a single `mutedTypes` array rather than one boolean column per `NotificationType`
+/// — every new event type Just Works with zero migrations, and `notificationsService.notify()`
+/// only needs one `mutedTypes.includes(type)` check before writing a row. "User Notification
+/// Status" (Prompt 9 § DATABASE) is intentionally NOT a separate model — `Notification.isRead`
+/// already IS the per-user, per-notification status; a second table would just duplicate it.
+model NotificationPreference {
+  id         String             @id @default(uuid())
+  userId     String             @unique
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mutedTypes NotificationType[] @default([])
+  updatedAt  DateTime           @updatedAt
+
+  @@map("notification_preferences")
+}
+
+/// Admin-only platform configuration (Prompt 9 § ADMIN SETTINGS, "platform settings
+/// foundation" — deliberately minimal). Enforced as a singleton by application logic (the
+/// service always reads/creates/updates the one row with `id: PLATFORM_SETTINGS_SINGLETON_ID`,
+/// a fixed constant), not a DB-level constraint — Postgres has no native "at most one row" rule
+/// short of a check constraint on a computed column, which would be overkill here.
+model PlatformSettings {
+  id              String    @id
+  platformName    String    @default("Databeat LMS")
+  supportEmail    String?
+  maintenanceMode Boolean   @default(false)
+  updatedById     String?
+  updatedBy       User?     @relation("PlatformSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt       DateTime  @updatedAt
+
+  @@map("platform_settings")
+}
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
+}
+
+/// Which "feature" (Prompt 7 § AI FEATURES) produced this message — drives which system
+/// prompt template the Prompt Manager selects. Null for plain freeform CHAT turns.
+enum AiFeature {
+  CHAT
+  EXPLAIN_TOPIC
+  SUMMARIZE_LESSON
+  GENERATE_EXAMPLES
+  GENERATE_PRACTICE_QUESTIONS
+}
+
+enum AiExplanationLevel {
+  BEGINNER
+  DETAILED
+  INTERVIEW
+}
+
+enum QnaVisibility {
+  GROUP
+  DEPARTMENT
+  ORGANIZATION
+}
+
+enum QnaQuestionStatus {
+  OPEN
+  SOLVED
+  CLOSED
+}
+
+/// One chat thread with the AI tutor, optionally scoped to a lesson (Prompt 7 § LESSON
+/// CONTEXT SYSTEM). `lessonId` is set once at creation from whichever lesson the trainee
+/// clicked "Ask AI" from — later lesson edits never retroactively change the context this
+/// conversation was built on (no re-fetch/no snapshot needed since we simply stop reading
+/// the lesson once the conversation exists, except for display purposes on the history list).
+model AiConversation {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId  String?
+  lesson    Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  title     String   @db.VarChar(200)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages AiMessage[]
+
+  @@index([userId, updatedAt])
+  @@index([lessonId])
+  @@map("ai_conversations")
+}
+
+/// `inputTokens`/`outputTokens` populate only on ASSISTANT messages, taken verbatim from the
+/// provider response's `usage` block — the "token usage tracking foundation" required by
+/// Prompt 7 § AI SECURITY. Left null on USER messages and on ASSISTANT messages saved before
+/// a successful provider call (e.g. none — a failed call never persists an assistant row).
+model AiMessage {
+  id             String         @id @default(uuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           AiMessageRole
+  feature        AiFeature?
+  content        String         @db.Text
+  inputTokens    Int?
+  outputTokens   Int?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("ai_messages")
+}
+
+/// Stack-Overflow-style forum question (Prompt 7 § PART 2). Exactly one of `groupId`/
+/// `departmentId` is set depending on `visibility` (GROUP/DEPARTMENT); both are null for
+/// ORGANIZATION — enforced in the service layer, not the DB, mirroring this codebase's existing
+/// convention of application-level XOR checks (e.g. Question's type-conditional fields).
+model QnaQuestion {
+  id           String            @id @default(uuid())
+  title        String            @db.VarChar(200)
+  description  String            @db.Text
+  authorId     String
+  author       User              @relation("QnaQuestionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  courseId     String?
+  course       Course?           @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  moduleId     String?
+  module       CourseModule?     @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  lessonId     String?
+  lesson       Lesson?           @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  visibility   QnaVisibility
+  groupId      String?
+  group        Group?            @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  departmentId String?
+  department   Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  status       QnaQuestionStatus @default(OPEN)
+  viewCount    Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  /// Soft delete, mirroring Group/Course/Assessment's existing precedent.
+  deletedAt    DateTime?
+
+  answers     QnaAnswer[]
+  comments    QnaComment[]
+  votes       QnaVote[]
+  tags        QnaQuestionTag[]
+  attachments QnaAttachment[]
+
+  @@index([authorId])
+  @@index([status, deletedAt])
+  @@index([groupId])
+  @@index([departmentId])
+  @@index([courseId])
+  @@index([moduleId])
+  @@index([lessonId])
+  @@index([createdAt])
+  @@map("qna_questions")
+}
+
+/// A trainer "verifying" an answer (`isVerified`) is distinct from "pinning" it (`isPinned`,
+/// e.g. to surface a good community answer without formally certifying it) — both independently
+/// toggleable per Prompt 7 § TRAINER VERIFICATION, and verified answers sort first in the list
+/// (service-layer ordering, not a DB constraint).
+model QnaAnswer {
+  id           String      @id @default(uuid())
+  questionId   String
+  question     QnaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User        @relation("QnaAnswerAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  content      String      @db.Text
+  isVerified   Boolean     @default(false)
+  isPinned     Boolean     @default(false)
+  verifiedById String?
+  verifiedBy   User?       @relation("QnaAnswerVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  comments    QnaComment[]
+  votes       QnaVote[]
+  attachments QnaAttachment[]
+
+  @@index([questionId])
+  @@index([authorId])
+  @@map("qna_answers")
+}
+
+/// Comments belong to exactly one of a question or an answer (Stack-Overflow-style — a
+/// clarifying remark, not a full answer). Enforced in the service layer via an XOR check on
+/// `questionId`/`answerId` at creation time.
+model QnaComment {
+  id         String       @id @default(uuid())
+  questionId String?
+  question   QnaQuestion? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerId   String?
+  answer     QnaAnswer?   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User         @relation("QnaCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  content    String       @db.VarChar(2000)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([questionId])
+  @@index([answerId])
+  @@map("qna_comments")
+}
+
+/// One upvote per user per question/answer. Exactly one of `questionId`/`answerId` is set
+/// (XOR, enforced in the service layer). Postgres unique indexes treat NULL as distinct from
+/// every other NULL, so the two `@@unique` constraints below would NOT stop a user voting
+/// twice on the same answer (every row's unused `questionId` is null, and null != null) — the
+/// migration hand-adds two PARTIAL unique indexes (`WHERE "questionId" IS NOT NULL` /
+/// `WHERE "answerId" IS NOT NULL`) that Prisma's schema syntax cannot express declaratively,
+/// following this codebase's established "hand-edit the generated migration.sql" convention.
+/// The service layer also catches the resulting P2002 and turns it into a friendly 409.
+model QnaVote {
+  id         String       @id @default(uuid())
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionId String?
+  question   QnaQuestion? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerId   String?
+  answer     QnaAnswer?   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+
+  @@index([questionId])
+  @@index([answerId])
+  @@index([userId])
+  @@map("qna_votes")
+}
+
+model QnaTag {
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(50)
+  createdAt DateTime @default(now())
+
+  questions QnaQuestionTag[]
+
+  @@map("qna_tags")
+}
+
+model QnaQuestionTag {
+  questionId String
+  question   QnaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        QnaTag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, tagId])
+  @@index([tagId])
+  @@map("qna_question_tags")
+}
+
+/// File/image attached to a question or answer (Prompt 7 § QUESTION CREATION). Exactly one of
+/// `questionId`/`answerId` is set (XOR, enforced in the service layer) — stored via the
+/// pre-existing `StorageProvider`/`LocalStorageProvider` abstraction from Prompt 5, same as
+/// `LessonResource`.
+model QnaAttachment {
+  id            String       @id @default(uuid())
+  questionId    String?
+  question      QnaQuestion? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerId      String?
+  answer        QnaAnswer?   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  fileName      String
+  filePath      String
+  mimeType      String
+  fileSizeBytes Int
+  uploadedById  String
+  uploadedBy    User         @relation("QnaAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+
+  @@index([questionId])
+  @@index([answerId])
+  @@map("qna_attachments")
+}
+
+/// ---------------------------------------------------------------------------
+/// ANALYTICS (Prompt 8 § DATABASE) — aggregation/cache tables, deliberately
+/// separated from the transactional tables above. Written ONLY by the analytics
+/// module's aggregation service (lazy recompute-when-stale + explicit refresh),
+/// never by transactional request flows. Every row is derived purely from
+/// transactional-table timestamps/values, so these tables are safe to truncate
+/// and recompute at any time — they are a cache, not a source of truth.
+/// ---------------------------------------------------------------------------
+
+/// One row per user per calendar day (UTC) with any recorded activity, derived
+/// entirely from immutable transactional timestamps (AuditLog LOGIN_SUCCESS,
+/// LessonProgress.completedAt, AssessmentAttempt.submittedAt,
+/// AiMessage.createdAt, QnaQuestion/QnaAnswer/QnaComment.createdAt) — so any
+/// date range recomputes idempotently. Powers learning streaks, the activity
+/// heatmap, and daily/weekly statistics. Deliberately NO per-day lesson-view or
+/// time-spent columns: LessonProgress stores only a running `timeSpentSeconds`
+/// total and a latest `lastViewedAt`, which cannot be reconstructed per-day —
+/// time-spent analytics live on UserPerformanceSnapshot instead.
+model UserDailyActivity {
+  id                   String   @id @default(uuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Calendar date at UTC midnight.
+  date                 DateTime @db.Date
+  logins               Int      @default(0)
+  lessonsCompleted     Int      @default(0)
+  assessmentsSubmitted Int      @default(0)
+  aiMessages           Int      @default(0)
+  qnaPosts             Int      @default(0)
+  computedAt           DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([date])
+  @@map("user_daily_activity")
+}
+
+/// Per-user rollup powering the leaderboard, individual trainee analytics, and
+/// group/trainer aggregates (group metrics = live averages over member rows —
+/// cheap because this table is pre-aggregated; a dedicated group snapshot can
+/// be added later without API changes if scale demands it).
+model UserPerformanceSnapshot {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coursesAssigned      Int       @default(0)
+  coursesCompleted     Int       @default(0)
+  lessonsCompleted     Int       @default(0)
+  totalAssignedLessons Int       @default(0)
+  completionPercentage Float     @default(0)
+  timeSpentSeconds     Int       @default(0)
+  assessmentsAssigned  Int       @default(0)
+  assessmentsTaken     Int       @default(0)
+  assessmentsPassed    Int       @default(0)
+  /// Mean AssessmentAttempt.percentage over the user's submitted+graded attempts; null if none.
+  averageScore         Float?
+  /// Total activity events in the trailing 7 days (sum over UserDailyActivity counts).
+  activityEvents7d     Int       @default(0)
+  /// Composite 0–100 ranking score (completion + score + activity) — the leaderboard sort key.
+  /// Formula lives in metrics-calculator.ts, the single place it may be changed.
+  performanceScore     Float     @default(0)
+  lastActivityAt       DateTime?
+  computedAt           DateTime  @default(now())
+
+  @@index([performanceScore])
+  @@map("user_performance_snapshots")
+}
+
+/// Per-course rollup (Prompt 8 § COURSE ANALYTICS). `averageScore` is a
+/// documented population proxy: assessments have NO course linkage in this
+/// schema (they are standalone and group-assigned, Prompt 6), so it is the mean
+/// assessment percentage across this course's ASSIGNED trainees, not "scores on
+/// this course's assessments".
+model CourseAnalyticsSnapshot {
+  id                      String   @id @default(uuid())
+  courseId                String   @unique
+  course                  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assignedTrainees        Int      @default(0)
+  startedCount            Int      @default(0)
+  completedCount          Int      @default(0)
+  completionRate          Float    @default(0)
+  averageTimeSpentSeconds Int      @default(0)
+  averageScore            Float?
+  /// Ordered lesson funnel for drop-off analysis:
+  /// [{lessonId, title, moduleTitle, order, completedCount, completionRate, dropOffRate}].
+  lessonFunnel            Json?
+  computedAt              DateTime @default(now())
+
+  @@map("course_analytics_snapshots")
+}
+
+/// Per-assessment rollup (Prompt 8 § ASSESSMENT ANALYTICS). Question difficulty
+/// and weak topics join AssessmentQuestion → Question (nullable questionId,
+/// SetNull on bank delete) for category/difficulty — answers to a since-deleted
+/// bank question are bucketed under category "UNKNOWN".
+model AssessmentAnalyticsSnapshot {
+  id                String     @id @default(uuid())
+  assessmentId      String     @unique
+  assessment        Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assignedTrainees  Int        @default(0)
+  attemptedCount    Int        @default(0)
+  submittedCount    Int        @default(0)
+  gradedCount       Int        @default(0)
+  participationRate Float      @default(0)
+  averageScore      Float?
+  passRate          Float?
+  /// [{assessmentQuestionId, title, type, category, difficulty, answeredCount, correctCount, correctRate}]
+  questionStats     Json?
+  /// [{category, answeredCount, correctCount, correctRate}] sorted weakest-first.
+  weakTopics        Json?
+  computedAt        DateTime   @default(now())
+
+  @@map("assessment_analytics_snapshots")
+}
+
+enum AnalyticsInsightScope {
+  USER
+  GROUP
+}
+
+enum AnalyticsInsightSource {
+  AI
+  HEURISTIC
+}
+
+/// Cached AI-generated (or heuristic-fallback) recommendations — the "AI
+/// Analytics Foundation" (Prompt 8). scopeType USER → trainee recommendations
+/// ("revise SQL Joins before the next assessment"); GROUP → trainer insights
+/// ("Group A is struggling with SQL joins"). `source` is HEURISTIC when the AI
+/// provider is unavailable (no API key — same graceful degradation as the AI
+/// Tutor, Prompt 7): insights are then derived directly from the analytics
+/// data, so dashboards always render something useful.
+model AnalyticsInsight {
+  id          String                 @id @default(uuid())
+  scopeType   AnalyticsInsightScope
+  scopeId     String
+  /// [{kind: 'WEAK_TOPIC'|'SUGGESTED_LESSON'|'SUGGESTED_ASSESSMENT'|'GENERAL', text}]
+  insights    Json
+  source      AnalyticsInsightSource
+  generatedAt DateTime               @default(now())
+
+  @@unique([scopeType, scopeId])
+  @@map("analytics_insights")
+}

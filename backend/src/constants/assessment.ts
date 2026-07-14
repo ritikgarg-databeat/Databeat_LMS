@@ -1,0 +1,32 @@
+/** Reserved for assessment/question/calendar-related constant values that are NOT data — length caps, limits. */
+export const MAX_QUESTION_TITLE_LENGTH = 2000;
+export const MAX_QUESTION_EXPLANATION_LENGTH = 2000;
+export const MAX_QUESTION_OPTION_TEXT_LENGTH = 500;
+export const MAX_QUESTION_CORRECT_ANSWER_LENGTH = 500;
+export const MAX_QUESTION_STARTER_CODE_LENGTH = 20000;
+export const MIN_QUESTION_OPTIONS = 2;
+export const MAX_QUESTION_OPTIONS = 10;
+
+export const MAX_ASSESSMENT_TITLE_LENGTH = 150;
+export const MAX_ASSESSMENT_DESCRIPTION_LENGTH = 2000;
+export const MAX_ASSESSMENT_INSTRUCTIONS_LENGTH = 5000;
+export const MIN_ASSESSMENT_DURATION_MINUTES = 1;
+export const MAX_ASSESSMENT_DURATION_MINUTES = 600;
+export const MIN_PASSING_PERCENTAGE = 0;
+export const MAX_PASSING_PERCENTAGE = 100;
+export const MIN_QUESTION_MARKS = 1;
+export const MAX_QUESTION_MARKS = 1000;
+export const MIN_NEGATIVE_MARKS_PER_WRONG_ANSWER = 0;
+export const MAX_NEGATIVE_MARKS_PER_WRONG_ANSWER = 100;
+
+export const MAX_ANSWER_TEXT_LENGTH = 20000;
+
+export const MAX_CALENDAR_EVENT_TITLE_LENGTH = 150;
+export const MAX_CALENDAR_EVENT_DESCRIPTION_LENGTH = 2000;
+export const MAX_CALENDAR_EVENT_LOCATION_LENGTH = 300;
+
+export const MAX_NOTIFICATION_TITLE_LENGTH = 150;
+export const MAX_NOTIFICATION_MESSAGE_LENGTH = 500;
+
+/** How close to an assessment's dueDate a lazily-generated ASSESSMENT_DEADLINE_APPROACHING reminder fires. */
+export const ASSESSMENT_DEADLINE_REMINDER_WINDOW_HOURS = 48;

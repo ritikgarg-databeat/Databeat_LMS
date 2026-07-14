@@ -1,0 +1,29 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+*.tsbuildinfo
+
+# Environment variables (never commit secrets — see .env.example / .env.production.example)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Logs
+src/logs/*
+!src/logs/.gitkeep
+
+# Uploaded files (local storage provider's data root — never committed)
+src/uploads/*
+!src/uploads/.gitkeep
+
+# Prisma
+src/prisma/migrations/dev.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
