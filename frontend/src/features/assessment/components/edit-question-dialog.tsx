@@ -318,8 +318,14 @@ function EditQuestionForm({ question, onOpenChange }: EditQuestionFormProps) {
     }
   };
 
-  const optionsError = errors.options?.message;
-  const answersError = errors.correctAnswers?.message;
+  // `options`/`correctAnswers` are `useFieldArray`-registered, so a Zod issue whose path is the
+  // array itself (not a specific index) — "select exactly one correct option", "at least/most N
+  // options", "at least one accepted answer required" — lands on `errors.options.root`, not
+  // `errors.options` directly (react-hook-form's FieldArray convention). Reading `.message`
+  // instead of `.root.message` silently swallowed every one of those messages: the form just
+  // failed to submit with no visible feedback at all.
+  const optionsError = errors.options?.root?.message;
+  const answersError = errors.correctAnswers?.root?.message;
   const isMultipleCorrect = question.type === 'MULTIPLE_CORRECT';
   const isFixedTrueFalse = question.type === 'TRUE_FALSE';
 

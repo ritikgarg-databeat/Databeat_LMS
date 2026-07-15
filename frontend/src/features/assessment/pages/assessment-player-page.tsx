@@ -105,6 +105,19 @@ function AssessmentPlayerPage() {
   // (and against re-firing on every unrelated re-render) — matches the `initializedLessonRef`
   // pattern in `lesson-viewer-page.tsx`. Bumping `retryToken` (the "try again" button) forces a
   // fresh key so the guard allows exactly one more attempt.
+  //
+  // Deliberately `mutateAsync` + a plain try/catch here, NOT `.mutate(id, {onSuccess, onError})`.
+  // StrictMode's double-invocation tears down and rebuilds this mutation's internal observer
+  // between the two effect passes; that observer teardown can orphan a per-call onSuccess/onError
+  // pair registered on the FIRST pass's `.mutate()` even though the underlying request the guard
+  // above correctly let through still completes — confirmed empirically (the network call
+  // succeeds, but `onSuccess`/`onError` never fire, so `attempt` stays null and the trainee is
+  // stuck on "Preparing your assessment..." forever). `mutateAsync`'s returned promise settles
+  // off the actual request chain rather than that observer wiring, so awaiting it directly here
+  // is unaffected by the teardown. Comparing `startedKeyRef.current` to this closure's own `key`
+  // after the await (instead of a cleanup-set `cancelled` flag) discards a stale in-flight result
+  // only when a *real* retry has superseded it — a StrictMode-only second pass never changes
+  // `startedKeyRef`, so this pass's own result is still applied when it resolves.
   const startedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -114,13 +127,16 @@ function AssessmentPlayerPage() {
     startedKeyRef.current = key;
 
     setStartError(null);
-    startAttemptRef.current.mutate(id, {
-      onSuccess: (response) => {
+
+    void (async () => {
+      try {
+        const response = await startAttemptRef.current.mutateAsync(id);
+        if (startedKeyRef.current !== key) return;
         setAttempt(response.attempt);
         setQuestions(response.questions);
         setAnswers(buildInitialAnswers(response.questions));
-      },
-      onError: (error) => {
+      } catch (error) {
+        if (startedKeyRef.current !== key) return;
         const httpStatus = isAxiosError(error) ? error.response?.status : undefined;
         if (httpStatus === 409) {
           // Already finished (SUBMITTED/PENDING_REVIEW/GRADED) — nothing to play, go see results.
@@ -128,8 +144,8 @@ function AssessmentPlayerPage() {
           return;
         }
         setStartError(getErrorMessage(error));
-      },
-    });
+      }
+    })();
   }, [id, navigate, retryToken]);
 
   const debounceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
