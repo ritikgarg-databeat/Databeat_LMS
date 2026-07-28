@@ -277,6 +277,7 @@ model User {
   performanceSnapshot      UserPerformanceSnapshot?
   notificationPreference   NotificationPreference?
   platformSettingsUpdates  PlatformSettings[]          @relation("PlatformSettingsUpdatedBy")
+  timingObservations       TimingObservation[]
 
   @@index([role])
   @@index([departmentId])
@@ -417,6 +418,29 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+/// A trainer's self-logged, real timed comparison of writing a lesson quiz by hand versus
+/// reviewing the AI-generated one — the human-timed half of Measurable Early Impact that
+/// usage logs alone can't capture (there's no "manual quiz-writing" event to log). Purely
+/// additive, self-reported data; the report layer (impact-metrics) is what decides whether
+/// enough of these exist yet to call anything more than "measured."
+model TimingObservation {
+  id                        String   @id @default(uuid())
+  trainerId                 String
+  trainer                   User     @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  lessonId                  String
+  lesson                    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  courseId                  String
+  course                    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  manualDurationSeconds     Int
+  aiAssistedDurationSeconds Int
+  notes                     String?
+  createdAt                 DateTime @default(now())
+
+  @@index([lessonId])
+  @@index([trainerId])
+  @@map("timing_observations")
+}
+
 /// Top of the Course → Module → Lesson → Resource hierarchy (Prompt 5 § CLASSROOM HIERARCHY).
 /// `deletedAt` (soft delete) is distinct from `status: ARCHIVED` (reversible lifecycle state),
 /// mirroring the Group entity's precedent from Prompt 4.
@@ -438,10 +462,11 @@ model Course {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
-  modules           CourseModule[]
-  groupAssignments  CourseGroupAssignment[]
-  qnaQuestions      QnaQuestion[]
-  analyticsSnapshot CourseAnalyticsSnapshot?
+  modules            CourseModule[]
+  groupAssignments   CourseGroupAssignment[]
+  qnaQuestions       QnaQuestion[]
+  analyticsSnapshot  CourseAnalyticsSnapshot?
+  timingObservations TimingObservation[]
 
   @@index([departmentId])
   @@index([experienceLevelId])
@@ -486,11 +511,12 @@ model Lesson {
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
-  resources       LessonResource[]
-  progress        LessonProgress[]
-  aiConversations AiConversation[]
-  qnaQuestions    QnaQuestion[]
-  quizAttempts    LessonQuizAttempt[]
+  resources          LessonResource[]
+  progress           LessonProgress[]
+  aiConversations    AiConversation[]
+  qnaQuestions       QnaQuestion[]
+  quizAttempts       LessonQuizAttempt[]
+  timingObservations TimingObservation[]
 
   @@index([moduleId])
   @@index([moduleId, order])
@@ -569,19 +595,22 @@ model LessonProgress {
 /// never serialized to the client until the attempt is SUBMITTED (same "hide until graded" rule
 /// AssessmentAnswer.isCorrect already follows). No retakes: GENERATED -> SUBMITTED is one-way.
 model LessonQuizAttempt {
-  id              String                  @id @default(uuid())
-  lessonId        String
-  lesson          Lesson                  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status          LessonQuizAttemptStatus @default(GENERATED)
-  questions       Json
-  selectedAnswers Json?
-  score           Int?
-  totalQuestions  Int
-  percentage      Int?
-  generatedAt     DateTime                @default(now())
-  submittedAt     DateTime?
+  id                   String                  @id @default(uuid())
+  lessonId             String
+  lesson               Lesson                  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  userId               String
+  user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status               LessonQuizAttemptStatus @default(GENERATED)
+  questions            Json
+  selectedAnswers      Json?
+  score                Int?
+  totalQuestions       Int
+  percentage           Int?
+  generatedAt          DateTime                @default(now())
+  submittedAt          DateTime?
+  /// Wall-clock ms for the AI generation call this attempt's questions came from. Null for
+  /// attempts created before this column existed — never backfilled with a guess.
+  generationDurationMs Int?
 
   @@unique([lessonId, userId])
   @@index([userId])
@@ -895,13 +924,13 @@ model NotificationPreference {
 /// a fixed constant), not a DB-level constraint — Postgres has no native "at most one row" rule
 /// short of a check constraint on a computed column, which would be overkill here.
 model PlatformSettings {
-  id              String    @id
-  platformName    String    @default("Databeat LMS")
+  id              String   @id
+  platformName    String   @default("Databeat LMS")
   supportEmail    String?
-  maintenanceMode Boolean   @default(false)
+  maintenanceMode Boolean  @default(false)
   updatedById     String?
-  updatedBy       User?     @relation("PlatformSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  updatedAt       DateTime  @updatedAt
+  updatedBy       User?    @relation("PlatformSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt       DateTime @updatedAt
 
   @@map("platform_settings")
 }

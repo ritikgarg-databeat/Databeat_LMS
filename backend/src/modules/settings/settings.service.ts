@@ -19,8 +19,16 @@ import type {
   ThemeResult,
 } from './settings.types';
 
+/** How long a cached `maintenanceMode` read is trusted before re-hitting the DB — see
+ * `isMaintenanceModeActive()`. Short enough that a toggle is felt almost immediately across every
+ * in-flight server process, long enough that it isn't a DB round trip on every authenticated
+ * request (this is checked from `authenticate` — effectively every API call in the app). */
+const MAINTENANCE_MODE_CACHE_TTL_MS = 5_000;
+
 // Business logic for the settings module. Controllers call into this layer only.
 export class SettingsService extends BaseService {
+  private maintenanceModeCache: { value: boolean; expiresAt: number } | null = null;
+
   constructor(protected readonly repository: SettingsRepository = new SettingsRepository()) {
     super();
   }
@@ -106,7 +114,25 @@ export class SettingsService extends BaseService {
 
   async updatePlatformSettings(dto: UpdatePlatformSettingsDto, actorId: string): Promise<PlatformSettingsResult> {
     const updated = await this.repository.upsertPlatformSettings(dto, actorId);
+    // Invalidate immediately rather than waiting out the TTL, so a Super Admin toggling
+    // maintenance mode off (to unblock everyone else, or themselves) takes effect on their very
+    // next request rather than up to MAINTENANCE_MODE_CACHE_TTL_MS later.
+    this.maintenanceModeCache = null;
     return this.toPlatformSettingsResult(updated);
+  }
+
+  /** Read by `requireNotInMaintenance` (middleware/maintenance-mode.middleware.ts) on effectively
+   * every authenticated request, so the result is cached briefly rather than hitting the DB each
+   * time — see `MAINTENANCE_MODE_CACHE_TTL_MS`. */
+  async isMaintenanceModeActive(): Promise<boolean> {
+    const now = Date.now();
+    if (this.maintenanceModeCache && this.maintenanceModeCache.expiresAt > now) {
+      return this.maintenanceModeCache.value;
+    }
+
+    const settings = await this.getPlatformSettings();
+    this.maintenanceModeCache = { value: settings.maintenanceMode, expiresAt: now + MAINTENANCE_MODE_CACHE_TTL_MS };
+    return settings.maintenanceMode;
   }
 
   /**

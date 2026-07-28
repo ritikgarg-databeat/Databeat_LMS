@@ -117,9 +117,21 @@ export class LessonQuizService extends BaseService {
     }
   }
 
+  /**
+   * Never generates a fresh attempt for a lesson this user already completed. Without this
+   * check, a lesson that completed via the "no quiz required" fallback (short content, or the AI
+   * provider unavailable at the time — both return `null` below) could later gain real content or
+   * a working AI provider, and a subsequent call to this same method (e.g. `getOrGenerate` fired
+   * from a stale tab, or a direct API call) would create a brand-new GENERATED-but-never-SUBMITTED
+   * attempt for a lesson whose gate the trainee already passed a different way — exactly the
+   * "quiz-gate compliance exception" impact-metrics.repository.ts's findCompletionsWithQuizStatus
+   * flags as a bug, not expected data.
+   */
   private async getOrCreateAttempt(lessonId: string, userId: string) {
     const existing = await this.repository.findAttempt(lessonId, userId);
     if (existing) return existing;
+
+    if (await this.repository.isLessonAlreadyCompleted(lessonId, userId)) return null;
 
     const lessonContent = await this.repository.findLessonContentForQuiz(lessonId);
     if (!lessonContent) throw new NotFoundError('Lesson not found.');
@@ -132,17 +144,20 @@ export class LessonQuizService extends BaseService {
     // Not enough real content to honestly quiz on — mirrors today's direct-complete behavior.
     if (combinedContent.length < LESSON_QUIZ_MIN_CONTENT_CHARS) return null;
 
+    const generationStartedAt = Date.now();
     const questions = await this.generateQuestions(
       lessonContent.lessonTitle,
       combinedContent.slice(0, LESSON_QUIZ_MAX_CONTENT_CHARS),
     );
     if (!questions) return null; // AI unavailable or persistently malformed — graceful fallback
+    const generationDurationMs = Date.now() - generationStartedAt;
 
     return this.repository.createAttempt({
       lesson: { connect: { id: lessonId } },
       user: { connect: { id: userId } },
       questions: questions as unknown as Prisma.InputJsonValue,
       totalQuestions: questions.length,
+      generationDurationMs,
     });
   }
 

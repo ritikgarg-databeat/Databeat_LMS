@@ -70,6 +70,23 @@ export const QuestionBankPage = lazy(() =>
   import('@/features/assessment/pages/question-bank-page').then((m) => ({ default: m.QuestionBankPage })),
 );
 
+// --- audit-log ---
+export const AuditLogPage = lazy(() =>
+  import('@/features/audit-log/pages/audit-log-page').then((m) => ({ default: m.AuditLogPage })),
+);
+
+// --- timing-observations ---
+export const TimingObservationsPage = lazy(() =>
+  import('@/features/timing-observations/pages/timing-observations-page').then((m) => ({
+    default: m.TimingObservationsPage,
+  })),
+);
+
+// --- impact-metrics ---
+export const ImpactMetricsPage = lazy(() =>
+  import('@/features/impact-metrics/pages/impact-metrics-page').then((m) => ({ default: m.ImpactMetricsPage })),
+);
+
 // --- auth ---
 export const ChangePasswordPage = lazy(() =>
   import('@/features/auth/pages/change-password-page').then((m) => ({ default: m.ChangePasswordPage })),

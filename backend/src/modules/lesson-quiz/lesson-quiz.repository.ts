@@ -48,6 +48,17 @@ export class LessonQuizRepository extends BaseRepository {
     return this.db.lesson.findUnique({ where: { id: lessonId } });
   }
 
+  /** Feature-local read of LessonProgress — used by getOrCreateAttempt to avoid generating a
+   * fresh (never-submitted) quiz attempt for a lesson this user already completed (see that
+   * method's doc comment for why this matters). */
+  async isLessonAlreadyCompleted(lessonId: string, userId: string): Promise<boolean> {
+    const progress = await this.db.lessonProgress.findUnique({
+      where: { userId_lessonId: { userId, lessonId } },
+      select: { status: true },
+    });
+    return progress?.status === 'COMPLETED';
+  }
+
   /**
    * Gathers the "quizzable" text this lesson exposes: its own description, every
    * MARKDOWN/CODE_SNIPPET resource's `content` (mirroring `ai/context-builder.ts`'s approach —

@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+import { Role } from '@prisma/client';
 import ms from 'ms';
 
 import { env } from '@/config/env';
+import { settingsService } from '@/modules/settings/settings.service';
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
-import { BadRequestError, ForbiddenError, UnauthorizedError } from '@/utils/app-error';
+import { BadRequestError, ForbiddenError, ServiceUnavailableError, UnauthorizedError } from '@/utils/app-error';
 import {
   signAccessToken,
   signRefreshToken,
@@ -71,6 +73,16 @@ export class AuthService extends BaseService {
         metadata: { reason: 'bad_password' },
       });
       throw new UnauthorizedError('Invalid email or password.');
+    }
+
+    // This path never goes through `authenticate`/`requireNotInMaintenance` (there's no token
+    // yet), so a fresh non-SUPER_ADMIN login needs its own maintenance-mode check — checked only
+    // after credentials are verified, so a blocked/wrong password still reports as such rather
+    // than leaking "this account would have worked" via a different error.
+    if (user.role !== Role.SUPER_ADMIN && (await settingsService.isMaintenanceModeActive())) {
+      throw new ServiceUnavailableError(
+        'The platform is currently under maintenance. Please try again shortly, or contact your Super Admin.',
+      );
     }
 
     await this.repository.updateLastLogin(user.id);

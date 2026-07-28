@@ -237,6 +237,13 @@ export class AssessmentAttemptsService extends BaseService {
    * review, and finalizes the attempt (Prompt 6 § POST /mine/submit).
    */
   async submit(assessmentId: string, userId: string, ipAddress?: string | null): Promise<AttemptSummary> {
+    // Captured before the real DB reads below so `submittedAt` (below) and `gradedAt` (for the
+    // auto-graded branch) bracket genuine server time — impact-metrics.repository.ts's
+    // "auto-grading latency" report reads gradedAt minus submittedAt, so this needs to span real
+    // work (these reads plus the grading loop), not just the synchronous grading loop alone,
+    // which would make the report always compute ~0ms regardless of real cost.
+    const requestReceivedAt = new Date();
+
     const assessment = await this.assertAssessmentAccessibleOrThrow(assessmentId, userId);
     const attempt = await this.findOwnInProgressAttemptOrThrow(assessmentId, userId);
 
@@ -286,7 +293,7 @@ export class AssessmentAttemptsService extends BaseService {
     const maxMarks = questions.reduce((sum, question) => sum + question.marks, 0);
 
     const attemptData: Prisma.AssessmentAttemptUpdateInput = hasManualReviewQuestion
-      ? { status: 'PENDING_REVIEW', autoScore, submittedAt: now, timeSpentSeconds }
+      ? { status: 'PENDING_REVIEW', autoScore, submittedAt: requestReceivedAt, timeSpentSeconds }
       : {
           status: 'GRADED',
           autoScore,
@@ -295,7 +302,7 @@ export class AssessmentAttemptsService extends BaseService {
           percentage: maxMarks === 0 ? 0 : Math.round((autoScore / maxMarks) * 100),
           passed: (maxMarks === 0 ? 0 : Math.round((autoScore / maxMarks) * 100)) >= assessment.passingPercentage,
           gradedAt: now,
-          submittedAt: now,
+          submittedAt: requestReceivedAt,
           timeSpentSeconds,
         };
 

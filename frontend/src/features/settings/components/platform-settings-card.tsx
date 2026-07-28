@@ -1,6 +1,7 @@
-// "Platform Settings" card — SUPER_ADMIN only, new in Prompt 9. This is explicitly scoped as a
-// configuration *foundation*: `maintenanceMode` is stored and editable here, but nothing else in
-// the app currently reads/enforces it yet.
+// "Platform Settings" card — SUPER_ADMIN only, new in Prompt 9. `maintenanceMode` is enforced
+// server-side (see backend/src/middleware/maintenance-mode.middleware.ts): every Trainer/Trainee
+// request is blocked with a 503 while this is on, and a Trainer/Trainee can't even log in fresh.
+// Super Admins are never blocked, so toggling this off again always stays reachable from here.
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -122,10 +123,11 @@ function PlatformSettingsForm({ data }: { data: PlatformSettings }) {
 
       {maintenanceMode ? (
         <Alert variant="warning">
-          <AlertTitle>Not yet enforced elsewhere</AlertTitle>
+          <AlertTitle>Trainers and trainees will be blocked</AlertTitle>
           <AlertDescription>
-            Enabling maintenance mode is not yet enforced elsewhere in the app — this is a
-            configuration foundation for a future maintenance-mode gate.
+            Saving this blocks every Trainer and Trainee request with a clear “under maintenance”
+            message, and stops new logins for those roles — takes effect within a few seconds.
+            Only Super Admins are unaffected, so you can always come back here to turn it off.
           </AlertDescription>
         </Alert>
       ) : null}

@@ -65,6 +65,7 @@ export class GroupMembersService extends BaseService {
   }
 
   async add(groupId: string, dto: AddGroupMemberDto, actorId: string, ipAddress?: string | null) {
+    const startedAt = Date.now();
     const group = await this.findGroupOrThrow(groupId);
     const user = await this.assertTraineeExists(dto.userId);
 
@@ -80,7 +81,7 @@ export class GroupMembersService extends BaseService {
       actorId,
       targetUserId: user.id,
       ipAddress,
-      metadata: { groupId },
+      metadata: { groupId, durationMs: Date.now() - startedAt },
     });
 
     return member;
@@ -168,6 +169,7 @@ export class GroupMembersService extends BaseService {
     actorId: string,
     ipAddress?: string | null,
   ): Promise<BulkImportSummary> {
+    const startedAt = Date.now();
     const group = await this.findGroupOrThrow(groupId);
 
     let rows: Record<string, string>[];
@@ -237,7 +239,13 @@ export class GroupMembersService extends BaseService {
       action: 'GROUP_BULK_IMPORT',
       actorId,
       ipAddress,
-      metadata: { groupId, totalRows: rows.length, added: toAdd.length, errorCount: errors.length },
+      metadata: {
+        groupId,
+        totalRows: rows.length,
+        added: toAdd.length,
+        errorCount: errors.length,
+        durationMs: Date.now() - startedAt,
+      },
     });
 
     return { totalRows: rows.length, added: toAdd.length, skipped: errors.length, errors };

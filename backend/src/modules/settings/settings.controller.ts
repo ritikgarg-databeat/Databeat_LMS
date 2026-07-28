@@ -8,13 +8,21 @@ import { logger } from '@/utils/logger';
 import { assertValidRequest } from '@/utils/validation.util';
 
 import type { UpdateNotificationPreferencesDto, UpdatePlatformSettingsDto, UpdateThemeDto } from './settings.dto';
-import { SettingsService } from './settings.service';
+import type { SettingsService } from './settings.service';
+import { settingsService } from './settings.service';
 
 // HTTP request handlers for the settings module. No business logic here — see settings.service.ts.
 // Every handler here reads `req.user.id` for the acting user — this module never accepts a
 // target user id in the request, every route operates on the caller's own settings.
 export class SettingsController extends BaseController {
-  constructor(protected readonly service: SettingsService = new SettingsService()) {
+  // Defaults to the shared `settingsService` singleton, NOT a fresh `new SettingsService()` — the
+  // service now holds real in-memory state (`isMaintenanceModeActive()`'s cache), and
+  // `updatePlatformSettings` invalidates that cache on ITS OWN instance. A separate instance here
+  // would invalidate a cache nothing ever reads, while `auth.middleware.ts`/`auth.service.ts`
+  // (which import the same singleton) would keep serving a stale value for up to the full cache
+  // TTL after every toggle — confirmed live: without this, a maintenance-mode toggle took up to
+  // 5 seconds to actually take effect instead of the "near-immediate" the cache was designed for.
+  constructor(protected readonly service: SettingsService = settingsService) {
     super();
   }
 

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { aiRoutes } from '@/modules/ai';
 import { analyticsRoutes } from '@/modules/analytics';
 import { assessmentsRoutes } from '@/modules/assessments';
+import { auditLogRoutes } from '@/modules/audit-log';
 import { authRoutes } from '@/modules/auth';
 import { calendarRoutes } from '@/modules/calendar';
 import { coursesRoutes } from '@/modules/courses';
@@ -10,6 +11,7 @@ import { dashboardRoutes } from '@/modules/dashboard';
 import { departmentsRoutes } from '@/modules/departments';
 import { experienceLevelsRoutes } from '@/modules/experience-levels';
 import { groupsRoutes } from '@/modules/groups';
+import { impactMetricsRoutes } from '@/modules/impact-metrics';
 import { lessonsRoutes } from '@/modules/lessons';
 import { modulesRoutes } from '@/modules/modules';
 import { notificationsRoutes } from '@/modules/notifications';
@@ -18,6 +20,7 @@ import { qnaRoutes } from '@/modules/qna';
 import { questionsRoutes } from '@/modules/questions';
 import { reportsRoutes } from '@/modules/reports';
 import { settingsRoutes } from '@/modules/settings';
+import { timingObservationsRoutes } from '@/modules/timing-observations';
 import { usersRoutes } from '@/modules/users';
 
 /**
@@ -45,5 +48,8 @@ router.use('/qna', qnaRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/ai', aiRoutes);
 router.use('/settings', settingsRoutes);
+router.use('/audit-logs', auditLogRoutes);
+router.use('/timing-observations', timingObservationsRoutes);
+router.use('/impact-metrics', impactMetricsRoutes);
 
 export default router;

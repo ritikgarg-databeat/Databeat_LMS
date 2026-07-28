@@ -95,8 +95,12 @@ real running instance (seeded test accounts below) before shipping a new build.
 - [ ] Ask the AI a question from within a lesson — response is contextual to that lesson's
       content, not generic.
 - [ ] Conversation history persists and is retrievable on returning to the same lesson/chat.
-- [ ] With `ANTHROPIC_API_KEY` unset, `/ai/chat` degrades gracefully (503 with a clear message)
+- [ ] With the active provider's API key unset (`ANTHROPIC_API_KEY` or `MAIN_OPENAI_API_KEY`,
+      depending on `AI_PROVIDER`), `/ai/chat` degrades gracefully (503 with a clear message)
       rather than crashing the whole app at boot or on request.
+- [ ] A real provider-side error (rate limit, quota exceeded, etc.) surfaces as a clear,
+      user-facing message ("receiving too many requests, try again shortly") instead of a blank
+      screen or an infinite loading state.
 - [ ] AI rate limiting kicks in appropriately under rapid repeated requests from the same user
       (doesn't block other users).
 
@@ -137,6 +141,48 @@ real running instance (seeded test accounts below) before shipping a new build.
       inaccessible (403) to Trainer/Trainee roles.
 - [ ] Clearing a previously-set support email (leaving the field blank and saving) actually
       clears it rather than erroring or silently keeping the old value.
+
+## Audit Log
+
+- [ ] Super Admin-only `/admin/audit-log` page loads and lists real historical events (login,
+      user/group/course changes, assessment submissions, etc.), not empty or placeholder rows.
+- [ ] Filtering by action type, actor, target, date range, and free-text search each narrow the
+      results correctly; clearing filters returns to the full list.
+- [ ] A Trainer or Trainee never sees this page or its API route (403, not a silent empty page).
+
+## Maintenance Mode
+
+- [ ] Toggling maintenance mode on (Platform Settings) blocks every subsequent Trainer/Trainee
+      request immediately — including requests from a token issued *before* the toggle, not just
+      new logins — with a clear "platform is under maintenance" message.
+- [ ] A Super Admin remains fully unaffected while maintenance mode is on.
+- [ ] Login itself is blocked for non-Super-Admins while maintenance mode is on, with the same
+      clear message (not a generic auth failure).
+- [ ] Toggling maintenance mode back off immediately restores access with no need to re-login.
+
+## Scheduled Reminders
+
+- [ ] An assessment due within the reminder window generates a real, correctly-addressed
+      deadline-approaching notification for each assigned trainee who hasn't yet submitted.
+- [ ] Running the reminder job twice in a row never sends a duplicate notification for the same
+      assessment/trainee pair.
+- [ ] A trainee who opens their own notification list before the scheduled run still gets the
+      reminder (the lazy, on-access check is a real safety net, not dead code).
+
+## Measurable Impact Instrumentation
+
+- [ ] A Trainer can log a real manual-vs-AI-assisted timing observation (course, lesson, both
+      durations); the live stats view (`n`, distinct trainers, distinct lessons, mean/min/max)
+      updates immediately and always shows `n` alongside every number — never a bare average.
+- [ ] The pilot cohort dashboard, usage-derived metric reports (auto-grading latency, AI
+      quiz-generation latency, CSV import speed), and the Impact Report generator all show
+      "insufficient data" rather than a fabricated number when nothing has been measured yet for
+      the selected scope/date range.
+- [ ] No report or generated document uses the word "validated" for a figure that hasn't met the
+      `classifyConfidence` thresholds (`MIN_N_FOR_VALIDATED`, `MIN_DISTINCT_TRAINERS_FOR_VALIDATED`,
+      `MIN_PILOT_DAYS_FOR_VALIDATED` — `backend/src/constants/impact-report.ts`).
+- [ ] A Trainer can only load the pilot dashboard for a group they're assigned to (or any group,
+      if Super Admin) — a different Trainer's group returns 403, not another trainer's data.
 
 ## Cross-cutting
 

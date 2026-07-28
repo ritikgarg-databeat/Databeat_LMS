@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   MessagesSquare,
   Settings,
+  Timer,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 
@@ -27,6 +29,8 @@ const TRAINER_NAV_ITEMS: SidebarNavItem[] = [
   { label: 'Calendar', href: ROUTES.TRAINER.CALENDAR, icon: CalendarDays },
   { label: 'Q&A', href: ROUTES.TRAINER.QNA, icon: MessagesSquare },
   { label: 'Reports', href: ROUTES.TRAINER.REPORTS, icon: FileDown },
+  { label: 'Timing Observations', href: ROUTES.TRAINER.TIMING_OBSERVATIONS, icon: Timer },
+  { label: 'Impact Metrics', href: ROUTES.TRAINER.IMPACT_METRICS, icon: TrendingUp },
   { label: 'Settings', href: ROUTES.TRAINER.SETTINGS, icon: Settings },
 ];
 

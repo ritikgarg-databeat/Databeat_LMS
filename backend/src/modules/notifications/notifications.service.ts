@@ -143,10 +143,11 @@ export class NotificationsService extends BaseService {
   }
 
   /**
-   * Lazy, on-access generation (Prompt 6 § NOTIFICATIONS — "real-time delivery can be added
-   * later"): no scheduler exists in this project yet, so instead of a background job this checks
-   * for upcoming unsubmitted deadlines every time the user's own notification list is fetched,
-   * and creates a reminder only if one doesn't already exist for that assessment.
+   * Lazy, on-access generation (Prompt 6 § NOTIFICATIONS): every time a user's own notification
+   * list is fetched, checks for upcoming unsubmitted deadlines and creates a reminder if one
+   * doesn't already exist for that assessment. Now a safety net rather than the only mechanism —
+   * `runScheduledDeadlineReminders` below covers the same ground proactively, org-wide, once a
+   * day; both share the same idempotency check, so having both can never double-notify anyone.
    */
   private async checkAndCreateDeadlineReminders(userId: string): Promise<void> {
     const upcoming = await this.repository.findUpcomingUnsubmittedDeadlines(userId);
@@ -169,6 +170,51 @@ export class NotificationsService extends BaseService {
         relatedEntityId: assessment.id,
       });
     }
+  }
+
+  /**
+   * Proactive, org-wide counterpart to `checkAndCreateDeadlineReminders` — called once a day by
+   * `jobs/deadline-reminders.job.ts` (node-cron, see `jobs/scheduler.ts`) rather than waiting for
+   * each trainee to happen to open their own notification list. For every assessment due within
+   * the reminder window, resolves candidate trainee userIds (every assigned group's members minus
+   * anyone who already submitted — both already computed by `findAssessmentsWithUpcomingDeadlines`
+   * in one query), subtracts anyone already notified for that assessment (one batched query per
+   * assessment via `findAlreadyNotifiedUserIds`), then fans out through `notifyMany` — which
+   * already handles mute-checking — rather than looping `notify()` once per user.
+   */
+  async runScheduledDeadlineReminders(): Promise<{ assessmentsChecked: number; notificationsSent: number }> {
+    const assessments = await this.repository.findAssessmentsWithUpcomingDeadlines();
+    let notificationsSent = 0;
+
+    for (const assessment of assessments) {
+      const submittedUserIds = new Set(assessment.attempts.map((attempt) => attempt.userId));
+      const candidateUserIds = new Set(
+        assessment.groupAssignments.flatMap((assignment) =>
+          assignment.group.members.map((member) => member.userId),
+        ),
+      );
+      const notYetSubmitted = [...candidateUserIds].filter((userId) => !submittedUserIds.has(userId));
+      if (notYetSubmitted.length === 0) continue;
+
+      const alreadyNotified = await this.repository.findAlreadyNotifiedUserIds(
+        notYetSubmitted,
+        'ASSESSMENT_DEADLINE_APPROACHING',
+        'assessment',
+        assessment.id,
+      );
+      const toNotify = notYetSubmitted.filter((userId) => !alreadyNotified.has(userId));
+      if (toNotify.length === 0) continue;
+
+      notificationsSent += await this.notifyMany(toNotify, {
+        type: 'ASSESSMENT_DEADLINE_APPROACHING',
+        title: 'Assessment deadline approaching',
+        message: `"${assessment.title}" is due ${assessment.dueDate ? assessment.dueDate.toLocaleDateString() : 'soon'}.`,
+        relatedEntityType: 'assessment',
+        relatedEntityId: assessment.id,
+      });
+    }
+
+    return { assessmentsChecked: assessments.length, notificationsSent };
   }
 }
 

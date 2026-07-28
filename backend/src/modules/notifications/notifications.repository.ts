@@ -123,4 +123,47 @@ export class NotificationsRepository extends BaseRepository {
       select: { id: true, title: true, dueDate: true },
     });
   }
+
+  /**
+   * Org-wide counterpart to `findUpcomingUnsubmittedDeadlines` — same window/status logic, but
+   * with no `userId` filter, for the scheduled job (jobs/deadline-reminders.job.ts) to fan out to
+   * every eligible trainee in one query instead of one query per user. Each assessment comes back
+   * with every assigned group's member userIds AND every existing SUBMITTED/PENDING_REVIEW/GRADED
+   * attempt's userId, so the caller can compute "candidate minus already-submitted" in memory
+   * without a second round trip per assessment.
+   */
+  async findAssessmentsWithUpcomingDeadlines() {
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + ASSESSMENT_DEADLINE_REMINDER_WINDOW_HOURS * 60 * 60 * 1000);
+
+    return this.db.assessment.findMany({
+      where: { status: 'PUBLISHED', deletedAt: null, dueDate: { gte: now, lte: windowEnd } },
+      select: {
+        id: true,
+        title: true,
+        dueDate: true,
+        groupAssignments: { select: { group: { select: { members: { select: { userId: true } } } } } },
+        attempts: {
+          where: { status: { in: ['SUBMITTED', 'PENDING_REVIEW', 'GRADED'] } },
+          select: { userId: true },
+        },
+      },
+    });
+  }
+
+  /** Batched version of `hasNotificationForEntity` — one query for every candidate user instead
+   * of one query per user, for the same idempotency purpose (never double-send a reminder). */
+  async findAlreadyNotifiedUserIds(
+    userIds: string[],
+    type: NotificationType,
+    relatedEntityType: string,
+    relatedEntityId: string,
+  ): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const existing = await this.db.notification.findMany({
+      where: { userId: { in: userIds }, type, relatedEntityType, relatedEntityId },
+      select: { userId: true },
+    });
+    return new Set(existing.map((row) => row.userId));
+  }
 }

@@ -20,6 +20,9 @@ export const ROUTES = {
     ASSESSMENTS: '/admin/assessments',
     QUESTIONS: '/admin/questions',
     CALENDAR: '/admin/calendar',
+    AUDIT_LOG: '/admin/audit-log',
+    TIMING_OBSERVATIONS: '/admin/timing-observations',
+    IMPACT_METRICS: '/admin/impact-metrics',
     SETTINGS: '/admin/settings',
   },
   TRAINER: {
@@ -33,6 +36,8 @@ export const ROUTES = {
     CALENDAR: '/trainer/calendar',
     QNA: '/trainer/qna',
     REPORTS: '/trainer/reports',
+    TIMING_OBSERVATIONS: '/trainer/timing-observations',
+    IMPACT_METRICS: '/trainer/impact-metrics',
     SETTINGS: '/trainer/settings',
   },
   TRAINEE: {
