@@ -12,4 +12,6 @@ Course to Module to Lesson hierarchy, resources, and learner progress tracking.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented authoring/learning flows include course duplication, module/lesson editing, safe
+resource upload/removal, published trainee views, active-time tracking, new-content indicators,
+version-aware completion, and the retryable 70% lesson quiz gate.

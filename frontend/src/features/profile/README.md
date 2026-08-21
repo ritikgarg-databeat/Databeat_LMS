@@ -12,4 +12,5 @@ The signed-in user's own profile and account settings.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented profile UI supports current-user details, avatar display/update, and secure password
+change integrated with session refresh.

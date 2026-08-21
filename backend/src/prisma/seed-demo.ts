@@ -13,7 +13,8 @@ import {
   type Prisma,
 } from '@prisma/client';
 
-import { prisma } from '@/config/prisma';
+import { disconnectDatabase, prisma, warmDatabasePool } from '@/config/prisma';
+import { aggregationService } from '@/modules/analytics/aggregation.service';
 import { logger } from '@/utils/logger';
 import { hashPassword } from '@/utils/password.util';
 
@@ -159,7 +160,12 @@ const DEMO_QUESTIONS: DemoQuestionSeed[] = [
       { id: '8f14e845-1000-4a00-8002-000000000001', text: 'Power BI', isCorrect: true, order: 1 },
       { id: '8f14e845-1000-4a00-8002-000000000002', text: 'Microsoft Excel', isCorrect: true, order: 2 },
       { id: '8f14e845-1000-4a00-8002-000000000003', text: 'Notepad', isCorrect: false, order: 3 },
-      { id: '8f14e845-1000-4a00-8002-000000000004', text: 'Windows Media Player', isCorrect: false, order: 4 },
+      {
+        id: '8f14e845-1000-4a00-8002-000000000004',
+        text: 'Windows Media Player',
+        isCorrect: false,
+        order: 4,
+      },
     ],
   },
 ];
@@ -167,10 +173,14 @@ const DEMO_QUESTIONS: DemoQuestionSeed[] = [
 /** Mirrors the backfill convention used by the `organization_management` migration (duplicated
  * from `seed.ts` rather than imported — see this file's header comment). */
 function codeFromName(name: string): string {
-  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  return name
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_');
 }
 
 async function main(): Promise<void> {
+  await warmDatabasePool();
   // 1. Departments ------------------------------------------------------------------------
   const departments = await Promise.all(
     DEMO_DEPARTMENT_NAMES.map((name) =>
@@ -318,7 +328,8 @@ async function main(): Promise<void> {
       id: DEMO_MODULE_ID,
       courseId: course.id,
       title: 'Getting Started with Media Data',
-      description: "Foundational concepts every trainee needs before diving into the team's analytics tooling.",
+      description:
+        "Foundational concepts every trainee needs before diving into the team's analytics tooling.",
       order: 1,
       estimatedDurationMinutes: 45,
       isPublished: true,
@@ -471,7 +482,8 @@ async function main(): Promise<void> {
     create: {
       id: DEMO_CALENDAR_EVENT_ID,
       title: 'Media Data Batch Kickoff Review',
-      description: 'A live kickoff session covering the course roadmap and quiz expectations for both demo batches.',
+      description:
+        'A live kickoff session covering the course roadmap and quiz expectations for both demo batches.',
       type: CalendarEventType.LIVE_SESSION,
       startAt: eventStartAt,
       endAt: eventEndAt,
@@ -488,15 +500,26 @@ async function main(): Promise<void> {
     prisma.calendarEventAssignment.upsert({
       where: { id: DEMO_CALENDAR_ASSIGNMENT_DEPARTMENT_ID },
       update: {},
-      create: { id: DEMO_CALENDAR_ASSIGNMENT_DEPARTMENT_ID, eventId: calendarEvent.id, departmentId: mediaDepartment.id },
+      create: {
+        id: DEMO_CALENDAR_ASSIGNMENT_DEPARTMENT_ID,
+        eventId: calendarEvent.id,
+        departmentId: mediaDepartment.id,
+      },
     }),
     prisma.calendarEventAssignment.upsert({
       where: { id: DEMO_CALENDAR_ASSIGNMENT_GROUP_ID },
       update: {},
-      create: { id: DEMO_CALENDAR_ASSIGNMENT_GROUP_ID, eventId: calendarEvent.id, groupId: experiencedBatch.id },
+      create: {
+        id: DEMO_CALENDAR_ASSIGNMENT_GROUP_ID,
+        eventId: calendarEvent.id,
+        groupId: experiencedBatch.id,
+      },
     }),
   ]);
   logger.info(`[demo] Seeded calendar event "${calendarEvent.title}".`);
+
+  const refreshed = await aggregationService.refreshAll();
+  logger.info('[demo] Warmed analytics caches.', refreshed);
 
   logger.info('[demo] Demo data seed complete.');
 }
@@ -507,5 +530,5 @@ main()
     process.exitCode = 1;
   })
   .finally(() => {
-    void prisma.$disconnect();
+    void disconnectDatabase();
   });

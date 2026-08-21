@@ -13,7 +13,8 @@ const controller = new AuthController();
 router.post('/login', loginRateLimiter, authValidation.login, controller.login);
 router.post('/logout', controller.logout);
 router.post('/refresh', controller.refresh);
-router.post('/forgot-password', authValidation.forgotPassword, controller.forgotPassword);
+router.post('/forgot-password', loginRateLimiter, authValidation.forgotPassword, controller.forgotPassword);
+router.post('/reset-password', loginRateLimiter, authValidation.resetPassword, controller.resetPassword);
 
 router.post('/change-password', authenticate, authValidation.changePassword, controller.changePassword);
 router.get('/me', authenticate, controller.me);

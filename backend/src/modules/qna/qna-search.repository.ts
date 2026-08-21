@@ -1,5 +1,6 @@
 import type { Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const questionSearchInclude = {
@@ -39,7 +40,10 @@ export class QnaSearchRepository extends BaseRepository {
     if (actor.role !== 'TRAINER' && actor.role !== 'SUPER_ADMIN') {
       const [user, memberships] = await Promise.all([
         this.db.user.findUnique({ where: { id: actor.id }, select: { departmentId: true } }),
-        this.db.groupMember.findMany({ where: { userId: actor.id }, select: { groupId: true } }),
+        this.db.groupMember.findMany({
+          where: activeGroupMembershipWhere(actor.id),
+          select: { groupId: true },
+        }),
       ]);
       const groupIds = memberships.map((membership) => membership.groupId);
 
@@ -79,7 +83,9 @@ export class QnaSearchRepository extends BaseRepository {
       title: { contains: q, mode: 'insensitive' },
     };
     if (actor.role !== 'TRAINER' && actor.role !== 'SUPER_ADMIN') {
-      where.groupAssignments = { some: { group: { members: { some: { userId: actor.id } } } } };
+      where.groupAssignments = {
+        some: { group: activeGroupScope({ members: { some: { userId: actor.id } } }) },
+      };
     }
     return this.db.course.findMany({ where, select: { id: true, title: true }, take, orderBy: { title: 'asc' } });
   }
@@ -100,7 +106,11 @@ export class QnaSearchRepository extends BaseRepository {
           status: 'PUBLISHED',
           deletedAt: null,
           ...(actor.role !== 'TRAINER' && actor.role !== 'SUPER_ADMIN'
-            ? { groupAssignments: { some: { group: { members: { some: { userId: actor.id } } } } } }
+            ? {
+                groupAssignments: {
+                  some: { group: activeGroupScope({ members: { some: { userId: actor.id } } }) },
+                },
+              }
             : {}),
         },
       },

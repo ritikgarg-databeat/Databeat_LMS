@@ -1,5 +1,6 @@
 import type { Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const commentWithAuthorInclude = {
@@ -57,7 +58,9 @@ export class QnaCommentsRepository extends BaseRepository {
 
     if (question.visibility === 'GROUP') {
       if (!question.groupId) return false;
-      const membership = await this.db.groupMember.findFirst({ where: { userId, groupId: question.groupId } });
+      const membership = await this.db.groupMember.findFirst({
+        where: activeGroupMembershipWhere(userId, { id: question.groupId }),
+      });
       return membership !== null;
     }
 

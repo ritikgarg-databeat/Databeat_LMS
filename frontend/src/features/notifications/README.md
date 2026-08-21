@@ -12,4 +12,5 @@ In-app notification center and per-user notification preferences.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented notification center includes unread counts, read/read-all/delete actions, assignment,
+deadline, Q&A, announcement, and released-result navigation plus per-type preferences.

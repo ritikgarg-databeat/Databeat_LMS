@@ -6,6 +6,7 @@ import { BaseService } from '@/services/base.service';
 import { storageProvider } from '@/storage';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
 import { logger } from '@/utils/logger';
+import { assertUploadMatchesDeclaredType, removeTemporaryUpload } from '@/utils/upload-safety.util';
 
 import type { CreateTextResourceDto, UploadResourceDto } from './resources.dto';
 import { ResourcesRepository } from './resources.repository';
@@ -31,76 +32,128 @@ export class ResourcesService extends BaseService {
     lessonId: string,
     dto: UploadResourceDto,
     file: Express.Multer.File,
-    actorId: string,
+    actor: Actor,
     ipAddress?: string | null,
   ) {
-    await this.findLessonOrThrow(lessonId);
+    await this.assertLessonReadable(lessonId, actor);
     this.assertFileBackedType(dto.type);
     this.assertAcceptedMimeType(file.mimetype);
     this.assertFileSizeWithinLimit(file.size);
 
-    const { relativePath } = await storageProvider.save({
-      buffer: file.buffer,
-      originalName: file.originalname,
-      entityType: 'lesson-resources',
-    });
+    let relativePath: string;
+    try {
+      await assertUploadMatchesDeclaredType(file);
+      ({ relativePath } = await storageProvider.save({
+        tempPath: file.path,
+        buffer: file.buffer,
+        originalName: file.originalname,
+        entityType: 'lesson-resources',
+      }));
+    } catch (error) {
+      await removeTemporaryUpload(file).catch(() => undefined);
+      throw error;
+    }
 
-    const order = await this.repository.findNextOrder(lessonId);
+    let result: Awaited<ReturnType<ResourcesRepository['createAndInvalidateLearning']>>;
+    try {
+      const order = await this.repository.findNextOrder(lessonId);
+      result = await this.repository.createAndInvalidateLearning(lessonId, {
+        lesson: { connect: { id: lessonId } },
+        type: dto.type,
+        title: dto.title,
+        relativePath,
+        originalFilename: file.originalname,
+        mimeType: file.mimetype,
+        fileSizeBytes: file.size,
+        order,
+        createdBy: { connect: { id: actor.id } },
+      });
+    } catch (error) {
+      // The file is written before the database transaction. Roll it back if ordering, resource
+      // creation, progress reopening, or quiz invalidation fails so storage cannot gain an orphan.
+      await storageProvider.delete({ relativePath }).catch((cleanupError: unknown) => {
+        logger.error('Failed to roll back lesson resource file after database failure', {
+          cleanupError,
+          lessonId,
+          relativePath,
+        });
+      });
+      throw error;
+    }
 
-    const created = await this.repository.create({
-      lesson: { connect: { id: lessonId } },
-      type: dto.type,
-      title: dto.title,
-      relativePath,
-      originalFilename: file.originalname,
-      mimeType: file.mimetype,
-      fileSizeBytes: file.size,
-      order,
-      createdBy: { connect: { id: actorId } },
-    });
+    const { resource: created, contentVersion, reopenedLearnerCount, invalidatedQuizCount } = result;
 
     await auditLogService.record({
       action: 'RESOURCE_UPLOADED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: {
         lessonId,
         resourceId: created.id,
         type: created.type,
         originalFilename: created.originalFilename,
+        contentVersion,
+        reopenedLearnerCount,
+        invalidatedQuizCount,
       },
     });
 
     return created;
   }
 
-  async createTextResource(lessonId: string, dto: CreateTextResourceDto, actorId: string, ipAddress?: string | null) {
-    await this.findLessonOrThrow(lessonId);
+  async createTextResource(
+    lessonId: string,
+    dto: CreateTextResourceDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ) {
+    await this.assertLessonReadable(lessonId, actor);
     this.assertTextBackedType(dto.type);
 
     const order = await this.repository.findNextOrder(lessonId);
 
-    const created = await this.repository.create({
+    const {
+      resource: created,
+      contentVersion,
+      reopenedLearnerCount,
+      invalidatedQuizCount,
+    } = await this.repository.createAndInvalidateLearning(lessonId, {
       lesson: { connect: { id: lessonId } },
       type: dto.type,
       title: dto.title,
       content: dto.content,
       order,
-      createdBy: { connect: { id: actorId } },
+      createdBy: { connect: { id: actor.id } },
     });
 
     await auditLogService.record({
       action: 'RESOURCE_UPLOADED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
-      metadata: { lessonId, resourceId: created.id, type: created.type },
+      metadata: {
+        lessonId,
+        resourceId: created.id,
+        type: created.type,
+        contentVersion,
+        reopenedLearnerCount,
+        invalidatedQuizCount,
+      },
     });
 
     return created;
   }
 
-  async remove(lessonId: string, resourceId: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async remove(
+    lessonId: string,
+    resourceId: string,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<void> {
+    await this.assertLessonReadable(lessonId, actor);
     const resource = await this.findResourceOrThrow(lessonId, resourceId);
+
+    const { contentVersion, reopenedLearnerCount, invalidatedQuizCount } =
+      await this.repository.deleteAndInvalidateLearning(lessonId, resourceId);
 
     if (resource.relativePath) {
       try {
@@ -115,13 +168,19 @@ export class ResourcesService extends BaseService {
       }
     }
 
-    await this.repository.delete(resourceId);
-
     await auditLogService.record({
       action: 'RESOURCE_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
-      metadata: { lessonId, resourceId: resource.id, type: resource.type, title: resource.title },
+      metadata: {
+        lessonId,
+        resourceId: resource.id,
+        type: resource.type,
+        title: resource.title,
+        contentVersion,
+        reopenedLearnerCount,
+        invalidatedQuizCount,
+      },
     });
   }
 
@@ -144,19 +203,8 @@ export class ResourcesService extends BaseService {
    * inaccessible lesson is never leaked.
    */
   private async assertLessonReadable(lessonId: string, actor: Actor): Promise<void> {
-    if (actor.role === 'TRAINER' || actor.role === 'SUPER_ADMIN') {
-      await this.findLessonOrThrow(lessonId);
-      return;
-    }
-
     const accessible = await this.repository.isLessonAccessibleToUser(lessonId, actor.id, actor.role);
     if (!accessible) throw new ForbiddenError("You don't have permission to access this lesson's resources.");
-  }
-
-  private async findLessonOrThrow(lessonId: string) {
-    const lesson = await this.repository.findLessonById(lessonId);
-    if (!lesson) throw new NotFoundError('Lesson not found.');
-    return lesson;
   }
 
   private async findResourceOrThrow(lessonId: string, resourceId: string) {
@@ -189,7 +237,9 @@ export class ResourcesService extends BaseService {
 
   private assertFileSizeWithinLimit(sizeBytes: number): void {
     if (sizeBytes > MAX_LESSON_FILE_SIZE_BYTES) {
-      throw new BadRequestError(`File exceeds the maximum allowed size of ${MAX_LESSON_FILE_SIZE_BYTES} bytes.`);
+      throw new BadRequestError(
+        `File exceeds the maximum allowed size of ${MAX_LESSON_FILE_SIZE_BYTES} bytes.`,
+      );
     }
   }
 }

@@ -8,6 +8,7 @@ import { useTrainerDashboardQuery } from '@/features/analytics/hooks';
 import type { GroupAnalyticsRow, TrainerDashboard } from '@/features/analytics/types';
 import { TrainerQnaWidget } from '@/features/qna/components';
 
+import { DeferredDashboardSection } from '../components/deferred-dashboard-section';
 import type { RecentActivityItem } from '../components/recent-activity-widget';
 import { RecentActivityWidget } from '../components/recent-activity-widget';
 import { TrainerGroupAnalyticsTable } from '../components/trainer-group-analytics-table';
@@ -139,19 +140,31 @@ function TrainerDashboardPage() {
       </motion.div>
 
       <motion.div {...itemMotionProps}>
-        <TrainerQnaWidget />
+        <DeferredDashboardSection placeholderClassName="h-64">
+          <TrainerQnaWidget />
+        </DeferredDashboardSection>
       </motion.div>
       <motion.div {...itemMotionProps}>
-        <AiUsageOverviewCard />
+        <DeferredDashboardSection>
+          <AiUsageOverviewCard />
+        </DeferredDashboardSection>
       </motion.div>
 
       {/* New sections (Prompt 9 § Part A) — appended below existing sections, not reordered. */}
       <motion.div {...newSectionMotionProps}>
-        {data ? <TrainerQuickActions pendingGradingCount={data.pendingGradingCount} /> : <Skeleton className="h-32 w-full" />}
+        {data ? (
+          <TrainerQuickActions pendingGradingCount={data.pendingGradingCount} />
+        ) : (
+          <Skeleton className="h-32 w-full" />
+        )}
       </motion.div>
 
       <motion.div {...newSectionMotionProps}>
-        {data ? <RecentActivityWidget items={buildTrainerActivityItems(data)} /> : <Skeleton className="h-48 w-full" />}
+        {data ? (
+          <RecentActivityWidget items={buildTrainerActivityItems(data)} />
+        ) : (
+          <Skeleton className="h-48 w-full" />
+        )}
       </motion.div>
     </motion.div>
   );

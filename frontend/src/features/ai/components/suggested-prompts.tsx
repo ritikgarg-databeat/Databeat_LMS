@@ -8,7 +8,11 @@ import { Button } from '@/components/ui/button';
 import type { AiExplanationLevel, AiFeature } from '../types';
 
 export interface SuggestedPromptsProps {
-  onSelect: (feature: AiFeature, explanationLevel: AiExplanationLevel | undefined, promptText: string) => void;
+  onSelect: (
+    feature: AiFeature,
+    explanationLevel: AiExplanationLevel | undefined,
+    promptText: string,
+  ) => void;
   /** Whether this conversation is scoped to a lesson. Suggestions are useful either way — a
    * plain CHAT-mode conversation still benefits from these prompts, the backend's system prompt
    * just won't have lesson-specific material to draw from. Only used to tweak the lead-in copy. */
@@ -24,7 +28,7 @@ interface Suggestion {
   icon: LucideIcon;
 }
 
-const SUGGESTIONS: Suggestion[] = [
+const LESSON_SUGGESTIONS: Suggestion[] = [
   {
     label: 'Explain this simply',
     feature: 'EXPLAIN_TOPIC',
@@ -59,14 +63,46 @@ const SUGGESTIONS: Suggestion[] = [
   },
 ];
 
+const MAIN_TUTOR_SUGGESTIONS: Suggestion[] = [
+  {
+    label: 'What can you help with?',
+    feature: 'CHAT',
+    promptText: 'What learning topics can you help me with based on my assigned courses?',
+    icon: MessageCircleQuestion,
+  },
+  {
+    label: 'Build a study plan',
+    feature: 'CHAT',
+    promptText: 'Help me create a study plan for my assigned courses.',
+    icon: ListChecks,
+  },
+  {
+    label: 'Explain a course topic',
+    feature: 'EXPLAIN_TOPIC',
+    explanationLevel: 'BEGINNER',
+    promptText: '',
+    icon: Lightbulb,
+  },
+  {
+    label: 'Practice a course topic',
+    feature: 'GENERATE_PRACTICE_QUESTIONS',
+    promptText: '',
+    icon: Sparkles,
+  },
+];
+
 function SuggestedPrompts({ onSelect, hasLessonContext }: SuggestedPromptsProps) {
+  const suggestions = hasLessonContext ? LESSON_SUGGESTIONS : MAIN_TUTOR_SUGGESTIONS;
+
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-4">
       <p className="text-sm text-muted-foreground">
-        {hasLessonContext ? 'Get started with a suggestion for this lesson:' : 'Get started with a suggestion:'}
+        {hasLessonContext
+          ? 'Get started with a suggestion for this lesson:'
+          : 'Get started with a suggestion:'}
       </p>
       <div className="flex flex-wrap gap-2">
-        {SUGGESTIONS.map((suggestion) => (
+        {suggestions.map((suggestion) => (
           <Button
             key={suggestion.label}
             type="button"

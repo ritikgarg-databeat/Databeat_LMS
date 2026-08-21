@@ -7,7 +7,7 @@
 // rendered optimistically from local state (see `ChatTurn` below) rather than waiting on/relying
 // on a refetch, and a failed send leaves the user's own bubble in place with an inline error
 // note instead of disappearing.
-import { BookOpen, History, Plus, Send } from 'lucide-react';
+import { BookOpen, History, Plus, Send, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -137,7 +137,11 @@ function AiChatPage() {
   const [explanationLevel, setExplanationLevel] = useState<AiExplanationLevel | undefined>(undefined);
   const [inputValue, setInputValue] = useState('');
 
-  function sendMessage(rawText: string, sendFeature: AiFeature, sendExplanationLevel: AiExplanationLevel | undefined) {
+  function sendMessage(
+    rawText: string,
+    sendFeature: AiFeature,
+    sendExplanationLevel: AiExplanationLevel | undefined,
+  ) {
     const trimmed = rawText.trim();
     if (!trimmed || chatMutation.isPending) return;
 
@@ -258,7 +262,11 @@ function AiChatPage() {
     );
   }
 
-  const isInitialConversationLoading = Boolean(conversationId) && conversationQuery.isLoading && turns.length === 0;
+  const isInitialConversationLoading =
+    Boolean(conversationId) && conversationQuery.isLoading && turns.length === 0;
+  const visibleFeatureOptions = effectiveLessonId
+    ? FEATURE_OPTIONS
+    : FEATURE_OPTIONS.filter((option) => option.value !== 'SUMMARIZE_LESSON');
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
@@ -271,6 +279,12 @@ function AiChatPage() {
               {contextLesson?.title ?? 'Lesson-scoped conversation'}
             </Badge>
           ) : null}
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="size-3.5" aria-hidden />
+            {effectiveLessonId
+              ? 'Answers are restricted to this lesson and its provided materials.'
+              : 'Answers are restricted to your department, assigned courses, and learning topics.'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => navigate(AI_HISTORY_PATH)}>
@@ -289,7 +303,10 @@ function AiChatPage() {
               <Spinner />
             </div>
           ) : turns.length === 0 ? (
-            <SuggestedPrompts onSelect={handleSuggestedPromptSelect} hasLessonContext={Boolean(effectiveLessonId)} />
+            <SuggestedPrompts
+              onSelect={handleSuggestedPromptSelect}
+              hasLessonContext={Boolean(effectiveLessonId)}
+            />
           ) : (
             turns.map((turn, index) => {
               const isLast = index === turns.length - 1;
@@ -315,7 +332,7 @@ function AiChatPage() {
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          {FEATURE_OPTIONS.map((option) => (
+          {visibleFeatureOptions.map((option) => (
             <Button
               key={option.value}
               type="button"
@@ -358,7 +375,11 @@ function AiChatPage() {
                 handleSend();
               }
             }}
-            placeholder="Ask the AI Learning Assistant..."
+            placeholder={
+              effectiveLessonId
+                ? 'Ask a question about this lesson...'
+                : 'Ask about your courses or learning topics...'
+            }
             rows={2}
             className="resize-none"
           />

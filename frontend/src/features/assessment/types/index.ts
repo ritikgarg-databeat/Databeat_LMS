@@ -182,6 +182,7 @@ export interface Assessment {
   negativeMarksPerWrongAnswer: number | null;
   randomizeQuestions: boolean;
   showResultImmediately: boolean;
+  resultsReleasedAt: string | null;
   status: AssessmentStatus;
   createdById: string | null;
   deletedAt: string | null;
@@ -399,7 +400,10 @@ export interface Attempt {
   userId: string;
   status: AssessmentAttemptStatus;
   startedAt: string;
+  expiresAt: string;
+  remainingSeconds: number;
   submittedAt: string | null;
+  submissionReason: 'LEARNER' | 'TIME_EXPIRED' | 'DUE_DATE_REACHED' | 'ADMIN' | null;
   gradedAt: string | null;
   timeSpentSeconds: number;
   totalScore: number | null;

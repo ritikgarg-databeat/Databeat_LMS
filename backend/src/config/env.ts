@@ -24,8 +24,19 @@ const nodeEnv = readOptionalEnv('NODE_ENV', 'development');
 export const env = {
   NODE_ENV: nodeEnv,
   PORT: Number(readOptionalEnv('PORT', '5000')),
+  TRUST_PROXY: readOptionalEnv('TRUST_PROXY', 'false'),
+  RUN_SCHEDULER: readOptionalEnv('RUN_SCHEDULER', 'false') === 'true',
+  RATE_LIMIT_STORE: readOptionalEnv('RATE_LIMIT_STORE', nodeEnv === 'production' ? 'postgres' : 'memory'),
+  EXPIRED_SECURITY_DATA_RETENTION_DAYS: Number(readOptionalEnv('EXPIRED_SECURITY_DATA_RETENTION_DAYS', '30')),
+  RUN_RETENTION_CLEANUP: readOptionalEnv('RUN_RETENTION_CLEANUP', 'false') === 'true',
 
   DATABASE_URL: readRequiredEnv('DATABASE_URL'),
+  DATABASE_POOL_MAX: Number(readOptionalEnv('DATABASE_POOL_MAX', '4')),
+  DATABASE_POOL_WARM_CONNECTIONS: Number(readOptionalEnv('DATABASE_POOL_WARM_CONNECTIONS', '4')),
+  DATABASE_WORKER_POOL_MAX: Number(readOptionalEnv('DATABASE_WORKER_POOL_MAX', '1')),
+  DATABASE_WORKER_POOL_WARM_CONNECTIONS: Number(
+    readOptionalEnv('DATABASE_WORKER_POOL_WARM_CONNECTIONS', '1'),
+  ),
 
   JWT_SECRET: readRequiredEnv('JWT_SECRET'),
   JWT_REFRESH_SECRET: readRequiredEnv('JWT_REFRESH_SECRET'),
@@ -43,7 +54,14 @@ export const env = {
   // origin regardless of this value). Dev/test keep the fallback so a bare `npm run dev` still
   // works without a .env override.
   CORS_ORIGIN:
-    nodeEnv === 'production' ? readRequiredEnv('CORS_ORIGIN') : readOptionalEnv('CORS_ORIGIN', 'http://localhost:5173'),
+    nodeEnv === 'production'
+      ? readRequiredEnv('CORS_ORIGIN')
+      : readOptionalEnv('CORS_ORIGIN', 'http://localhost:5173'),
+
+  PASSWORD_RESET_URL: readOptionalEnv('PASSWORD_RESET_URL', 'http://localhost:5173/reset-password'),
+  PASSWORD_RESET_EXPIRES_MINUTES: Number(readOptionalEnv('PASSWORD_RESET_EXPIRES_MINUTES', '30')),
+  EMAIL_WEBHOOK_URL: readOptionalEnv('EMAIL_WEBHOOK_URL', ''),
+  EMAIL_WEBHOOK_BEARER_TOKEN: readOptionalEnv('EMAIL_WEBHOOK_BEARER_TOKEN', ''),
 
   // Seed-only (backend/src/prisma/seed.ts) — the first Super Admin account created on a fresh
   // database. Override in any shared environment and change the password immediately after

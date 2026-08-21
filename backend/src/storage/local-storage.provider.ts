@@ -22,7 +22,7 @@ export class LocalStorageProvider implements StorageProvider {
     this.rootDir = path.resolve(rootDir);
   }
 
-  async save({ buffer, originalName, entityType }: SaveFileInput): Promise<StoredFilePointer> {
+  async save({ buffer, tempPath, originalName, entityType }: SaveFileInput): Promise<StoredFilePointer> {
     if (!ENTITY_TYPE_PATTERN.test(entityType)) {
       throw new Error(`Invalid entityType for file storage: ${entityType}`);
     }
@@ -32,7 +32,17 @@ export class LocalStorageProvider implements StorageProvider {
     const absolutePath = path.join(this.rootDir, relativePath);
 
     await fsPromises.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fsPromises.writeFile(absolutePath, buffer);
+    if (tempPath) {
+      try {
+        await fsPromises.copyFile(tempPath, absolutePath);
+      } finally {
+        await fsPromises.rm(tempPath, { force: true });
+      }
+    } else if (buffer) {
+      await fsPromises.writeFile(absolutePath, buffer);
+    } else {
+      throw new Error('File storage requires either buffer or tempPath.');
+    }
 
     return { relativePath };
   }
@@ -41,11 +51,29 @@ export class LocalStorageProvider implements StorageProvider {
     return fs.createReadStream(this.resolve(pointer));
   }
 
+  async copy(pointer: StoredFilePointer, originalName: string, entityType: string): Promise<StoredFilePointer> {
+    if (!ENTITY_TYPE_PATTERN.test(entityType)) throw new Error(`Invalid entityType for file storage: ${entityType}`);
+    const relativePath = path.join(entityType, generateSafeFilename(originalName));
+    const absolutePath = path.join(this.rootDir, relativePath);
+    await fsPromises.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fsPromises.copyFile(this.resolve(pointer), absolutePath);
+    return { relativePath };
+  }
+
   async delete(pointer: StoredFilePointer): Promise<void> {
     await fsPromises.rm(this.resolve(pointer), { force: true });
   }
 
+  async checkHealth(): Promise<void> {
+    await fsPromises.mkdir(this.rootDir, { recursive: true });
+    await fsPromises.access(this.rootDir, fs.constants.R_OK | fs.constants.W_OK);
+  }
+
   private resolve(pointer: StoredFilePointer): string {
-    return path.join(this.rootDir, pointer.relativePath);
+    const resolved = path.resolve(this.rootDir, pointer.relativePath);
+    if (resolved !== this.rootDir && !resolved.startsWith(`${this.rootDir}${path.sep}`)) {
+      throw new Error('Invalid storage pointer outside the configured upload root.');
+    }
+    return resolved;
   }
 }

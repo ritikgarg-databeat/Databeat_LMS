@@ -8,6 +8,7 @@ import type { PaginatedData } from '@/types/common';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
 import { logger } from '@/utils/logger';
 import { buildPaginationMeta } from '@/utils/pagination.util';
+import { assertUploadMatchesDeclaredType } from '@/utils/upload-safety.util';
 
 import type {
   CreateQnaQuestionDto,
@@ -185,6 +186,7 @@ export class QnaQuestionsService extends BaseService {
 
     this.assertAcceptedMimeType(file.mimetype);
     this.assertFileSizeWithinLimit(file.size);
+    await assertUploadMatchesDeclaredType(file);
 
     const { relativePath } = await storageProvider.save({
       buffer: file.buffer,

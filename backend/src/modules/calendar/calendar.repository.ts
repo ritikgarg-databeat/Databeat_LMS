@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 
+import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { CalendarEventListFilters } from './calendar.types';
@@ -44,7 +45,7 @@ function buildStartAtFilter(filters: CalendarEventListFilters): Prisma.DateTimeF
 // Data-access layer for the calendar module. Only this class may query Prisma directly
 // (see ARCHITECTURE.md §3.1) — services must go through it, never Prisma directly.
 export class CalendarRepository extends BaseRepository {
-  findMany(filters: CalendarEventListFilters) {
+  findMany(filters: CalendarEventListFilters, trainerId?: string) {
     const startAt = buildStartAtFilter(filters);
     const hasRange = Boolean(filters.from || filters.to);
 
@@ -52,6 +53,26 @@ export class CalendarRepository extends BaseRepository {
       deletedAt: null,
       ...(startAt ? { startAt } : {}),
       ...(filters.type ? { type: filters.type } : {}),
+      ...(trainerId
+        ? {
+            OR: [
+              { createdById: trainerId },
+              { assignments: { some: { group: { trainerId, deletedAt: null } } } },
+              {
+                assignments: {
+                  some: {
+                    department: {
+                      OR: [
+                        { users: { some: { id: trainerId } } },
+                        { groups: { some: { trainerId, deletedAt: null } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
     };
 
     return this.db.calendarEvent.findMany({
@@ -62,6 +83,43 @@ export class CalendarRepository extends BaseRepository {
       orderBy: { startAt: hasRange ? 'asc' : 'desc' },
       ...(hasRange ? {} : { take: MAX_UNBOUNDED_EVENTS }),
     });
+  }
+
+  async isOwnedBy(eventId: string, userId: string): Promise<boolean> {
+    return (
+      (await this.db.calendarEvent.findFirst({
+        where: { id: eventId, createdById: userId, deletedAt: null },
+        select: { id: true },
+      })) !== null
+    );
+  }
+
+  async isInTrainerViewScope(eventId: string, trainerId: string): Promise<boolean> {
+    return (
+      (await this.db.calendarEvent.findFirst({
+        where: {
+          id: eventId,
+          deletedAt: null,
+          OR: [
+            { createdById: trainerId },
+            { assignments: { some: { group: { trainerId, deletedAt: null } } } },
+            {
+              assignments: {
+                some: {
+                  department: {
+                    OR: [
+                      { users: { some: { id: trainerId } } },
+                      { groups: { some: { trainerId, deletedAt: null } } },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      })) !== null
+    );
   }
 
   findById(id: string) {
@@ -128,10 +186,20 @@ export class CalendarRepository extends BaseRepository {
   async findAssignedUserIds(departmentIds: string[], groupIds: string[]): Promise<string[]> {
     const [departmentUsers, groupMembers] = await Promise.all([
       departmentIds.length > 0
-        ? this.db.user.findMany({ where: { departmentId: { in: departmentIds } }, select: { id: true } })
+        ? this.db.user.findMany({
+            where: { departmentId: { in: departmentIds }, isActive: true },
+            select: { id: true },
+          })
         : Promise.resolve([]),
       groupIds.length > 0
-        ? this.db.groupMember.findMany({ where: { groupId: { in: groupIds } }, select: { userId: true } })
+        ? this.db.groupMember.findMany({
+            where: {
+              groupId: { in: groupIds },
+              group: activeGroupScope(),
+              user: { isActive: true },
+            },
+            select: { userId: true },
+          })
         : Promise.resolve([]),
     ]);
 
@@ -143,7 +211,10 @@ export class CalendarRepository extends BaseRepository {
 
   /** Distinct groupIds `userId` belongs to — used to resolve `/calendar/events/mine` and access checks. */
   async findUserGroupIds(userId: string): Promise<string[]> {
-    const memberships = await this.db.groupMember.findMany({ where: { userId }, select: { groupId: true } });
+    const memberships = await this.db.groupMember.findMany({
+      where: activeGroupMembershipWhere(userId),
+      select: { groupId: true },
+    });
     return memberships.map((membership) => membership.groupId);
   }
 
@@ -153,22 +224,22 @@ export class CalendarRepository extends BaseRepository {
    * AND a matching group must still be returned once — `some` on the join already guarantees
    * this since it matches the parent CalendarEvent row, not the individual assignment rows).
    */
-  findMine(departmentId: string | null, groupIds: string[], filters: CalendarEventListFilters) {
-    const orConditions: Prisma.CalendarEventAssignmentWhereInput[] = [];
-    if (departmentId) orConditions.push({ departmentId });
-    if (groupIds.length > 0) orConditions.push({ groupId: { in: groupIds } });
-
-    // No department and no group memberships at all — nothing can possibly match, and an empty
-    // `OR: []` array is not a safe substitute (would need special-casing either way).
-    if (orConditions.length === 0) return Promise.resolve([]);
-
+  findMine(userId: string, filters: CalendarEventListFilters) {
     const startAt = buildStartAtFilter(filters);
 
     return this.db.calendarEvent.findMany({
       where: {
         deletedAt: null,
         ...(startAt ? { startAt } : {}),
-        assignments: { some: { OR: orConditions } },
+        assignments: {
+          some: {
+            OR: [
+              { userId },
+              { department: { users: { some: { id: userId } } } },
+              { group: activeGroupScope({ members: { some: { userId } } }) },
+            ],
+          },
+        },
       },
       select: mineSelect,
       orderBy: { startAt: 'asc' },

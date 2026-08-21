@@ -269,9 +269,9 @@ function AssessmentPlayerPage() {
   );
 
   const totalSeconds = useMemo(() => {
-    if (!assessment || !attempt) return 0;
-    return Math.max(0, assessment.durationMinutes * 60 - attempt.timeSpentSeconds);
-  }, [assessment, attempt]);
+    if (!attempt) return 0;
+    return attempt.remainingSeconds;
+  }, [attempt]);
 
   if (!id) return null;
 

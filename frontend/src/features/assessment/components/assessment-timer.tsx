@@ -1,5 +1,5 @@
 // A real, self-enforcing exam countdown — not decorative. Ticks down once per second from
-// `totalSeconds` (computed by the parent as `durationMinutes * 60 - attempt.timeSpentSeconds`) and
+// `totalSeconds` (computed server-side from the immutable attempt expiry) and
 // calls `onExpire` exactly once when it reaches zero, regardless of React 19 StrictMode's dev-only
 // double-invocation of effects (guarded by `hasExpiredRef`, mirroring the ref-guard pattern used
 // for the mount effect in `lesson-viewer-page.tsx`).

@@ -46,11 +46,14 @@ export class GroupMembersService extends BaseService {
     sortBy: GroupMemberSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<unknown>> {
-    await this.findGroupOrThrow(groupId);
+    const group = await this.findGroupOrThrow(groupId);
 
     if (actor.role === 'TRAINEE') {
       const isMember = await this.groupsRepository.isMember(groupId, actor.id);
       if (!isMember) throw new ForbiddenError("You don't have permission to view this group's members.");
+    }
+    if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to view this group's members.");
     }
 
     const { items, total } = await this.repository.findMany(
@@ -60,13 +63,26 @@ export class GroupMembersService extends BaseService {
       pageSize,
       sortBy,
       sortOrder,
+      actor.role !== 'TRAINEE',
     );
-    return { items, meta: buildPaginationMeta(page, pageSize, total) };
+    const safeItems =
+      actor.role === 'TRAINEE'
+        ? items.map((item) => ({
+            ...item,
+            user: {
+              id: item.user.id,
+              firstName: item.user.firstName,
+              lastName: item.user.lastName,
+            },
+          }))
+        : items;
+    return { items: safeItems, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async add(groupId: string, dto: AddGroupMemberDto, actorId: string, ipAddress?: string | null) {
+  async add(groupId: string, dto: AddGroupMemberDto, actor: Actor, ipAddress?: string | null) {
     const startedAt = Date.now();
     const group = await this.findGroupOrThrow(groupId);
+    this.assertGroupInScope(group, actor);
     const user = await this.assertTraineeExists(dto.userId);
 
     const existing = await this.repository.findOne(groupId, dto.userId);
@@ -74,11 +90,11 @@ export class GroupMembersService extends BaseService {
 
     await this.assertCapacityAvailable(group, 1);
 
-    const member = await this.repository.add(groupId, dto.userId, actorId);
+    const member = await this.repository.add(groupId, dto.userId, actor.id);
 
     await auditLogService.record({
       action: 'GROUP_MEMBER_ADDED',
-      actorId,
+      actorId: actor.id,
       targetUserId: user.id,
       ipAddress,
       metadata: { groupId, durationMs: Date.now() - startedAt },
@@ -87,8 +103,9 @@ export class GroupMembersService extends BaseService {
     return member;
   }
 
-  async addMany(groupId: string, dto: AddGroupMembersDto, actorId: string, ipAddress?: string | null) {
+  async addMany(groupId: string, dto: AddGroupMembersDto, actor: Actor, ipAddress?: string | null) {
     const group = await this.findGroupOrThrow(groupId);
+    this.assertGroupInScope(group, actor);
     const uniqueIds = Array.from(new Set(dto.userIds));
 
     const validated: string[] = [];
@@ -101,10 +118,10 @@ export class GroupMembersService extends BaseService {
     await this.assertCapacityAvailable(group, validated.length);
 
     if (validated.length) {
-      await this.repository.addMany(groupId, validated, actorId);
+      await this.repository.addMany(groupId, validated, actor.id);
       await auditLogService.record({
         action: 'GROUP_MEMBER_ADDED',
-        actorId,
+        actorId: actor.id,
         ipAddress,
         metadata: { groupId, userIds: validated },
       });
@@ -113,8 +130,9 @@ export class GroupMembersService extends BaseService {
     return { added: validated.length, skipped: uniqueIds.length - validated.length };
   }
 
-  async remove(groupId: string, userId: string, actorId: string, ipAddress?: string | null): Promise<void> {
-    await this.findGroupOrThrow(groupId);
+  async remove(groupId: string, userId: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+    const group = await this.findGroupOrThrow(groupId);
+    this.assertGroupInScope(group, actor);
     const existing = await this.repository.findOne(groupId, userId);
     if (!existing) throw new NotFoundError('This user is not a member of the group.');
 
@@ -122,7 +140,7 @@ export class GroupMembersService extends BaseService {
 
     await auditLogService.record({
       action: 'GROUP_MEMBER_REMOVED',
-      actorId,
+      actorId: actor.id,
       targetUserId: userId,
       ipAddress,
       metadata: { groupId },
@@ -133,13 +151,15 @@ export class GroupMembersService extends BaseService {
     groupId: string,
     userId: string,
     dto: TransferGroupMemberDto,
-    actorId: string,
+    actor: Actor,
     ipAddress?: string | null,
   ) {
     if (dto.toGroupId === groupId) throw new BadRequestError('Source and destination group are the same.');
 
-    await this.findGroupOrThrow(groupId);
+    const sourceGroup = await this.findGroupOrThrow(groupId);
     const targetGroup = await this.findGroupOrThrow(dto.toGroupId);
+    this.assertGroupInScope(sourceGroup, actor);
+    this.assertGroupInScope(targetGroup, actor);
 
     const membership = await this.repository.findOne(groupId, userId);
     if (!membership) throw new NotFoundError('This user is not a member of the source group.');
@@ -150,11 +170,11 @@ export class GroupMembersService extends BaseService {
     await this.assertCapacityAvailable(targetGroup, 1);
 
     await this.repository.remove(groupId, userId);
-    const member = await this.repository.add(dto.toGroupId, userId, actorId);
+    const member = await this.repository.add(dto.toGroupId, userId, actor.id);
 
     await auditLogService.record({
       action: 'GROUP_MEMBER_TRANSFERRED',
-      actorId,
+      actorId: actor.id,
       targetUserId: userId,
       ipAddress,
       metadata: { fromGroupId: groupId, toGroupId: dto.toGroupId },
@@ -166,11 +186,12 @@ export class GroupMembersService extends BaseService {
   async bulkImport(
     groupId: string,
     buffer: Buffer,
-    actorId: string,
+    actor: Actor,
     ipAddress?: string | null,
   ): Promise<BulkImportSummary> {
     const startedAt = Date.now();
     const group = await this.findGroupOrThrow(groupId);
+    this.assertGroupInScope(group, actor);
 
     let rows: Record<string, string>[];
     try {
@@ -232,12 +253,12 @@ export class GroupMembersService extends BaseService {
     }
 
     if (toAdd.length) {
-      await this.repository.addMany(groupId, toAdd, actorId);
+      await this.repository.addMany(groupId, toAdd, actor.id);
     }
 
     await auditLogService.record({
       action: 'GROUP_BULK_IMPORT',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: {
         groupId,
@@ -255,6 +276,12 @@ export class GroupMembersService extends BaseService {
     const group = await this.groupsRepository.findById(groupId);
     if (!group) throw new NotFoundError('Group not found.');
     return group;
+  }
+
+  private assertGroupInScope(group: { trainerId: string | null }, actor: Actor): void {
+    if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to manage this group.");
+    }
   }
 
   private async assertTraineeExists(userId: string) {

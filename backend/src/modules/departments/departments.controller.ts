@@ -22,10 +22,12 @@ export class DepartmentsController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListDepartmentsQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
 
     const result = await this.service.list(
+      req.user,
       { status: query.status, search: query.search },
       page,
       pageSize,
@@ -38,7 +40,8 @@ export class DepartmentsController extends BaseController {
 
   getById = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const department = await this.service.getById(req.params.id as string);
+    if (!req.user) throw new UnauthorizedError();
+    const department = await this.service.getById(req.params.id as string, req.user);
     this.ok(res, department);
   };
 

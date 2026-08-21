@@ -39,6 +39,7 @@ router.get('/mine', controller.mine);
 router.get('/:id', idParamValidator, controller.getById);
 router.patch('/:id', canManage, idParamValidator, assessmentsValidation.update, controller.update);
 router.patch('/:id/status', canManage, idParamValidator, assessmentsValidation.updateStatus, controller.updateStatus);
+router.post('/:id/results/release', canManage, idParamValidator, controller.releaseResults);
 router.post('/:id/duplicate', canManage, idParamValidator, assessmentsValidation.duplicate, controller.duplicate);
 router.delete('/:id', canManage, idParamValidator, controller.remove);
 

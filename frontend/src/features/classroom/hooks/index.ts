@@ -249,7 +249,8 @@ export function useUpdateCourseMutation() {
   const invalidateList = useInvalidateCoursesList();
   const invalidateCourse = useInvalidateCourse();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateCoursePayload }) => coursesApi.update(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateCoursePayload }) =>
+      coursesApi.update(id, payload),
     onSuccess: (_data, variables) => {
       invalidateList();
       invalidateCourse(variables.id);
@@ -349,7 +350,8 @@ export function useUpdateModuleMutation() {
   const invalidateModule = useInvalidateModule();
   const invalidateCourse = useInvalidateCourse();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateModulePayload }) => modulesApi.update(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateModulePayload }) =>
+      modulesApi.update(id, payload),
     onSuccess: (data) => {
       invalidateModulesList(data.courseId);
       invalidateModule(data.id);
@@ -425,7 +427,8 @@ export function useUpdateLessonMutation() {
   const invalidateLesson = useInvalidateLesson();
   const invalidateCourseAggregates = useInvalidateCourseAggregatesAfterLessonChange();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateLessonPayload }) => lessonsApi.update(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateLessonPayload }) =>
+      lessonsApi.update(id, payload),
     onSuccess: (data) => {
       invalidateLessonsList(data.moduleId);
       invalidateLesson(data.id);
@@ -487,12 +490,14 @@ export function useReorderLessonsMutation() {
 export function useUploadResourceMutation() {
   const invalidateResources = useInvalidateLessonResources();
   const invalidateLesson = useInvalidateLesson();
+  const invalidateTraineeSurfaces = useInvalidateTraineeAccessibleSurfaces();
   return useMutation({
     mutationFn: ({ lessonId, payload }: { lessonId: string; payload: UploadResourcePayload }) =>
       resourcesApi.upload(lessonId, payload),
     onSuccess: (_data, variables) => {
       invalidateResources(variables.lessonId);
       invalidateLesson(variables.lessonId);
+      invalidateTraineeSurfaces();
     },
   });
 }
@@ -500,12 +505,14 @@ export function useUploadResourceMutation() {
 export function useCreateTextResourceMutation() {
   const invalidateResources = useInvalidateLessonResources();
   const invalidateLesson = useInvalidateLesson();
+  const invalidateTraineeSurfaces = useInvalidateTraineeAccessibleSurfaces();
   return useMutation({
     mutationFn: ({ lessonId, payload }: { lessonId: string; payload: CreateTextResourcePayload }) =>
       resourcesApi.createText(lessonId, payload),
     onSuccess: (_data, variables) => {
       invalidateResources(variables.lessonId);
       invalidateLesson(variables.lessonId);
+      invalidateTraineeSurfaces();
     },
   });
 }

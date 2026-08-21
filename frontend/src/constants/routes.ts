@@ -8,6 +8,7 @@ export const ROUTES = {
   HOME: '/',
   LOGIN: '/login',
   FORGOT_PASSWORD: '/forgot-password',
+  RESET_PASSWORD: '/reset-password',
 
   // profile/change-password are nested under each role root below (e.g. /trainer/profile)
   // rather than listed as standalone absolute paths, since each role keeps its own sidebar.

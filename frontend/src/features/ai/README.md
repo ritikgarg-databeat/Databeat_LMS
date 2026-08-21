@@ -12,4 +12,5 @@ AI tutor chat, lesson summarization, and content generation features.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented pages/components include tutor chat, bounded conversation history, lesson entry
+prompts, explanation-depth controls, guarded refusal rendering, and delete-history actions.

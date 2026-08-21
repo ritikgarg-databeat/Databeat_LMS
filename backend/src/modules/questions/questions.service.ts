@@ -1,4 +1,4 @@
-import type { Question, QuestionType } from '@prisma/client';
+import type { Question, QuestionType, Role } from '@prisma/client';
 
 import { MAX_QUESTION_CORRECT_ANSWER_LENGTH, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS } from '@/constants/assessment';
 import { auditLogService } from '@/services/audit-log.service';
@@ -21,6 +21,11 @@ interface TypeConditionalFields {
   language?: string | null;
 }
 
+interface Actor {
+  id: string;
+  role: Role;
+}
+
 // Business logic for the questions module. Controllers call into this layer only.
 export class QuestionsService extends BaseService {
   constructor(protected readonly repository: QuestionsRepository = new QuestionsRepository()) {
@@ -33,13 +38,14 @@ export class QuestionsService extends BaseService {
     pageSize: number,
     sortBy: QuestionSortField,
     sortOrder: SortOrder,
+    actor: Actor,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(filters, actor, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async getById(id: string) {
-    const question = await this.repository.findDetailById(id);
+  async getById(id: string, actor: Actor) {
+    const question = await this.repository.findDetailByIdForActor(id, actor);
     if (!question) throw new NotFoundError('Question not found.');
     return question;
   }
@@ -72,8 +78,8 @@ export class QuestionsService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateQuestionDto, actorId: string, ipAddress?: string | null): Promise<Question> {
-    const existing = await this.findOrThrow(id);
+  async update(id: string, dto: UpdateQuestionDto, actor: Actor, ipAddress?: string | null): Promise<Question> {
+    const existing = await this.findOrThrow(id, actor);
     this.assertTypeConditionalFields(existing.type, dto, true);
 
     const updated = await this.repository.updateWithOptions(
@@ -92,7 +98,7 @@ export class QuestionsService extends BaseService {
 
     await auditLogService.record({
       action: 'QUESTION_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       // `options` is remapped into a fresh literal array — `QuestionOptionInput[]` (a named
       // interface, no index signature) fails Prisma's `InputJsonValue` structural check even
@@ -106,8 +112,8 @@ export class QuestionsService extends BaseService {
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateQuestionStatusDto, actorId: string, ipAddress?: string | null): Promise<Question> {
-    const existing = await this.findOrThrow(id);
+  async updateStatus(id: string, dto: UpdateQuestionStatusDto, actor: Actor, ipAddress?: string | null): Promise<Question> {
+    const existing = await this.findOrThrow(id, actor);
     if (existing.status === dto.status) {
       throw new ConflictError(`Question is already ${dto.status.toLowerCase()}.`);
     }
@@ -116,7 +122,7 @@ export class QuestionsService extends BaseService {
 
     await auditLogService.record({
       action: 'QUESTION_STATUS_CHANGED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { questionId: existing.id, from: existing.status, to: dto.status },
     });
@@ -124,13 +130,13 @@ export class QuestionsService extends BaseService {
     return updated;
   }
 
-  async softDelete(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
-    const existing = await this.findOrThrow(id);
+  async softDelete(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+    const existing = await this.findOrThrow(id, actor);
     await this.repository.softDelete(id);
 
     await auditLogService.record({
       action: 'QUESTION_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { questionId: existing.id, title: existing.title },
     });
@@ -213,8 +219,8 @@ export class QuestionsService extends BaseService {
     }
   }
 
-  private async findOrThrow(id: string) {
-    const question = await this.repository.findById(id);
+  private async findOrThrow(id: string, actor: Actor) {
+    const question = await this.repository.findByIdForActor(id, actor);
     if (!question) throw new NotFoundError('Question not found.');
     return question;
   }

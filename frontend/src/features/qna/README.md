@@ -12,4 +12,5 @@ Discussion forum: questions, answers, comments, upvotes, and tags.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented Q&A includes scoped feeds/search, ask/detail flows, answers, comments, voting,
+verification badges, attachments, and active-group visibility rules.

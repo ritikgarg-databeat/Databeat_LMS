@@ -1,5 +1,6 @@
 import type { AnalyticsInsightSource } from '@prisma/client';
 
+import { env } from '@/config/env';
 import { ANALYTICS_SNAPSHOT_TTL_MS } from '@/constants/analytics';
 import {
   MAX_AI_INSIGHTS,
@@ -10,6 +11,7 @@ import { aiProvider } from '@/modules/ai';
 import type { GroupAnalyticsDetail, UserAnalytics } from '@/modules/analytics';
 import { BaseService } from '@/services/base.service';
 import { logger } from '@/utils/logger';
+import { redactSensitiveText } from '@/utils/pii-redaction.util';
 
 import { DashboardRepository } from './dashboard.repository';
 import type { AnalyticsInsight, AnalyticsInsights } from './dashboard.types';
@@ -39,6 +41,8 @@ const AI_SYSTEM_PROMPT =
  * single unlucky question doesn't produce a misleadingly confident claim.
  */
 export class DashboardInsightsService extends BaseService {
+  private readonly refreshes = new Map<string, Promise<void>>();
+
   constructor(protected readonly repository: DashboardRepository = new DashboardRepository()) {
     super();
   }
@@ -46,28 +50,78 @@ export class DashboardInsightsService extends BaseService {
   /** Trainee-dashboard recommendations — cached per user (`scopeType: 'USER'`). */
   async getUserInsights(userId: string, userAnalytics: UserAnalytics): Promise<AnalyticsInsights> {
     const cached = await this.repository.findInsight('USER', userId);
-    if (cached && this.isFresh(cached.generatedAt)) return this.toAnalyticsInsights(cached);
+    if (cached) {
+      if (!this.isFresh(cached.generatedAt)) this.scheduleUserRefresh(userId, userAnalytics);
+      return this.toAnalyticsInsights(cached);
+    }
 
-    const weakCategory = await this.findWeakCategory([userId]);
-    const heuristics = this.buildUserHeuristics(userAnalytics, weakCategory);
-    const result = await this.generateOrFallback(heuristics, this.buildUserPrompt(userAnalytics, weakCategory));
+    const result = { insights: this.buildUserHeuristics(userAnalytics, null), source: 'HEURISTIC' as const };
 
     await this.repository.upsertInsight('USER', userId, result);
+    this.scheduleUserRefresh(userId, userAnalytics);
     return { ...result, generatedAt: new Date() };
   }
 
   /** Trainer-dashboard recommendations — cached per group (`scopeType: 'GROUP'`). */
   async getGroupInsights(groupId: string, groupDetail: GroupAnalyticsDetail): Promise<AnalyticsInsights> {
     const cached = await this.repository.findInsight('GROUP', groupId);
-    if (cached && this.isFresh(cached.generatedAt)) return this.toAnalyticsInsights(cached);
+    if (cached) {
+      if (!this.isFresh(cached.generatedAt)) this.scheduleGroupRefresh(groupId, groupDetail);
+      return this.toAnalyticsInsights(cached);
+    }
 
-    const memberIds = groupDetail.members.map((member) => member.userId);
-    const weakCategory = await this.findWeakCategory(memberIds);
-    const heuristics = this.buildGroupHeuristics(groupDetail, weakCategory);
-    const result = await this.generateOrFallback(heuristics, this.buildGroupPrompt(groupDetail, weakCategory));
+    const result = { insights: this.buildGroupHeuristics(groupDetail, null), source: 'HEURISTIC' as const };
 
     await this.repository.upsertInsight('GROUP', groupId, result);
+    this.scheduleGroupRefresh(groupId, groupDetail);
     return { ...result, generatedAt: new Date() };
+  }
+
+  /** Fast path for dashboard aggregation: avoids rebuilding group detail while the cache is fresh. */
+  async getFreshGroupInsights(groupId: string): Promise<AnalyticsInsights | null> {
+    const cached = await this.repository.findInsight('GROUP', groupId);
+    return cached && this.isFresh(cached.generatedAt) ? this.toAnalyticsInsights(cached) : null;
+  }
+
+  private scheduleUserRefresh(userId: string, userAnalytics: UserAnalytics): void {
+    this.scheduleRefresh(`USER:${userId}`, async () => {
+      const weakCategory = await this.findWeakCategory([userId]);
+      const heuristics = this.buildUserHeuristics(userAnalytics, weakCategory);
+      const result = this.isProviderConfigured()
+        ? await this.generateOrFallback(heuristics, this.buildUserPrompt(userAnalytics, weakCategory))
+        : { insights: heuristics, source: 'HEURISTIC' as const };
+      await this.repository.upsertInsight('USER', userId, result);
+    });
+  }
+
+  private scheduleGroupRefresh(groupId: string, groupDetail: GroupAnalyticsDetail): void {
+    this.scheduleRefresh(`GROUP:${groupId}`, async () => {
+      const memberIds = groupDetail.members.map((member) => member.userId);
+      const weakCategory = await this.findWeakCategory(memberIds);
+      const heuristics = this.buildGroupHeuristics(groupDetail, weakCategory);
+      const result = this.isProviderConfigured()
+        ? await this.generateOrFallback(heuristics, this.buildGroupPrompt(groupDetail, weakCategory))
+        : { insights: heuristics, source: 'HEURISTIC' as const };
+      await this.repository.upsertInsight('GROUP', groupId, result);
+    });
+  }
+
+  private scheduleRefresh(key: string, work: () => Promise<void>): void {
+    if (this.refreshes.has(key)) return;
+    const refresh = work()
+      .catch((error: unknown) => {
+        logger.warn('Background dashboard insight refresh failed', { error, key });
+      })
+      .finally(() => {
+        this.refreshes.delete(key);
+      });
+    this.refreshes.set(key, refresh);
+  }
+
+  private isProviderConfigured(): boolean {
+    return env.AI_PROVIDER === 'anthropic'
+      ? Boolean(env.ANTHROPIC_API_KEY)
+      : Boolean(env.MAIN_OPENAI_API_KEY);
   }
 
   // --- Cache freshness -------------------------------------------------------------------------
@@ -76,7 +130,11 @@ export class DashboardInsightsService extends BaseService {
     return Date.now() - generatedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS;
   }
 
-  private toAnalyticsInsights(row: { insights: unknown; source: AnalyticsInsightSource; generatedAt: Date }): AnalyticsInsights {
+  private toAnalyticsInsights(row: {
+    insights: unknown;
+    source: AnalyticsInsightSource;
+    generatedAt: Date;
+  }): AnalyticsInsights {
     return {
       source: row.source,
       generatedAt: row.generatedAt,
@@ -96,7 +154,11 @@ export class DashboardInsightsService extends BaseService {
     userMessage: string,
   ): Promise<{ insights: AnalyticsInsight[]; source: AnalyticsInsightSource }> {
     try {
-      const output = await aiProvider.chat({ systemPrompt: AI_SYSTEM_PROMPT, history: [], userMessage });
+      const output = await aiProvider.chat({
+        systemPrompt: AI_SYSTEM_PROMPT,
+        history: [],
+        userMessage: redactSensitiveText(userMessage),
+      });
       const lines = output.content
         .split('\n')
         .map((line) => line.trim())
@@ -158,7 +220,10 @@ export class DashboardInsightsService extends BaseService {
       });
     }
 
-    if (performance.averageScore !== null && performance.averageScore < performance.completionPercentage - 15) {
+    if (
+      performance.averageScore !== null &&
+      performance.averageScore < performance.completionPercentage - 15
+    ) {
       insights.push({
         kind: 'GENERAL',
         text: `Your average assessment score (${performance.averageScore}%) is well below your course completion (${performance.completionPercentage}%) — consider revisiting recent lessons before your next attempt.`,
@@ -177,7 +242,10 @@ export class DashboardInsightsService extends BaseService {
     }
 
     if (streakDays >= 5) {
-      insights.push({ kind: 'GENERAL', text: `You're on a ${streakDays}-day learning streak — keep it going!` });
+      insights.push({
+        kind: 'GENERAL',
+        text: `You're on a ${streakDays}-day learning streak — keep it going!`,
+      });
     }
 
     if (insights.length === 0) {
@@ -242,7 +310,10 @@ export class DashboardInsightsService extends BaseService {
 
   // --- AI prompts (compact data summaries only — no history, no persisted conversation) --------
 
-  private buildUserPrompt(userAnalytics: UserAnalytics, weakCategory: { label: string; count: number } | null): string {
+  private buildUserPrompt(
+    userAnalytics: UserAnalytics,
+    weakCategory: { label: string; count: number } | null,
+  ): string {
     const { performance, streakDays, recentAttempts } = userAnalytics;
     const recentScores = recentAttempts
       .slice(0, 5)

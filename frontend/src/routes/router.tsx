@@ -51,6 +51,7 @@ import {
   QuestionDetailPage,
   QuestionFeedPage,
   ReportsPage,
+  ResetPasswordPage,
   TimingObservationsPage,
   TraineeCourseDetailPage,
   TraineeDashboardPage,
@@ -99,6 +100,7 @@ export const router = createBrowserRouter([
         children: [
           { path: ROUTES.LOGIN, element: <LoginPage /> },
           { path: ROUTES.FORGOT_PASSWORD, element: <ForgotPasswordPage /> },
+          { path: ROUTES.RESET_PASSWORD, element: <ResetPasswordPage /> },
         ],
       },
     ],

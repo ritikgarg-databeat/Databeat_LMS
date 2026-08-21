@@ -3,11 +3,13 @@ import type { AiFeature, Role } from '@prisma/client';
 import { AI_HISTORY_MESSAGES_INCLUDED, MAX_AI_CONVERSATION_TITLE_LENGTH } from '@/constants/ai';
 import { BaseService } from '@/services/base.service';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { logger } from '@/utils/logger';
+import { redactSensitiveText } from '@/utils/pii-redaction.util';
 
 import { aiProvider } from './active-provider';
 import type { ChatRequestDto } from './ai.dto';
 import { AiRepository } from './ai.repository';
-import { buildLessonContext } from './context-builder';
+import { buildLearningScopeContext, buildLessonContext } from './context-builder';
 import { promptManager } from './prompt-manager';
 import type { AiProvider } from './providers/ai-provider.interface';
 
@@ -53,7 +55,9 @@ export class AiService extends BaseService {
           actor.id,
           actor.role,
         );
-        if (accessible) lessonContext = await buildLessonContext(conversationLessonId);
+        if (!accessible) throw new ForbiddenError('You no longer have access to this lesson.');
+        lessonContext = await buildLessonContext(conversationLessonId);
+        if (!lessonContext) throw new NotFoundError('Lesson not found.');
       }
     } else {
       if (dto.lessonId) {
@@ -78,14 +82,20 @@ export class AiService extends BaseService {
     }
 
     const feature: AiFeature = dto.feature ?? 'CHAT';
-    const systemPrompt = promptManager.buildSystemPrompt({
+    const learningScopeContext = lessonContext ? null : await buildLearningScopeContext(actor.id, actor.role);
+    const promptInput = {
       feature,
       explanationLevel: dto.explanationLevel,
       lessonContext,
-    });
+      learningScopeContext,
+    };
+    const systemPrompt = promptManager.buildSystemPrompt(promptInput);
 
     // Replay bounded history (see AI_HISTORY_MESSAGES_INCLUDED) as provider-shaped turns.
-    const recentMessages = await this.repository.findRecentMessages(conversationId, AI_HISTORY_MESSAGES_INCLUDED);
+    const recentMessages = await this.repository.findRecentMessages(
+      conversationId,
+      AI_HISTORY_MESSAGES_INCLUDED,
+    );
     const history = recentMessages
       .slice()
       .reverse()
@@ -114,7 +124,11 @@ export class AiService extends BaseService {
     // compose box would otherwise strand another one-message orphan in the history list.
     let response;
     try {
-      response = await this.provider.chat({ systemPrompt, history, userMessage: dto.message });
+      response = await this.provider.chat({
+        systemPrompt: redactSensitiveText(systemPrompt),
+        history: history.map((message) => ({ ...message, content: redactSensitiveText(message.content) })),
+        userMessage: redactSensitiveText(dto.message),
+      });
     } catch (error) {
       if (isNewConversation) {
         await this.repository.deleteConversation(conversationId).catch(() => undefined);
@@ -122,11 +136,20 @@ export class AiService extends BaseService {
       throw error;
     }
 
+    const guardedResponse = promptManager.parseGuardedResponse(response.content, promptInput);
+    if (guardedResponse.malformed) {
+      logger.warn('AI tutor response failed the guarded response contract and was replaced with a refusal', {
+        conversationId,
+        lessonId: conversationLessonId,
+        model: response.model,
+      });
+    }
+
     const assistantMessage = await this.repository.createMessage({
       conversation: { connect: { id: conversationId } },
       role: 'ASSISTANT',
       feature,
-      content: response.content,
+      content: guardedResponse.content,
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
     });

@@ -21,8 +21,9 @@ export class LessonsController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const { moduleId } = req.query as unknown as ListLessonsQueryDto;
-    const lessons = await this.service.list(moduleId);
+    const lessons = await this.service.list(moduleId, req.user);
     this.ok(res, lessons);
   };
 
@@ -36,7 +37,7 @@ export class LessonsController extends BaseController {
   create = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const lesson = await this.service.create(req.body as CreateLessonDto, req.user.id, req.ip);
+    const lesson = await this.service.create(req.body as CreateLessonDto, req.user, req.ip);
     this.created(res, lesson, 'Lesson created successfully.');
   };
 
@@ -46,7 +47,7 @@ export class LessonsController extends BaseController {
     const lesson = await this.service.update(
       req.params.id as string,
       req.body as UpdateLessonDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, lesson, 'Lesson updated successfully.');
@@ -58,7 +59,7 @@ export class LessonsController extends BaseController {
     const lesson = await this.service.updateStatus(
       req.params.id as string,
       req.body as UpdateLessonStatusDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, lesson, 'Lesson status updated successfully.');
@@ -67,14 +68,14 @@ export class LessonsController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.remove(req.params.id as string, req.user.id, req.ip);
+    await this.service.remove(req.params.id as string, req.user, req.ip);
     this.noContent(res);
   };
 
   reorder = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.reorder(req.body as ReorderLessonsDto, req.user.id, req.ip);
+    await this.service.reorder(req.body as ReorderLessonsDto, req.user, req.ip);
     this.ok(res, null, 'Lessons reordered successfully.');
   };
 }

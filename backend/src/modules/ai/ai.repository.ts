@@ -1,6 +1,8 @@
 import type { Prisma, Role } from '@prisma/client';
 
 import { AI_CONVERSATION_MESSAGES_MAX } from '@/constants/ai';
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { AiConversationListFilters } from './ai.types';
@@ -107,7 +109,17 @@ export class AiRepository extends BaseRepository {
    * published. Gates which lesson a trainee may attach as "Ask AI" context.
    */
   async isLessonAccessibleToUser(lessonId: string, userId: string, role: Role): Promise<boolean> {
-    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+    if (role === 'SUPER_ADMIN') {
+      return (await this.db.lesson.findUnique({ where: { id: lessonId }, select: { id: true } })) !== null;
+    }
+    if (role === 'TRAINER') {
+      return (
+        (await this.db.lesson.findFirst({
+          where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(userId) } } },
+          select: { id: true },
+        })) !== null
+      );
+    }
 
     const lesson = await this.db.lesson.findUnique({
       where: { id: lessonId },
@@ -121,7 +133,9 @@ export class AiRepository extends BaseRepository {
     if (course.status !== 'PUBLISHED' || course.deletedAt !== null) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { courseAssignments: { some: { courseId: course.id } } } },
+      where: activeGroupMembershipWhere(userId, {
+        courseAssignments: { some: { courseId: course.id } },
+      }),
     });
     return membership !== null;
   }

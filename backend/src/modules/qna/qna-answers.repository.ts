@@ -1,5 +1,6 @@
 import type { Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const authorSelect = {
@@ -99,7 +100,7 @@ export class QnaAnswersRepository extends BaseRepository {
     if (question.visibility === 'GROUP') {
       if (!question.groupId) return false;
       const membership = await this.db.groupMember.findFirst({
-        where: { userId, groupId: question.groupId },
+        where: activeGroupMembershipWhere(userId, { id: question.groupId }),
         select: { id: true },
       });
       return membership !== null;

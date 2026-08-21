@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { ReorderItem } from './modules.types';
@@ -23,6 +24,14 @@ export class ModulesRepository extends BaseRepository {
     return this.db.courseModule.findUnique({ where: { id } });
   }
 
+  /** File pointers must be captured before the module delete cascades lessons and resources. */
+  findFileResourcesByModuleId(moduleId: string) {
+    return this.db.lessonResource.findMany({
+      where: { relativePath: { not: null }, lesson: { moduleId } },
+      select: { id: true, relativePath: true },
+    });
+  }
+
   findByIdWithLessons(id: string) {
     return this.db.courseModule.findUnique({
       where: { id },
@@ -42,6 +51,14 @@ export class ModulesRepository extends BaseRepository {
   /** Feature-local existence check — the courses module owns Course but isn't a dependency here. */
   findCourseById(courseId: string) {
     return this.db.course.findFirst({ where: { id: courseId, deletedAt: null } });
+  }
+
+  async isCourseInTrainerScope(courseId: string, trainerId: string): Promise<boolean> {
+    const course = await this.db.course.findFirst({
+      where: { id: courseId, deletedAt: null, ...trainerCourseScope(trainerId) },
+      select: { id: true },
+    });
+    return course !== null;
   }
 
   async findNextOrder(courseId: string): Promise<number> {

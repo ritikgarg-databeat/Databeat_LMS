@@ -1,11 +1,15 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma, Role } from '@prisma/client';
 
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { QuestionListFilters, QuestionSortField, SortOrder } from './questions.types';
 
-function buildWhere(filters: QuestionListFilters): Prisma.QuestionWhereInput {
+function buildWhere(filters: QuestionListFilters, actor?: { id: string; role: Role }): Prisma.QuestionWhereInput {
   const where: Prisma.QuestionWhereInput = { deletedAt: null };
+
+  // A trainer's question bank is private to that trainer. Assessment questions keep immutable
+  // snapshots, so existing assessments do not depend on continued cross-trainer bank access.
+  if (actor?.role === 'TRAINER') where.createdById = actor.id;
 
   if (filters.category) where.category = filters.category;
   if (filters.difficulty) where.difficulty = filters.difficulty;
@@ -46,12 +50,13 @@ interface QuestionOptionData {
 export class QuestionsRepository extends BaseRepository {
   async findMany(
     filters: QuestionListFilters,
+    actor: { id: string; role: Role },
     skip: number,
     take: number,
     sortBy: QuestionSortField = 'createdAt',
     sortOrder: SortOrder = 'desc',
   ) {
-    const where = buildWhere(filters);
+    const where = buildWhere(filters, actor);
     const [items, total] = await Promise.all([
       this.db.question.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: listInclude }),
       this.db.question.count({ where }),
@@ -59,12 +64,12 @@ export class QuestionsRepository extends BaseRepository {
     return { items, total };
   }
 
-  findById(id: string) {
-    return this.db.question.findFirst({ where: { id, deletedAt: null } });
+  findByIdForActor(id: string, actor: { id: string; role: Role }) {
+    return this.db.question.findFirst({ where: { id, ...buildWhere({}, actor) } });
   }
 
-  findDetailById(id: string) {
-    return this.db.question.findFirst({ where: { id, deletedAt: null }, include: detailInclude });
+  findDetailByIdForActor(id: string, actor: { id: string; role: Role }) {
+    return this.db.question.findFirst({ where: { id, ...buildWhere({}, actor) }, include: detailInclude });
   }
 
   /**

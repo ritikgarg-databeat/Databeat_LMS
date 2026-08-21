@@ -3,6 +3,8 @@ import type { Role } from '@/constants/roles';
 export interface AccessTokenPayload {
   sub: string;
   role: Role;
+  /** Standard JWT issued-at timestamp, added by jsonwebtoken. */
+  iat?: number;
   /** Optional for backward compatibility with tokens signed before this field existed. */
   mustChangePassword?: boolean;
 }

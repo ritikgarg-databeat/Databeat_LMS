@@ -1,29 +1,29 @@
 import type { LessonQuizAttemptStatus, Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 import { storageProvider } from '@/storage';
+import {
+  EXTRACTABLE_DOCUMENT_MIME_TYPES,
+  extractTextFromResourceFile,
+} from '@/utils/document-text-extractor';
 import { logger } from '@/utils/logger';
 
-import { extractTextFromResourceFile } from './content-extractor';
 import type { LessonContentForQuiz } from './lesson-quiz.types';
 
 const TEXT_BACKED_RESOURCE_TYPES = new Set(['MARKDOWN', 'CODE_SNIPPET']);
-
-/** File-backed resource types worth extracting text from for quiz generation — PDF/DOCX/PPTX
- * are typical "theory" uploads; VIDEO/IMAGE/ZIP have no reasonably extractable text. */
-const EXTRACTABLE_MIME_TYPES = new Set([
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-]);
 
 // Data-access layer for the lesson-quiz module. Only this class may query Prisma directly
 // (see ARCHITECTURE.md §3.1). Works directly against Lesson/CourseModule/Course/GroupMember —
 // deliberately does not import from the lessons/resources modules (feature-local duplication
 // over premature cross-module coupling, matching the progress/resources modules' precedent).
 export class LessonQuizRepository extends BaseRepository {
-  findAttempt(lessonId: string, userId: string) {
-    return this.db.lessonQuizAttempt.findUnique({ where: { lessonId_userId: { lessonId, userId } } });
+  findAttempt(lessonId: string, userId: string, contentVersion: number) {
+    return this.db.lessonQuizAttempt.findFirst({
+      where: { lessonId, userId, contentVersion },
+      orderBy: { attemptNumber: 'desc' },
+    });
   }
 
   createAttempt(data: Prisma.LessonQuizAttemptCreateInput) {
@@ -51,19 +51,19 @@ export class LessonQuizRepository extends BaseRepository {
   /** Feature-local read of LessonProgress — used by getOrCreateAttempt to avoid generating a
    * fresh (never-submitted) quiz attempt for a lesson this user already completed (see that
    * method's doc comment for why this matters). */
-  async isLessonAlreadyCompleted(lessonId: string, userId: string): Promise<boolean> {
+  async isLessonAlreadyCompleted(lessonId: string, userId: string, contentVersion: number): Promise<boolean> {
     const progress = await this.db.lessonProgress.findUnique({
       where: { userId_lessonId: { userId, lessonId } },
-      select: { status: true },
+      select: { status: true, completedContentVersion: true },
     });
-    return progress?.status === 'COMPLETED';
+    return progress?.status === 'COMPLETED' && progress.completedContentVersion === contentVersion;
   }
 
   /**
    * Gathers the "quizzable" text this lesson exposes: its own description, every
    * MARKDOWN/CODE_SNIPPET resource's `content` (mirroring `ai/context-builder.ts`'s approach —
    * a direct Prisma query, not an import of that module), PLUS best-effort extracted text from
-   * uploaded PDF/DOCX/PPTX resources (see content-extractor.ts) — most real lesson "theory" is
+   * uploaded PDF/DOCX/PPTX resources (see utils/document-text-extractor.ts) — most real lesson "theory" is
    * uploaded as a file, not pasted as Markdown, so skipping file-backed resources here would
    * leave the quiz gate silently inert for the majority of real lessons.
    */
@@ -79,12 +79,15 @@ export class LessonQuizRepository extends BaseRepository {
       .map((resource) => resource.content as string);
 
     const extractableResources = lesson.resources.filter(
-      (resource) => resource.relativePath && resource.mimeType && EXTRACTABLE_MIME_TYPES.has(resource.mimeType),
+      (resource) =>
+        resource.relativePath && resource.mimeType && EXTRACTABLE_DOCUMENT_MIME_TYPES.has(resource.mimeType),
     );
     const extractedContent = await Promise.all(
       extractableResources.map(async (resource) => {
         try {
-          const stream = await storageProvider.getReadStream({ relativePath: resource.relativePath as string });
+          const stream = await storageProvider.getReadStream({
+            relativePath: resource.relativePath as string,
+          });
           return await extractTextFromResourceFile(stream, resource.mimeType);
         } catch (error) {
           logger.warn('Failed to read lesson resource file for quiz generation', {
@@ -97,8 +100,16 @@ export class LessonQuizRepository extends BaseRepository {
     );
 
     const content = [...textContent, ...extractedContent].filter(Boolean).join('\n\n');
+    const fileResourceCount = lesson.resources.filter((resource) => resource.relativePath).length;
+    const successfullyExtractedFileCount = extractedContent.filter((text) => text.trim().length > 0).length;
 
-    return { lessonTitle: lesson.title, lessonDescription: lesson.description, content };
+    return {
+      lessonTitle: lesson.title,
+      lessonDescription: lesson.description,
+      content,
+      contentVersion: lesson.contentVersion,
+      hasOpaqueFileContent: fileResourceCount > successfullyExtractedFileCount,
+    };
   }
 
   /**
@@ -109,7 +120,17 @@ export class LessonQuizRepository extends BaseRepository {
    * the lesson itself to both be published.
    */
   async isLessonAccessibleToUser(lessonId: string, userId: string, role: Role): Promise<boolean> {
-    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+    if (role === 'SUPER_ADMIN') {
+      return (await this.db.lesson.findUnique({ where: { id: lessonId }, select: { id: true } })) !== null;
+    }
+    if (role === 'TRAINER') {
+      return (
+        (await this.db.lesson.findFirst({
+          where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(userId) } } },
+          select: { id: true },
+        })) !== null
+      );
+    }
 
     const lesson = await this.db.lesson.findUnique({
       where: { id: lessonId },
@@ -123,7 +144,9 @@ export class LessonQuizRepository extends BaseRepository {
     if (course.status !== 'PUBLISHED' || course.deletedAt !== null) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { courseAssignments: { some: { courseId: course.id } } } },
+      where: activeGroupMembershipWhere(userId, {
+        courseAssignments: { some: { courseId: course.id } },
+      }),
     });
     return membership !== null;
   }

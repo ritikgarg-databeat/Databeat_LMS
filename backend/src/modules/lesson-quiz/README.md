@@ -1,72 +1,49 @@
 # Lesson Quiz Module
 
-Owns the `LessonQuizAttempt` model — an AI-generated, per-(lesson, trainee) completion quiz that
-gates "Mark as complete" on the trainee lesson viewer.
+Owns versioned AI-generated comprehension attempts that gate trainee lesson completion.
 
-Layering: `lesson-quiz.routes.ts` → `lesson-quiz.controller.ts` → `lesson-quiz.service.ts` →
-`lesson-quiz.repository.ts` (see ARCHITECTURE.md §3.1). This module works directly against
-`Lesson` / `CourseModule` / `Course` / `GroupMember` via Prisma for its accessibility check — it
-deliberately does not import from the lessons/resources modules (feature-local duplication over
-premature cross-module coupling, matching the progress/resources modules' precedent).
+Layering: `lesson-quiz.routes.ts` → controller → service → repository. The router is mounted under
+`/api/v1/lessons/:id/quiz`; the progress service also calls the same service-level gate directly.
 
-## Flow
+## Content and generation
 
-1. A trainee's client calls `GET /lessons/:id/quiz` when they click "Mark as complete" (not on
-   lesson load — this can trigger a real, billed LLM call).
-2. If no `LessonQuizAttempt` row exists for `(lessonId, userId)` yet, the service gathers the
-   lesson's own text content: description + MARKDOWN/CODE_SNIPPET resource `content` (same
-   sources `ai/context-builder.ts` uses), PLUS best-effort extracted text from any uploaded
-   PDF/DOCX/PPTX resources (`content-extractor.ts` — `pdf-parse`/`mammoth`/manual PPTX-XML
-   parsing via `jszip`). Most real lesson "theory" is uploaded as a file rather than pasted as
-   Markdown, so the file-extraction path is what makes the gate actually fire for typical
-   content — without it, every file-only lesson would silently skip the quiz. Below
-   `LESSON_QUIZ_MIN_CONTENT_CHARS` of real content (e.g. a scanned/image-only PDF with no text
-   layer, or a video/image-only lesson), or if the AI provider is unavailable/returns
-   unparseable output twice, the response is `{ required: false }` — the client calls
-   `POST /lessons/:id/progress {status: COMPLETED}` directly, identical to the pre-quiz-gate
-   behavior.
-3. Otherwise a `GENERATED` attempt is created (questions + `correctOptionId` stored server-side,
-   never serialized to the client) and returned sanitized: `{ required: true, status:
-   'GENERATED', questions: [...] }` (no correct-answer field).
-4. The trainee answers and calls `POST /lessons/:id/quiz/submit`, which grades against the stored
-   `correctOptionId`s, persists `SUBMITTED` + score/percentage, and returns the graded result
-   (correct answers now revealed per question — same "reveal after submit" rule the assessment
-   module uses). No retakes: `GENERATED → SUBMITTED` is one-way.
-5. The client then calls `POST /lessons/:id/progress {status: COMPLETED}` as before.
+Quiz evidence is assembled from the lesson description, Markdown/code resources, and extracted
+PDF/DOCX/PPTX text. Provider-bound lesson text is passed through personal-data/credential
+redaction. Generated output must contain 4–5 questions with four options and one valid answer;
+malformed output is retried once and then treated as unavailable.
 
-## The completion gate (bypass-proof)
+The behavior is fail-closed where learning evidence is expected:
 
-`progress.service.ts`'s `upsertLessonProgress` calls `lessonQuizService.checkCompletionGate(...)`
-right before allowing the transition into `COMPLETED`. This calls the exact same
-`getOrCreateAttempt` helper `getOrGenerate` uses — so a trainee who never opens the quiz UI and
-calls the progress endpoint directly still gets gated: the check itself generates the quiz (or
-determines none is required) rather than only checking for one that might already exist. A
-`GENERATED`-but-unsubmitted attempt blocks completion with a 403; no attempt (not required) or a
-`SUBMITTED` one lets it through.
+- genuinely short text-only content can return `{ required: false }`;
+- an opaque uploaded document without readable text/transcript returns a content conflict;
+- missing provider configuration/provider failure/invalid output returns a safe 503 and pauses
+  completion rather than silently bypassing the gate.
 
-## AI generation
+## Versioning, pass rule, and retries
 
-Uses `aiProvider` (imported from `@/modules/ai`, same as `dashboard-insights.service.ts` already
-does) with a dedicated system prompt demanding a single JSON object
-(`{"questions":[{"text","options":[4 strings],"correctIndex"}]}`), 4-5 questions. The response is
-parsed defensively (stray code fences stripped) and validated by hand (no schema library in this
-backend); a malformed response is retried once with a stricter reminder, then falls back to
-"not required" — the same graceful-degradation contract `dashboard-insights.service.ts`'s
-`generateOrFallback` already established, just with "skip the gate" instead of a heuristic
-substitute (there's no honest heuristic replacement for real quiz questions).
+Every attempt stores `contentVersion` and `attemptNumber`. A current-version `GENERATED` attempt
+is reused until submission. Submission reveals correct options, stores percentage, and passes at
+70% or above. A failed submitted attempt does not satisfy completion; the next fetch/gate check
+generates a new numbered attempt for the same content version. Historical attempts remain stored.
 
-## Mounting
+Adding, deleting, or editing lesson content increments `Lesson.contentVersion` and reopens
+completed learner progress. Old attempts cannot satisfy the new version, so the learner must pass
+a freshly grounded quiz and mark the lesson complete again.
 
-Mounted **nested** inside the lessons module's router, exactly like `resourcesRoutes`:
+## Bypass-resistant completion
 
-```ts
-// inside lessons.routes.ts
-import { lessonQuizRoutes } from '@/modules/lesson-quiz';
+`ProgressService.upsertLessonProgress` calls `checkCompletionGate` immediately before accepting a
+transition to `COMPLETED`. That method invokes the same get-or-create logic as the quiz UI. A
+client that skips the dialog and calls the progress endpoint directly therefore triggers the quiz
+requirement and receives 403 until a current-version passing attempt exists.
 
-router.use('/:id/quiz', lessonQuizRoutes);
-```
+## Routes
 
-| Method | Path                          | Access                                                           |
-| ------ | ----------------------------- | ----------------------------------------------------------------- |
-| GET    | `/lessons/:id/quiz`           | Trainer/Super-Admin always; others via lesson-accessibility check |
-| POST   | `/lessons/:id/quiz/submit`    | Trainer/Super-Admin always; others via lesson-accessibility check |
+| Method | Path                       | Access                                      |
+| ------ | -------------------------- | ------------------------------------------- |
+| `GET`  | `/lessons/:id/quiz`        | Authenticated; lesson access/scope enforced |
+| `POST` | `/lessons/:id/quiz/submit` | Authenticated; lesson access/scope enforced |
+
+Correct option ids are never included in the generated pre-submission payload. Trainer/Super
+Admin preview access follows trainer course scope; trainees require a published lesson/module/
+course assigned through an active group membership.

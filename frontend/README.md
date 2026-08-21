@@ -1,32 +1,28 @@
-# React + TypeScript + Vite
+# Databeat LMS Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite SPA for the Super Admin, Trainer, and Trainee experiences.
 
-Currently, two official plugins are available:
+## Architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `src/features/` contains domain UI, TanStack Query hooks, API services, and feature types.
+- `src/routes/` owns lazy route loading and authenticated/role guards.
+- `src/services/api/` owns Axios, in-memory access tokens, refresh-cookie recovery, and safe retries.
+- `src/components/ui/` and `src/components/shared/` provide the reusable design system.
+- Server data stays in TanStack Query; Zustand/local state is limited to client-only UI state.
 
-## React Compiler
+The application includes course authoring and learning, version-aware completion, assessment
+building/taking/grading/result release, grounded AI chat, password reset, analytics, notifications,
+Q&A, calendar, reports, settings, and audit-log screens.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Commands
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm run dev
+npm run typecheck
+npm run lint
+npm run build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Set `VITE_API_URL` to the backend base URL including `/api/v1`. Production static hosting must
+serve `index.html` as the fallback for client-side routes. See
+[`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md).

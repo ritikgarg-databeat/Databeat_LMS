@@ -27,8 +27,19 @@ export class DepartmentsRepository extends BaseRepository {
     take: number,
     sortBy: DepartmentSortField = 'createdAt',
     sortOrder: SortOrder = 'desc',
+    trainerId?: string,
   ) {
     const where = buildWhere(filters);
+    if (trainerId) {
+      where.AND = [
+        {
+          OR: [
+            { users: { some: { id: trainerId } } },
+            { groups: { some: { trainerId, deletedAt: null } } },
+          ],
+        },
+      ];
+    }
     const [items, total] = await Promise.all([
       this.db.department.findMany({
         where,
@@ -40,6 +51,19 @@ export class DepartmentsRepository extends BaseRepository {
       this.db.department.count({ where }),
     ]);
     return { items, total };
+  }
+
+  findByIdInTrainerScope(id: string, trainerId: string) {
+    return this.db.department.findFirst({
+      where: {
+        id,
+        OR: [
+          { users: { some: { id: trainerId } } },
+          { groups: { some: { trainerId, deletedAt: null } } },
+        ],
+      },
+      include: { _count: { select: { users: true, groups: true } } },
+    });
   }
 
   findById(id: string) {

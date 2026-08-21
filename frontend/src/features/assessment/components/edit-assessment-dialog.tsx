@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -104,8 +104,8 @@ function EditAssessmentDialog({ assessment, onOpenChange }: EditAssessmentDialog
 
   const {
     register,
+    control,
     handleSubmit,
-    watch,
     formState: { errors, isSubmitting },
   } = useForm<EditAssessmentFormValues>({
     resolver: zodResolver(editAssessmentSchema),
@@ -127,7 +127,7 @@ function EditAssessmentDialog({ assessment, onOpenChange }: EditAssessmentDialog
       : undefined,
   });
 
-  const negativeMarkingEnabled = watch('negativeMarkingEnabled');
+  const negativeMarkingEnabled = useWatch({ control, name: 'negativeMarkingEnabled' });
 
   if (!assessment) return null;
 

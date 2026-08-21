@@ -17,6 +17,7 @@ export class QuestionsController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListQuestionsQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
 
@@ -32,6 +33,7 @@ export class QuestionsController extends BaseController {
       pageSize,
       (query.sortBy as QuestionSortField) ?? 'createdAt',
       (query.sortOrder as SortOrder) ?? 'desc',
+      req.user,
     );
 
     this.ok(res, result);
@@ -39,7 +41,8 @@ export class QuestionsController extends BaseController {
 
   getById = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const question = await this.service.getById(req.params.id as string);
+    if (!req.user) throw new UnauthorizedError();
+    const question = await this.service.getById(req.params.id as string, req.user);
     this.ok(res, question);
   };
 
@@ -53,7 +56,7 @@ export class QuestionsController extends BaseController {
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const question = await this.service.update(req.params.id as string, req.body as UpdateQuestionDto, req.user.id, req.ip);
+    const question = await this.service.update(req.params.id as string, req.body as UpdateQuestionDto, req.user, req.ip);
     this.ok(res, question, 'Question updated successfully.');
   };
 
@@ -63,7 +66,7 @@ export class QuestionsController extends BaseController {
     const question = await this.service.updateStatus(
       req.params.id as string,
       req.body as UpdateQuestionStatusDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, question, 'Question status updated successfully.');
@@ -72,7 +75,7 @@ export class QuestionsController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.softDelete(req.params.id as string, req.user.id, req.ip);
+    await this.service.softDelete(req.params.id as string, req.user, req.ip);
     this.noContent(res);
   };
 }

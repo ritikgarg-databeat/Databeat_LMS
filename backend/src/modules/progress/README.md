@@ -17,13 +17,18 @@ additionally accessible to a Trainee only if the lesson and its module are both 
 Trainers/Super Admins always bypass this check. A Trainee is always given a 403 (never a 404) for
 inaccessible or nonexistent content, so existence is never leaked.
 
+When a trainer changes lesson content or adds/deletes a resource, `Lesson.contentVersion`
+increments and completed progress is reopened to `IN_PROGRESS`. Historical quiz attempts remain
+attached to their old version and cannot satisfy the new completion contract. Progress responses include
+`hasNewContent`, derived from the newest resource creation time and the learner's last view. This
+drives the trainee-facing new-content dot without adding a second notification table or state that
+could drift from the lesson resources.
+
 ## Two kinds of endpoints
 
-**(a) Lesson-scoped** (`getForLesson` / `upsertForLesson` on `ProgressController`) — intended to be
-mounted NESTED inside the lessons module's router at `GET`/`POST /lessons/:id/progress`, by
-whichever engineer builds out that module. This module does **not** wire that route itself; it
-just exports `ProgressController` and `progressValidation.upsertLessonProgress` from `index.ts`
-for that purpose. Both handlers read the lessonId from `req.params.id` — i.e. assume they are
+**(a) Lesson-scoped** (`getForLesson` / `upsertForLesson` on `ProgressController`) — mounted
+inside the lessons router at `GET`/`POST /lessons/:id/progress`. Both handlers read the lessonId
+from `req.params.id` — i.e. they are
 mounted with `mergeParams: true` on a parent router whose own id param is named `:id`, exactly
 like `group-members.routes.ts` consumes its parent's `:groupId` (here it's the lessons module's
 own `:id`, not a `:lessonId`). Whoever wires this should mount something like:
@@ -34,13 +39,21 @@ import { ProgressController, progressValidation } from '@/modules/progress';
 
 const progressController = new ProgressController();
 router.get('/:id/progress', idParamValidator, progressController.getForLesson);
-router.post('/:id/progress', idParamValidator, progressValidation.upsertLessonProgress, progressController.upsertForLesson);
+router.post(
+  '/:id/progress',
+  idParamValidator,
+  progressValidation.upsertLessonProgress,
+  progressController.upsertForLesson,
+);
 ```
 
 **(b) Top-level `/progress`** (`progress.routes.ts`, exported as `progressRoutes`) — the trainee
 dashboard / classroom aggregate endpoints (`continue-learning`, `summary`, `courses/:courseId`).
-This module mounts these itself in its own `progress.routes.ts`, but does **not** register that
-router in `src/routes/index.ts` — another engineer does that final mounting pass.
+This router is registered in `src/routes/index.ts`.
+
+The lesson viewer sends time only while visible and recently active; it flushes on visibility/
+unmount boundaries. Both validation and service logic cap any single delta at 60 seconds, so a
+background tab or forged oversized heartbeat cannot inflate learning time arbitrarily.
 
 ## Audit logging
 

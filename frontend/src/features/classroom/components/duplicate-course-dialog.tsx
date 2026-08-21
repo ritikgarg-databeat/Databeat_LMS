@@ -1,10 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,7 @@ import type { Course } from '../types';
 
 const duplicateCourseSchema = z.object({
   title: z.string().min(1, 'Title is required.').max(150, 'Title must be 150 characters or fewer.'),
+  includeResources: z.boolean(),
 });
 type DuplicateCourseFormValues = z.infer<typeof duplicateCourseSchema>;
 
@@ -42,11 +44,12 @@ function DuplicateCourseDialog({ course, onOpenChange }: DuplicateCourseDialogPr
 
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<DuplicateCourseFormValues>({
     resolver: zodResolver(duplicateCourseSchema),
-    values: course ? { title: `${course.title} (Copy)` } : undefined,
+    values: course ? { title: `${course.title} (Copy)`, includeResources: true } : undefined,
   });
 
   if (!course) return null;
@@ -55,7 +58,7 @@ function DuplicateCourseDialog({ course, onOpenChange }: DuplicateCourseDialogPr
     try {
       const duplicated = await duplicateCourse.mutateAsync({
         id: course.id,
-        payload: { title: values.title },
+        payload: { title: values.title, includeResources: values.includeResources },
       });
       toast.success('Course duplicated successfully.');
       onOpenChange(false);
@@ -71,8 +74,8 @@ function DuplicateCourseDialog({ course, onOpenChange }: DuplicateCourseDialogPr
         <DialogHeader>
           <DialogTitle>Duplicate {course.title}</DialogTitle>
           <DialogDescription>
-            Creates a new draft copy with the same details — but no modules, lessons, or assigned
-            groups. You&apos;ll be taken to the copy afterwards.
+            Creates a new draft copy with the same modules and lessons. Learner assignments and
+            progress are never copied.
           </DialogDescription>
         </DialogHeader>
 
@@ -81,6 +84,27 @@ function DuplicateCourseDialog({ course, onOpenChange }: DuplicateCourseDialogPr
             <Label htmlFor="duplicate-title">New title</Label>
             <Input id="duplicate-title" disabled={isSubmitting} {...register('title')} />
             {errors.title ? <p className="text-sm text-destructive">{errors.title.message}</p> : null}
+          </div>
+
+          <div className="flex items-start gap-3 rounded-md border p-3">
+            <Controller
+              name="includeResources"
+              control={control}
+              render={({ field }) => (
+                <Checkbox
+                  id="include-resources"
+                  disabled={isSubmitting}
+                  checked={field.value}
+                  onCheckedChange={(checked) => field.onChange(checked === true)}
+                />
+              )}
+            />
+            <div className="space-y-1">
+              <Label htmlFor="include-resources">Copy lesson resources and uploaded files</Label>
+              <p className="text-xs text-muted-foreground">
+                Turn this off to copy only the module and lesson structure.
+              </p>
+            </div>
           </div>
 
           <DialogFooter>

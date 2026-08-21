@@ -6,7 +6,9 @@ export interface StoredFilePointer {
 }
 
 export interface SaveFileInput {
-  buffer: Buffer;
+  /** Small uploads may be buffered; large uploads should use a disk-backed temporary path. */
+  buffer?: Buffer;
+  tempPath?: string;
   originalName: string;
   /** Namespaces files by owning entity, e.g. "lesson-resources", "avatars". */
   entityType: string;
@@ -19,6 +21,8 @@ export interface SaveFileInput {
  */
 export interface StorageProvider {
   save(input: SaveFileInput): Promise<StoredFilePointer>;
+  copy(pointer: StoredFilePointer, originalName: string, entityType: string): Promise<StoredFilePointer>;
   getReadStream(pointer: StoredFilePointer): Promise<Readable>;
   delete(pointer: StoredFilePointer): Promise<void>;
+  checkHealth(): Promise<void>;
 }

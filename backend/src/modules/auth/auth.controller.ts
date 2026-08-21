@@ -5,7 +5,7 @@ import { UnauthorizedError } from '@/utils/app-error';
 import { REFRESH_TOKEN_COOKIE, clearRefreshTokenCookie, setRefreshTokenCookie } from '@/utils/cookie.util';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { ChangePasswordDto, ForgotPasswordDto, LoginDto } from './auth.dto';
+import type { ChangePasswordDto, ForgotPasswordDto, LoginDto, ResetPasswordDto } from './auth.dto';
 import { AuthService } from './auth.service';
 import type { RequestContext } from './auth.service';
 
@@ -88,8 +88,16 @@ export class AuthController extends BaseController {
   forgotPassword = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     const { email } = req.body as ForgotPasswordDto;
-    await this.service.forgotPassword(email);
+    await this.service.forgotPassword(email, this.requestContext(req));
     // Same response whether or not the email exists — see auth.service.ts forgotPassword().
     this.ok(res, null, 'If an account exists for that email, password reset instructions have been sent.');
+  };
+
+  resetPassword = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    const { token, newPassword } = req.body as ResetPasswordDto;
+    await this.service.resetPassword(token, newPassword, this.requestContext(req));
+    clearRefreshTokenCookie(res);
+    this.ok(res, null, 'Password reset successfully. You can now sign in.');
   };
 }

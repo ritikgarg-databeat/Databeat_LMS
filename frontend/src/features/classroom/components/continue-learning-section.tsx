@@ -59,7 +59,11 @@ function ContinueLearningSection() {
   }
 
   if (!data || data.length === 0) {
-    return <p className="text-sm text-muted-foreground">You&apos;re all caught up — nothing in progress right now.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        You&apos;re all caught up — nothing in progress right now.
+      </p>
+    );
   }
 
   return (
@@ -76,6 +80,11 @@ function ContinueLearningSection() {
                     {item.courseTitle} &middot; {item.moduleTitle}
                   </p>
                   <p className="line-clamp-2 font-medium leading-tight">{item.lessonTitle}</p>
+                  {item.hasNewContent ? (
+                    <Badge variant="default" dot className="mt-2">
+                      New resource added
+                    </Badge>
+                  ) : null}
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
@@ -84,7 +93,9 @@ function ContinueLearningSection() {
                     {STATUS_LABEL[item.status]}
                   </Badge>
                   {item.lastViewedAt ? (
-                    <span className="text-xs text-muted-foreground">{formatRelativeTime(item.lastViewedAt)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatRelativeTime(item.lastViewedAt)}
+                    </span>
                   ) : null}
                 </div>
 

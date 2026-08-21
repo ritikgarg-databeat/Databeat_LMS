@@ -1,5 +1,6 @@
 import type { AnalyticsInsightScope, AnalyticsInsightSource, Prisma } from '@prisma/client';
 
+import { activeGroupScope } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 /** Single cast point for writing the insights array into `AnalyticsInsight.insights` (Json). */
@@ -51,7 +52,9 @@ export class DashboardRepository extends BaseRepository {
         status: 'PUBLISHED',
         deletedAt: null,
         dueDate: { gt: new Date() },
-        groupAssignments: { some: { group: { members: { some: { userId } } } } },
+        groupAssignments: {
+          some: { group: activeGroupScope({ members: { some: { userId } } }) },
+        },
         attempts: { none: { userId } },
       },
       orderBy: { dueDate: 'asc' },

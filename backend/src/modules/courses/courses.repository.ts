@@ -1,5 +1,7 @@
 import type { CourseStatus, Prisma } from '@prisma/client';
 
+import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { CourseListFilters, CourseSortField, SortOrder } from './courses.types';
@@ -67,8 +69,10 @@ export class CoursesRepository extends BaseRepository {
     take: number,
     sortBy: CourseSortField = 'createdAt',
     sortOrder: SortOrder = 'desc',
+    trainerId?: string,
   ) {
     const where = buildWhere(filters);
+    if (trainerId) Object.assign(where, trainerCourseScope(trainerId));
     const [items, total] = await Promise.all([
       this.db.course.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: listInclude }),
       this.db.course.count({ where }),
@@ -84,6 +88,14 @@ export class CoursesRepository extends BaseRepository {
     return this.db.course.findFirst({ where: { id, deletedAt: null }, include: detailInclude });
   }
 
+  /** File pointers must be captured before the course delete cascades its full lesson hierarchy. */
+  findFileResourcesByCourseId(courseId: string) {
+    return this.db.lessonResource.findMany({
+      where: { relativePath: { not: null }, lesson: { module: { courseId } } },
+      select: { id: true, relativePath: true },
+    });
+  }
+
   create(data: Prisma.CourseCreateInput) {
     return this.db.course.create({ data, include: summaryInclude });
   }
@@ -92,8 +104,8 @@ export class CoursesRepository extends BaseRepository {
     return this.db.course.update({ where: { id }, data, include: summaryInclude });
   }
 
-  softDelete(id: string) {
-    return this.db.course.update({ where: { id }, data: { deletedAt: new Date() } });
+  delete(id: string) {
+    return this.db.course.delete({ where: { id } });
   }
 
   /**
@@ -102,11 +114,44 @@ export class CoursesRepository extends BaseRepository {
    * (Prompt 5 § scope decision) or CourseGroupAssignment rows — a duplicate starts unassigned
    * with no resources, re-attached by the trainer.
    */
-  async duplicate(sourceId: string, title: string, actorId: string) {
+  findDuplicationSource(sourceId: string) {
+    return this.db.course.findFirst({
+      where: { id: sourceId, deletedAt: null },
+      include: {
+        modules: {
+          orderBy: { order: 'asc' },
+          include: {
+            lessons: {
+              orderBy: { order: 'asc' },
+              include: { resources: { orderBy: { order: 'asc' } } },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async duplicate(
+    sourceId: string,
+    title: string,
+    actorId: string,
+    includeResources: boolean,
+    copiedFilePaths: ReadonlyMap<string, string>,
+  ) {
     return this.db.$transaction(async (tx) => {
       const source = await tx.course.findFirstOrThrow({
         where: { id: sourceId, deletedAt: null },
-        include: { modules: { orderBy: { order: 'asc' }, include: { lessons: { orderBy: { order: 'asc' } } } } },
+        include: {
+          modules: {
+            orderBy: { order: 'asc' },
+            include: {
+              lessons: {
+                orderBy: { order: 'asc' },
+                include: { resources: { orderBy: { order: 'asc' } } },
+              },
+            },
+          },
+        },
       });
 
       const created = await tx.course.create({
@@ -131,22 +176,39 @@ export class CoursesRepository extends BaseRepository {
             description: sourceModule.description,
             order: sourceModule.order,
             estimatedDurationMinutes: sourceModule.estimatedDurationMinutes,
-            isPublished: sourceModule.isPublished,
+            isPublished: false,
           },
         });
 
-        if (sourceModule.lessons.length > 0) {
-          await tx.lesson.createMany({
-            data: sourceModule.lessons.map((lesson) => ({
+        for (const lesson of sourceModule.lessons) {
+          const createdLesson = await tx.lesson.create({
+            data: {
               moduleId: createdModule.id,
               title: lesson.title,
               description: lesson.description,
               type: lesson.type,
               order: lesson.order,
               estimatedDurationMinutes: lesson.estimatedDurationMinutes,
-              isPublished: lesson.isPublished,
-            })),
+              isPublished: false,
+            },
           });
+
+          if (includeResources && lesson.resources.length > 0) {
+            await tx.lessonResource.createMany({
+              data: lesson.resources.map((resource) => ({
+                lessonId: createdLesson.id,
+                type: resource.type,
+                title: resource.title,
+                relativePath: resource.relativePath ? copiedFilePaths.get(resource.id) : null,
+                originalFilename: resource.originalFilename,
+                mimeType: resource.mimeType,
+                fileSizeBytes: resource.fileSizeBytes,
+                content: resource.content,
+                order: resource.order,
+                createdById: actorId,
+              })),
+            });
+          }
         }
       }
 
@@ -154,36 +216,54 @@ export class CoursesRepository extends BaseRepository {
     });
   }
 
-  countAll() {
-    return this.db.course.count({ where: { deletedAt: null } });
+  countAll(trainerId?: string) {
+    return this.db.course.count({
+      where: { deletedAt: null, ...(trainerId ? trainerCourseScope(trainerId) : {}) },
+    });
   }
 
-  countByStatus(status: CourseStatus) {
-    return this.db.course.count({ where: { deletedAt: null, status } });
+  countByStatus(status: CourseStatus, trainerId?: string) {
+    return this.db.course.count({
+      where: { deletedAt: null, status, ...(trainerId ? trainerCourseScope(trainerId) : {}) },
+    });
   }
 
-  async countAssignedGroups(): Promise<number> {
+  async countAssignedGroups(trainerId?: string): Promise<number> {
     const distinctGroups = await this.db.courseGroupAssignment.findMany({
+      where: trainerId ? { course: trainerCourseScope(trainerId) } : undefined,
       distinct: ['groupId'],
       select: { groupId: true },
     });
     return distinctGroups.length;
   }
 
-  async countActiveLearners(): Promise<number> {
+  async countActiveLearners(trainerId?: string): Promise<number> {
     const distinctLearners = await this.db.lessonProgress.findMany({
-      where: { status: { not: 'NOT_STARTED' } },
+      where: {
+        status: { not: 'NOT_STARTED' },
+        ...(trainerId ? { lesson: { module: { course: trainerCourseScope(trainerId) } } } : {}),
+      },
       distinct: ['userId'],
       select: { userId: true },
     });
     return distinctLearners.length;
   }
 
+  async isInTrainerScope(courseId: string, trainerId: string): Promise<boolean> {
+    const course = await this.db.course.findFirst({
+      where: { id: courseId, deletedAt: null, ...trainerCourseScope(trainerId) },
+      select: { id: true },
+    });
+    return course !== null;
+  }
+
   listAssignments(courseId: string) {
     return this.db.courseGroupAssignment.findMany({
       where: { courseId },
       orderBy: { assignedAt: 'desc' },
-      include: { group: { select: { id: true, name: true, code: true, _count: { select: { members: true } } } } },
+      include: {
+        group: { select: { id: true, name: true, code: true, _count: { select: { members: true } } } },
+      },
     });
   }
 
@@ -204,13 +284,19 @@ export class CoursesRepository extends BaseRepository {
 
   /** userIds of every member of `groupId` — used to fan out the COURSE_ASSIGNED notification. */
   async findGroupMemberUserIds(groupId: string): Promise<string[]> {
-    const members = await this.db.groupMember.findMany({ where: { groupId }, select: { userId: true } });
+    const members = await this.db.groupMember.findMany({
+      where: { groupId, group: activeGroupScope(), user: { isActive: true, role: 'TRAINEE' } },
+      select: { userId: true },
+    });
     return members.map((member) => member.userId);
   }
 
   /** Distinct course ids assigned (via group membership) to `userId` that are currently published. */
   async findAssignedCourseIds(userId: string): Promise<string[]> {
-    const memberships = await this.db.groupMember.findMany({ where: { userId }, select: { groupId: true } });
+    const memberships = await this.db.groupMember.findMany({
+      where: activeGroupMembershipWhere(userId),
+      select: { groupId: true },
+    });
     if (memberships.length === 0) return [];
 
     const groupIds = memberships.map((membership) => membership.groupId);
@@ -228,7 +314,9 @@ export class CoursesRepository extends BaseRepository {
 
   countCompletedLessons(userId: string, lessonIds: string[]) {
     if (lessonIds.length === 0) return Promise.resolve(0);
-    return this.db.lessonProgress.count({ where: { userId, lessonId: { in: lessonIds }, status: 'COMPLETED' } });
+    return this.db.lessonProgress.count({
+      where: { userId, lessonId: { in: lessonIds }, status: 'COMPLETED' },
+    });
   }
 
   /**
@@ -244,7 +332,7 @@ export class CoursesRepository extends BaseRepository {
     if (!course) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { courseAssignments: { some: { courseId } } } },
+      where: activeGroupMembershipWhere(userId, { courseAssignments: { some: { courseId } } }),
     });
     return membership !== null;
   }

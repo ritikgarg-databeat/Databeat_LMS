@@ -15,14 +15,15 @@ import { departmentsValidation } from './departments.validation';
  */
 const router = Router();
 const controller = new DepartmentsController();
-const canManage = requireRole(Role.TRAINER, Role.SUPER_ADMIN);
+const canRead = requireRole(Role.TRAINER, Role.SUPER_ADMIN);
+const adminOnly = requireRole(Role.SUPER_ADMIN);
 
-router.use(authenticate, canManage);
+router.use(authenticate, canRead);
 
 router.get('/', departmentsValidation.list, controller.list);
-router.post('/', departmentsValidation.create, controller.create);
+router.post('/', adminOnly, departmentsValidation.create, controller.create);
 router.get('/:id', idParamValidator, controller.getById);
-router.patch('/:id', idParamValidator, departmentsValidation.update, controller.update);
-router.patch('/:id/status', idParamValidator, departmentsValidation.updateStatus, controller.updateStatus);
+router.patch('/:id', adminOnly, idParamValidator, departmentsValidation.update, controller.update);
+router.patch('/:id/status', adminOnly, idParamValidator, departmentsValidation.updateStatus, controller.updateStatus);
 
 export default router;

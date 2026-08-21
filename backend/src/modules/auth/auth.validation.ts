@@ -25,4 +25,9 @@ export const authValidation = {
   ],
 
   forgotPassword: [emailValidator],
+
+  resetPassword: [
+    body('token').isString().isLength({ min: 32, max: 256 }).withMessage('A valid reset token is required.'),
+    newPasswordValidator('newPassword'),
+  ],
 };

@@ -12,4 +12,5 @@ Trainee and trainer performance dashboards, charts, and metrics.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented pages visualize course, group, user, and assessment analytics with role-scoped API
+queries, loading/error states, charts, and drill-down navigation.

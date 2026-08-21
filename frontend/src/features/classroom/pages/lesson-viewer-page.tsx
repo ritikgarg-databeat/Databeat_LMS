@@ -34,6 +34,7 @@ type ViewerMode = 'preview' | 'learn';
 
 /** How often (ms) accumulated time-on-page is flushed to the server while the lesson is open. */
 const PROGRESS_FLUSH_INTERVAL_MS = 30_000;
+const LEARNING_IDLE_TIMEOUT_MS = 60_000;
 
 function basePathForRole(role: Role | undefined): string {
   switch (role) {
@@ -83,6 +84,7 @@ function LessonViewerPage() {
   // Set for real by the mount effect below, before it's ever read — the placeholder value here
   // just avoids calling `Date.now()` (an impure function) during render.
   const lastFlushAtRef = useRef(0);
+  const lastActivityAtRef = useRef(0);
 
   // Fire once per lesson, trainee mode only: bumps `lastViewedAt` server-side so this lesson
   // surfaces correctly in "Continue learning". Deliberately omits `status` — the backend only
@@ -95,26 +97,55 @@ function LessonViewerPage() {
     if (initializedLessonRef.current === lessonId) return;
     initializedLessonRef.current = lessonId;
     lastFlushAtRef.current = Date.now();
+    lastActivityAtRef.current = Date.now();
     upsertProgressRef.current.mutate({ lessonId, payload: {} });
   }, [mode, lessonId]);
 
-  // Flush accumulated time-on-page every 30s, and once more on unmount/lesson change so the tail
-  // end of a session isn't lost.
+  // Count engaged foreground time only. Hidden tabs stop immediately and an untouched foreground
+  // tab becomes idle after one minute; the server independently caps every submitted delta.
   useEffect(() => {
     if (mode !== 'learn' || !lessonId) return;
 
-    const flush = () => {
-      const elapsedSeconds = Math.round((Date.now() - lastFlushAtRef.current) / 1000);
-      lastFlushAtRef.current = Date.now();
+    const flush = (includeTimeBeforeHide = false) => {
+      const now = Date.now();
+      if (document.hidden && !includeTimeBeforeHide) {
+        lastFlushAtRef.current = now;
+        return;
+      }
+
+      const activeThrough = Math.min(now, lastActivityAtRef.current + LEARNING_IDLE_TIMEOUT_MS);
+      const elapsedSeconds = Math.round(Math.max(0, activeThrough - lastFlushAtRef.current) / 1000);
+      lastFlushAtRef.current = now;
       if (elapsedSeconds > 0) {
         upsertProgressRef.current.mutate({ lessonId, payload: { timeSpentSecondsDelta: elapsedSeconds } });
       }
     };
 
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityAtRef.current > LEARNING_IDLE_TIMEOUT_MS) lastFlushAtRef.current = now;
+      lastActivityAtRef.current = now;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        flush(true);
+      } else {
+        lastFlushAtRef.current = Date.now();
+        lastActivityAtRef.current = Date.now();
+      }
+    };
+
     const intervalId = setInterval(flush, PROGRESS_FLUSH_INTERVAL_MS);
+    const activityEvents: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, recordActivity, { passive: true }));
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       clearInterval(intervalId);
-      flush();
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, recordActivity));
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      flush(true);
     };
   }, [mode, lessonId]);
 
@@ -122,7 +153,11 @@ function LessonViewerPage() {
 
   if (isError) {
     return (
-      <ErrorScreen title="Unable to load this lesson" message={getErrorMessage(error)} onRetry={() => void refetch()} />
+      <ErrorScreen
+        title="Unable to load this lesson"
+        message={getErrorMessage(error)}
+        onRetry={() => void refetch()}
+      />
     );
   }
 
@@ -138,7 +173,9 @@ function LessonViewerPage() {
     markComplete.mutate(
       { lessonId, payload: { status: 'COMPLETED' } },
       {
-        onSuccess: () => toast.success('Lesson marked as complete.'),
+        onSuccess: () => {
+          toast.success('Lesson marked as complete.');
+        },
         onError: (mutationError) => toast.error(getErrorMessage(mutationError)),
       },
     );
@@ -166,6 +203,12 @@ function LessonViewerPage() {
   const handleQuizCompleted = () => {
     setIsQuizDialogOpen(false);
     completeLesson();
+  };
+
+  const handleQuizRetry = () => {
+    setIsQuizDialogOpen(false);
+    setQuizQuestions(null);
+    void handleMarkComplete();
   };
 
   const handleVideoEnded = () => {
@@ -202,7 +245,14 @@ function LessonViewerPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{lesson.title}</h1>
-            {lesson.description ? <p className="mt-1 text-sm text-muted-foreground">{lesson.description}</p> : null}
+            {lesson.description ? (
+              <p className="mt-1 text-sm text-muted-foreground">{lesson.description}</p>
+            ) : null}
+            {lesson.progress?.hasNewContent ? (
+              <Badge variant="warning" dot className="mt-2">
+                New resource added — review the updated lesson and complete its new quiz.
+              </Badge>
+            ) : null}
           </div>
 
           {mode === 'learn' ? (
@@ -247,6 +297,7 @@ function LessonViewerPage() {
           onOpenChange={setIsQuizDialogOpen}
           questions={quizQuestions}
           onCompleted={handleQuizCompleted}
+          onRetry={handleQuizRetry}
         />
       ) : null}
     </div>

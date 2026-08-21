@@ -1,5 +1,6 @@
 import { QuestionType } from '@prisma/client';
 
+import { LESSON_QUIZ_PASS_PERCENTAGE } from '@/constants/lesson-quiz';
 import { BaseRepository } from '@/repositories/base.repository';
 import { endOfDayInclusive } from '@/utils/date-range.util';
 
@@ -130,7 +131,13 @@ export class ImpactMetricsRepository extends BaseRepository {
     const completedAt = dateRangeWhere(from, to);
     const completions = await this.db.lessonProgress.findMany({
       where: { userId: { in: userIds }, status: 'COMPLETED', completedAt: completedAt ? { not: null, ...completedAt } : { not: null } },
-      select: { userId: true, lessonId: true, completedAt: true, lesson: { select: { title: true } } },
+      select: {
+        userId: true,
+        lessonId: true,
+        completedAt: true,
+        completedContentVersion: true,
+        lesson: { select: { title: true } },
+      },
     });
     if (completions.length === 0) return [];
 
@@ -139,16 +146,26 @@ export class ImpactMetricsRepository extends BaseRepository {
         userId: { in: userIds },
         lessonId: { in: [...new Set(completions.map((completion) => completion.lessonId))] },
       },
-      select: { userId: true, lessonId: true, status: true },
+      select: { userId: true, lessonId: true, contentVersion: true, status: true, percentage: true },
     });
-    const quizStatusByKey = new Map(quizAttempts.map((attempt) => [`${attempt.lessonId}:${attempt.userId}`, attempt.status]));
+    const quizStatusByKey = new Map<string, string>();
+    for (const attempt of quizAttempts) {
+      const key = `${attempt.lessonId}:${attempt.userId}:${attempt.contentVersion}`;
+      const passed = attempt.status === 'SUBMITTED' && (attempt.percentage ?? 0) >= LESSON_QUIZ_PASS_PERCENTAGE;
+      if (passed || !quizStatusByKey.has(key)) quizStatusByKey.set(key, passed ? 'SUBMITTED' : attempt.status);
+    }
 
     return completions.map((completion) => ({
       lessonId: completion.lessonId,
       lessonTitle: completion.lesson.title,
       userId: completion.userId,
       completedAt: completion.completedAt as Date,
-      quizStatus: quizStatusByKey.get(`${completion.lessonId}:${completion.userId}`) ?? null,
+      quizStatus:
+        completion.completedContentVersion === null
+          ? null
+          : (quizStatusByKey.get(
+              `${completion.lessonId}:${completion.userId}:${completion.completedContentVersion}`,
+            ) ?? null),
     }));
   }
 

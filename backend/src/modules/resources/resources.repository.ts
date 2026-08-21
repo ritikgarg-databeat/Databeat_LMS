@@ -1,5 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 // Data-access layer for the resources module. Only this class may query Prisma directly
@@ -28,12 +30,52 @@ export class ResourcesRepository extends BaseRepository {
     return top ? top.order + 1 : 0;
   }
 
-  create(data: Prisma.LessonResourceCreateInput) {
-    return this.db.lessonResource.create({ data });
+  /** Creates content, advances the lesson version, and reopens completed learners atomically. */
+  createAndInvalidateLearning(lessonId: string, data: Prisma.LessonResourceCreateInput) {
+    return this.db.$transaction(async (tx) => {
+      const resource = await tx.lessonResource.create({ data });
+      const lesson = await tx.lesson.update({
+        where: { id: lessonId },
+        data: { contentVersion: { increment: 1 } },
+        select: { contentVersion: true },
+      });
+      const reopenedProgress = await tx.lessonProgress.updateMany({
+        where: { lessonId, status: 'COMPLETED' },
+        data: { status: 'IN_PROGRESS', completedAt: null },
+      });
+      const invalidatedQuizCount = await tx.lessonQuizAttempt.count({ where: { lessonId } });
+
+      return {
+        resource,
+        contentVersion: lesson.contentVersion,
+        reopenedLearnerCount: reopenedProgress.count,
+        invalidatedQuizCount,
+      };
+    });
   }
 
-  delete(id: string) {
-    return this.db.lessonResource.delete({ where: { id } });
+  /** Removes content with the same version/recompletion semantics as adding content. */
+  deleteAndInvalidateLearning(lessonId: string, id: string) {
+    return this.db.$transaction(async (tx) => {
+      const resource = await tx.lessonResource.delete({ where: { id } });
+      const lesson = await tx.lesson.update({
+        where: { id: lessonId },
+        data: { contentVersion: { increment: 1 } },
+        select: { contentVersion: true },
+      });
+      const reopenedProgress = await tx.lessonProgress.updateMany({
+        where: { lessonId, status: 'COMPLETED' },
+        data: { status: 'IN_PROGRESS', completedAt: null },
+      });
+      const invalidatedQuizCount = await tx.lessonQuizAttempt.count({ where: { lessonId } });
+
+      return {
+        resource,
+        contentVersion: lesson.contentVersion,
+        reopenedLearnerCount: reopenedProgress.count,
+        invalidatedQuizCount,
+      };
+    });
   }
 
   /** Feature-local existence check — the lessons module owns Lesson but isn't a dependency here. */
@@ -49,7 +91,16 @@ export class ResourcesRepository extends BaseRepository {
    * to both be published.
    */
   async isLessonAccessibleToUser(lessonId: string, userId: string, role: Role): Promise<boolean> {
-    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+    if (role === 'SUPER_ADMIN') {
+      return (await this.db.lesson.findUnique({ where: { id: lessonId }, select: { id: true } })) !== null;
+    }
+    if (role === 'TRAINER') {
+      const lesson = await this.db.lesson.findFirst({
+        where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(userId) } } },
+        select: { id: true },
+      });
+      return lesson !== null;
+    }
 
     const lesson = await this.db.lesson.findUnique({
       where: { id: lessonId },
@@ -63,7 +114,9 @@ export class ResourcesRepository extends BaseRepository {
     if (course.status !== 'PUBLISHED' || course.deletedAt !== null) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { courseAssignments: { some: { courseId: course.id } } } },
+      where: activeGroupMembershipWhere(userId, {
+        courseAssignments: { some: { courseId: course.id } },
+      }),
     });
     return membership !== null;
   }

@@ -36,7 +36,7 @@ export class ResourcesController extends BaseController {
       req.params.id as string,
       req.body as UploadResourceDto,
       req.file,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, resource, 'Resource uploaded successfully.');
@@ -48,7 +48,7 @@ export class ResourcesController extends BaseController {
     const resource = await this.service.createTextResource(
       req.params.id as string,
       req.body as CreateTextResourceDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, resource, 'Resource created successfully.');
@@ -57,7 +57,7 @@ export class ResourcesController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.remove(req.params.id as string, req.params.resourceId as string, req.user.id, req.ip);
+    await this.service.remove(req.params.id as string, req.params.resourceId as string, req.user, req.ip);
     this.noContent(res);
   };
 

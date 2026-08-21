@@ -36,6 +36,8 @@ enum AuditAction {
   LOGIN_FAILED
   LOGOUT
   PASSWORD_CHANGED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
   PASSWORD_RESET_BY_ADMIN
   USER_CREATED
   USER_UPDATED
@@ -86,6 +88,7 @@ enum AuditAction {
   ASSESSMENT_QUESTIONS_REORDERED
   ASSESSMENT_ATTEMPT_SUBMITTED
   ASSESSMENT_ANSWER_GRADED
+  ASSESSMENT_RESULTS_RELEASED
   CALENDAR_EVENT_CREATED
   CALENDAR_EVENT_UPDATED
   CALENDAR_EVENT_DELETED
@@ -154,6 +157,13 @@ enum AssessmentAttemptStatus {
   GRADED
 }
 
+enum AssessmentSubmissionReason {
+  LEARNER
+  TIME_EXPIRED
+  DUE_DATE_REACHED
+  ADMIN
+}
+
 enum CalendarEventType {
   CLASS
   LIVE_SESSION
@@ -167,6 +177,7 @@ enum CalendarEventType {
 enum NotificationType {
   ASSESSMENT_ASSIGNED
   ASSESSMENT_DEADLINE_APPROACHING
+  ASSESSMENT_RESULTS_RELEASED
   CALENDAR_EVENT_CREATED
   CALENDAR_EVENT_UPDATED
   QNA_ANSWER_POSTED
@@ -247,6 +258,7 @@ model User {
 
   groupMemberships         GroupMember[]
   refreshTokens            RefreshToken[]
+  passwordResetTokens      PasswordResetToken[]
   auditLogsAsActor         AuditLog[]                  @relation("AuditLogActor")
   auditLogsAsTarget        AuditLog[]                  @relation("AuditLogTarget")
   createdDepartments       Department[]                @relation("DepartmentCreatedBy")
@@ -284,6 +296,33 @@ model User {
   @@index([experienceLevelId])
   @@index([isActive])
   @@map("users")
+}
+
+model PasswordResetToken {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  requestedIp String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+/// Shared, short-lived counters used by production rate limiters. Keys are SHA-256 hashes, so
+/// raw IP addresses/user identifiers are not persisted in this operational table.
+model RateLimitBucket {
+  key       String   @id
+  hits      Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
 }
 
 model Department {
@@ -442,8 +481,8 @@ model TimingObservation {
 }
 
 /// Top of the Course → Module → Lesson → Resource hierarchy (Prompt 5 § CLASSROOM HIERARCHY).
-/// `deletedAt` (soft delete) is distinct from `status: ARCHIVED` (reversible lifecycle state),
-/// mirroring the Group entity's precedent from Prompt 4.
+/// `deletedAt` is retained for compatibility with older data. The platform's DELETE endpoint now
+/// hard-deletes courses; `status: ARCHIVED` is the reversible lifecycle state.
 model Course {
   id                       String           @id @default(uuid())
   title                    String
@@ -508,6 +547,8 @@ model Lesson {
   order                    Int
   estimatedDurationMinutes Int?
   isPublished              Boolean      @default(false)
+  /// Incremented whenever learner-facing lesson content changes.
+  contentVersion           Int          @default(1)
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
@@ -571,17 +612,19 @@ model CourseGroupAssignment {
 /// percentages are computed on demand from these rows rather than denormalized, avoiding a
 /// second write path that could drift out of sync with the underlying lesson data.
 model LessonProgress {
-  id               String               @id @default(uuid())
-  userId           String
-  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  lessonId         String
-  lesson           Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
-  status           LessonProgressStatus @default(NOT_STARTED)
-  timeSpentSeconds Int                  @default(0)
-  lastViewedAt     DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  id                      String               @id @default(uuid())
+  userId                  String
+  user                    User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId                String
+  lesson                  Lesson               @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  status                  LessonProgressStatus @default(NOT_STARTED)
+  timeSpentSeconds        Int                  @default(0)
+  lastViewedAt            DateTime?
+  completedAt             DateTime?
+  /// Content version the learner most recently completed; null while incomplete.
+  completedContentVersion Int?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
 
   @@unique([userId, lessonId])
   @@index([userId])
@@ -593,13 +636,16 @@ model LessonProgress {
 /// One AI-generated completion quiz per (lesson, trainee) — gates "Mark as complete" on the
 /// trainee lesson viewer. `questions` carries each option's correctOptionId server-side only;
 /// never serialized to the client until the attempt is SUBMITTED (same "hide until graded" rule
-/// AssessmentAnswer.isCorrect already follows). No retakes: GENERATED -> SUBMITTED is one-way.
+/// AssessmentAnswer.isCorrect already follows). GENERATED -> SUBMITTED is one-way while lesson
+/// content is unchanged; adding a resource invalidates/deletes the old attempt for a fresh quiz.
 model LessonQuizAttempt {
   id                   String                  @id @default(uuid())
   lessonId             String
   lesson               Lesson                  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   userId               String
   user                 User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentVersion       Int
+  attemptNumber        Int                     @default(1)
   status               LessonQuizAttemptStatus @default(GENERATED)
   questions            Json
   selectedAnswers      Json?
@@ -612,7 +658,8 @@ model LessonQuizAttempt {
   /// attempts created before this column existed — never backfilled with a guess.
   generationDurationMs Int?
 
-  @@unique([lessonId, userId])
+  @@unique([lessonId, userId, contentVersion, attemptNumber])
+  @@index([lessonId, userId, contentVersion])
   @@index([userId])
   @@map("lesson_quiz_attempts")
 }
@@ -689,6 +736,8 @@ model Assessment {
   negativeMarksPerWrongAnswer Float?
   randomizeQuestions          Boolean          @default(false)
   showResultImmediately       Boolean          @default(true)
+  /// Null until a trainer explicitly releases delayed results. Once set, results stay visible.
+  resultsReleasedAt           DateTime?
   status                      AssessmentStatus @default(DRAFT)
   createdById                 String?
   createdBy                   User?            @relation("AssessmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -766,30 +815,35 @@ model AssessmentGroupAssignment {
 /// `randomizeQuestions` on, so the presented order stays stable for the rest of that attempt
 /// instead of re-shuffling on every fetch.
 model AssessmentAttempt {
-  id               String                  @id @default(uuid())
+  id               String                      @id @default(uuid())
   assessmentId     String
-  assessment       Assessment              @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessment       Assessment                  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   userId           String
-  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status           AssessmentAttemptStatus @default(IN_PROGRESS)
+  user             User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status           AssessmentAttemptStatus     @default(IN_PROGRESS)
   /// string[] of AssessmentQuestion ids in presentation order — null when randomizeQuestions
   /// is off (canonical `order` is used directly).
   questionOrder    Json?
-  startedAt        DateTime                @default(now())
+  startedAt        DateTime                    @default(now())
+  /// Immutable server-authoritative boundary captured when the attempt starts. Later edits to
+  /// assessment duration/due date cannot silently change an in-flight learner's clock.
+  expiresAt        DateTime
   submittedAt      DateTime?
+  submissionReason AssessmentSubmissionReason?
   gradedAt         DateTime?
   autoScore        Float?
   manualScore      Float?
   totalScore       Float?
   percentage       Float?
   passed           Boolean?
-  timeSpentSeconds Int                     @default(0)
+  timeSpentSeconds Int                         @default(0)
 
   answers AssessmentAnswer[]
 
   @@unique([assessmentId, userId])
   @@index([assessmentId])
   @@index([userId])
+  @@index([expiresAt])
   @@map("assessment_attempts")
 }
 
@@ -879,9 +933,9 @@ model CalendarEventAssignment {
 /// Basic in-app notifications (Prompt 6 § NOTIFICATIONS). Real-time delivery is explicitly
 /// out of scope for this phase ("can be added later") — rows are created synchronously by the
 /// module whose action triggered them (assessment assignment, calendar event create/update) via
-/// a shared `notificationsService.notify(...)` helper, and deadline-approaching reminders are
-/// generated lazily on-access (when a trainee's notification list is fetched) rather than by a
-/// background scheduler, since no scheduler infrastructure exists yet in this project.
+/// a shared `notificationsService.notify(...)` helper. Deadline-approaching reminders are
+/// generated by the dedicated scheduler worker (startup catch-up plus a daily non-overlapping
+/// run), keeping notification reads free of reminder-generation work.
 model Notification {
   id                String           @id @default(uuid())
   userId            String
@@ -1174,7 +1228,7 @@ model QnaAttachment {
 /// ---------------------------------------------------------------------------
 /// ANALYTICS (Prompt 8 § DATABASE) — aggregation/cache tables, deliberately
 /// separated from the transactional tables above. Written ONLY by the analytics
-/// module's aggregation service (lazy recompute-when-stale + explicit refresh),
+/// module's aggregation service (stale-while-refresh + explicit refresh),
 /// never by transactional request flows. Every row is derived purely from
 /// transactional-table timestamps/values, so these tables are safe to truncate
 /// and recompute at any time — they are a cache, not a source of truth.

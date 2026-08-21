@@ -7,4 +7,6 @@ Layering: `departments.routes.ts` → `departments.controller.ts` → `departmen
 defines internal domain shapes, `departments.interfaces.ts` defines the contracts controllers/services
 depend on, and `departments.validation.ts` holds the express-validator chains for this module's routes.
 
-Foundation scaffolding only — no business logic or endpoints registered yet.
+Implemented CRUD, pagination/search, stats, and safe deletion checks. Trainer reads are limited to
+departments represented by their assigned active groups; Super Admins retain organization-wide
+management. Department deletion is blocked while dependent users/groups still exist.

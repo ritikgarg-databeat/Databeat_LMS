@@ -8,6 +8,7 @@ import { BaseService } from '@/services/base.service';
 import { storageProvider } from '@/storage';
 import { NotFoundError } from '@/utils/app-error';
 import { logger } from '@/utils/logger';
+import { assertUploadMatchesDeclaredType } from '@/utils/upload-safety.util';
 
 import type { UpdatePlatformSettingsDto } from './settings.dto';
 import { SettingsRepository } from './settings.repository';
@@ -23,11 +24,12 @@ import type {
  * `isMaintenanceModeActive()`. Short enough that a toggle is felt almost immediately across every
  * in-flight server process, long enough that it isn't a DB round trip on every authenticated
  * request (this is checked from `authenticate` — effectively every API call in the app). */
-const MAINTENANCE_MODE_CACHE_TTL_MS = 5_000;
+const MAINTENANCE_MODE_CACHE_TTL_MS = 30_000;
 
 // Business logic for the settings module. Controllers call into this layer only.
 export class SettingsService extends BaseService {
   private maintenanceModeCache: { value: boolean; expiresAt: number } | null = null;
+  private maintenanceModeRefresh: Promise<boolean> | null = null;
 
   constructor(protected readonly repository: SettingsRepository = new SettingsRepository()) {
     super();
@@ -63,6 +65,7 @@ export class SettingsService extends BaseService {
   }
 
   async uploadAvatar(userId: string, file: Express.Multer.File): Promise<AvatarResult> {
+    await assertUploadMatchesDeclaredType(file);
     const existing = await this.repository.findUserAvatar(userId);
     await this.deleteOldAvatarBestEffort(existing?.avatar ?? null);
 
@@ -108,16 +111,22 @@ export class SettingsService extends BaseService {
   }
 
   async getPlatformSettings(): Promise<PlatformSettingsResult> {
-    const settings = (await this.repository.findPlatformSettings()) ?? (await this.repository.createDefaultPlatformSettings());
+    const settings =
+      (await this.repository.findPlatformSettings()) ??
+      (await this.repository.createDefaultPlatformSettings());
     return this.toPlatformSettingsResult(settings);
   }
 
-  async updatePlatformSettings(dto: UpdatePlatformSettingsDto, actorId: string): Promise<PlatformSettingsResult> {
+  async updatePlatformSettings(
+    dto: UpdatePlatformSettingsDto,
+    actorId: string,
+  ): Promise<PlatformSettingsResult> {
     const updated = await this.repository.upsertPlatformSettings(dto, actorId);
-    // Invalidate immediately rather than waiting out the TTL, so a Super Admin toggling
-    // maintenance mode off (to unblock everyone else, or themselves) takes effect on their very
-    // next request rather than up to MAINTENANCE_MODE_CACHE_TTL_MS later.
-    this.maintenanceModeCache = null;
+    // The writer knows the authoritative value, so publish it to this process immediately.
+    this.maintenanceModeCache = {
+      value: updated.maintenanceMode,
+      expiresAt: Date.now() + MAINTENANCE_MODE_CACHE_TTL_MS,
+    };
     return this.toPlatformSettingsResult(updated);
   }
 
@@ -130,9 +139,33 @@ export class SettingsService extends BaseService {
       return this.maintenanceModeCache.value;
     }
 
-    const settings = await this.getPlatformSettings();
-    this.maintenanceModeCache = { value: settings.maintenanceMode, expiresAt: now + MAINTENANCE_MODE_CACHE_TTL_MS };
-    return settings.maintenanceMode;
+    // Once initialized, never make an end-user request wait for a remote settings read. Serve the
+    // stale value and let one deduplicated refresh update the next request.
+    if (this.maintenanceModeCache) {
+      void this.refreshMaintenanceMode().catch((error: unknown) => {
+        logger.error('Background maintenance-mode refresh failed', { error });
+      });
+      return this.maintenanceModeCache.value;
+    }
+
+    return this.refreshMaintenanceMode();
+  }
+
+  private refreshMaintenanceMode(): Promise<boolean> {
+    if (this.maintenanceModeRefresh) return this.maintenanceModeRefresh;
+
+    this.maintenanceModeRefresh = this.getPlatformSettings()
+      .then((settings) => {
+        this.maintenanceModeCache = {
+          value: settings.maintenanceMode,
+          expiresAt: Date.now() + MAINTENANCE_MODE_CACHE_TTL_MS,
+        };
+        return settings.maintenanceMode;
+      })
+      .finally(() => {
+        this.maintenanceModeRefresh = null;
+      });
+    return this.maintenanceModeRefresh;
   }
 
   /**

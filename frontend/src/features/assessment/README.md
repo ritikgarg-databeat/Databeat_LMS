@@ -12,4 +12,6 @@ Question bank, assessment builder, timed attempts, and results.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented flows cover question-bank authoring, assessment configuration/duplication/publishing,
+group assignment, server-timed trainee attempts with autosave, manual grading, result masking, and
+one-time result release.

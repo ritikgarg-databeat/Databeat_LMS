@@ -3,8 +3,15 @@ import type { Role } from '@prisma/client';
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { hasNewLessonContent } from '@/utils/lesson-content-status.util';
+import { deleteLessonResourceFiles } from '@/utils/lesson-resource-cleanup.util';
 
-import type { CreateLessonDto, ReorderLessonsDto, UpdateLessonDto, UpdateLessonStatusDto } from './lessons.dto';
+import type {
+  CreateLessonDto,
+  ReorderLessonsDto,
+  UpdateLessonDto,
+  UpdateLessonStatusDto,
+} from './lessons.dto';
 import { LessonsRepository } from './lessons.repository';
 
 interface Actor {
@@ -18,7 +25,8 @@ export class LessonsService extends BaseService {
     super();
   }
 
-  list(moduleId: string) {
+  async list(moduleId: string, actor: Actor) {
+    await this.assertModuleInScope(moduleId, actor);
     return this.repository.findByModuleId(moduleId);
   }
 
@@ -32,16 +40,37 @@ export class LessonsService extends BaseService {
       const accessible = await this.repository.isAccessibleToUser(id, actor.id, actor.role);
       if (!accessible) throw new ForbiddenError("You don't have permission to view this lesson.");
     }
+    if (actor.role === 'TRAINER' && !(await this.repository.isLessonInTrainerScope(id, actor.id))) {
+      throw new ForbiddenError("You don't have permission to view this lesson.");
+    }
 
     const lesson = await this.repository.findDetailedById(id, actor.id);
     if (!lesson) throw new NotFoundError('Lesson not found.');
 
     const { progress, ...rest } = lesson;
-    return { ...rest, progress: progress[0] ?? null };
+    const learnerProgress = progress[0];
+    const latestResourceCreatedAt = rest.resources.reduce<Date | null>(
+      (latest, resource) => (!latest || resource.createdAt > latest ? resource.createdAt : latest),
+      null,
+    );
+
+    return {
+      ...rest,
+      progress: learnerProgress
+        ? {
+            ...learnerProgress,
+            hasNewContent:
+              (learnerProgress.completedContentVersion !== null &&
+                learnerProgress.completedContentVersion < rest.contentVersion) ||
+              hasNewLessonContent(latestResourceCreatedAt, learnerProgress.lastViewedAt),
+          }
+        : null,
+    };
   }
 
-  async create(dto: CreateLessonDto, actorId: string, ipAddress?: string | null) {
+  async create(dto: CreateLessonDto, actor: Actor, ipAddress?: string | null) {
     await this.assertModuleExists(dto.moduleId);
+    await this.assertModuleInScope(dto.moduleId, actor);
     const order = await this.repository.findNextOrder(dto.moduleId);
 
     const created = await this.repository.create({
@@ -55,7 +84,7 @@ export class LessonsService extends BaseService {
 
     await auditLogService.record({
       action: 'LESSON_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { lessonId: created.id, moduleId: created.moduleId, title: created.title },
     });
@@ -63,36 +92,53 @@ export class LessonsService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateLessonDto, actorId: string, ipAddress?: string | null) {
+  async update(id: string, dto: UpdateLessonDto, actor: Actor, ipAddress?: string | null) {
     const existing = await this.findOrThrow(id);
+    await this.assertLessonInScope(id, actor);
 
-    const updated = await this.repository.update(id, {
+    const updateData = {
       title: dto.title,
       type: dto.type,
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.estimatedDurationMinutes !== undefined
         ? { estimatedDurationMinutes: dto.estimatedDurationMinutes }
         : {}),
-    });
+    };
+    const contentChanged =
+      (dto.title !== undefined && dto.title !== existing.title) ||
+      (dto.type !== undefined && dto.type !== existing.type) ||
+      (dto.description !== undefined && dto.description !== existing.description);
+
+    const result = contentChanged
+      ? await this.repository.updateAndInvalidateLearning(id, updateData)
+      : { lesson: await this.repository.update(id, updateData), reopenedLearnerCount: 0, invalidatedQuizCount: 0 };
+    const updated = result.lesson;
 
     await auditLogService.record({
       action: 'LESSON_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
-      metadata: { lessonId: existing.id, changes: { ...dto } },
+      metadata: {
+        lessonId: existing.id,
+        changes: { ...dto },
+        contentVersion: updated.contentVersion,
+        reopenedLearnerCount: result.reopenedLearnerCount,
+        invalidatedQuizCount: result.invalidatedQuizCount,
+      },
     });
 
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateLessonStatusDto, actorId: string, ipAddress?: string | null) {
+  async updateStatus(id: string, dto: UpdateLessonStatusDto, actor: Actor, ipAddress?: string | null) {
     const existing = await this.findOrThrow(id);
+    await this.assertLessonInScope(id, actor);
 
     const updated = await this.repository.update(id, { isPublished: dto.isPublished });
 
     await auditLogService.record({
       action: 'LESSON_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { lessonId: existing.id, isPublishedChangedTo: dto.isPublished },
     });
@@ -100,20 +146,27 @@ export class LessonsService extends BaseService {
     return updated;
   }
 
-  async remove(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
-    const existing = await this.findOrThrow(id);
+  async remove(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+    const [existing, fileResources] = await Promise.all([
+      this.findOrThrow(id),
+      this.repository.findFileResourcesByLessonId(id),
+    ]);
+    await this.assertLessonInScope(id, actor);
 
     await this.repository.delete(id);
 
+    await deleteLessonResourceFiles(fileResources, { type: 'lesson', id });
+
     await auditLogService.record({
       action: 'LESSON_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { lessonId: existing.id, moduleId: existing.moduleId, title: existing.title },
     });
   }
 
-  async reorder(dto: ReorderLessonsDto, actorId: string, ipAddress?: string | null): Promise<void> {
+  async reorder(dto: ReorderLessonsDto, actor: Actor, ipAddress?: string | null): Promise<void> {
+    await this.assertModuleInScope(dto.moduleId, actor);
     const [belonging, totalCount] = await Promise.all([
       this.repository.findManyByIds(dto.moduleId, dto.orderedIds),
       this.repository.countByModuleId(dto.moduleId),
@@ -131,7 +184,7 @@ export class LessonsService extends BaseService {
 
     await auditLogService.record({
       action: 'LESSON_REORDERED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { moduleId: dto.moduleId, orderedIds: dto.orderedIds },
     });
@@ -146,5 +199,17 @@ export class LessonsService extends BaseService {
   private async assertModuleExists(moduleId: string): Promise<void> {
     const module = await this.repository.findModuleById(moduleId);
     if (!module) throw new BadRequestError('Module not found.');
+  }
+
+  private async assertModuleInScope(moduleId: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isModuleInTrainerScope(moduleId, actor.id))) {
+      throw new ForbiddenError("You don't have permission to manage this course module.");
+    }
+  }
+
+  private async assertLessonInScope(lessonId: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isLessonInTrainerScope(lessonId, actor.id))) {
+      throw new ForbiddenError("You don't have permission to manage this lesson.");
+    }
   }
 }

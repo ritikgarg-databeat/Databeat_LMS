@@ -48,7 +48,7 @@ async function refreshAccessToken(): Promise<string> {
   const { data } = await axios.post<ApiSuccessResponse<{ accessToken: string }>>(
     `${env.API_URL}/auth/refresh`,
     undefined,
-    { withCredentials: true },
+    { withCredentials: true, timeout: APP_CONFIG.REQUEST_TIMEOUT_MS },
   );
   return data.data.accessToken;
 }

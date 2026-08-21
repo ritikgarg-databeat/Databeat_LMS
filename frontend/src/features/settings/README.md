@@ -12,4 +12,5 @@ Platform configuration, branding, and system-wide settings.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented personal settings cover theme, avatar, and notification preferences; Super Admin
+platform settings include platform identity, support email, and live maintenance mode.

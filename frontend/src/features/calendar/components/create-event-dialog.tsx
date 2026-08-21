@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -72,7 +72,6 @@ function CreateEventDialog({ open, onOpenChange }: CreateEventDialogProps) {
     control,
     handleSubmit,
     reset,
-    watch,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<CreateEventFormValues>({
@@ -87,8 +86,8 @@ function CreateEventDialog({ open, onOpenChange }: CreateEventDialogProps) {
     },
   });
 
-  const departmentIds = watch('departmentIds');
-  const groupIds = watch('groupIds');
+  const departmentIds = useWatch({ control, name: 'departmentIds' });
+  const groupIds = useWatch({ control, name: 'groupIds' });
 
   const toggleDepartment = (id: string) => {
     setValue(

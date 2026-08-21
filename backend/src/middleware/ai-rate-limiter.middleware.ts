@@ -3,6 +3,9 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { AI_RATE_LIMIT_MAX_REQUESTS, AI_RATE_LIMIT_WINDOW_MS } from '@/constants/ai';
 import { ERROR_CODES, ERROR_MESSAGES } from '@/constants/error-messages';
 import { HTTP_STATUS } from '@/constants/http-status';
+import { createRateLimitStore } from '@/services/postgres-rate-limit-store';
+
+const sharedStore = createRateLimitStore('ai');
 
 /**
  * Stricter than the app-wide rate limiter (ARCHITECTURE.md §17) — every request here is a
@@ -15,6 +18,7 @@ import { HTTP_STATUS } from '@/constants/http-status';
  * addresses, so different suffixes of the same /64 would each get their own limit bucket.
  */
 export const aiRateLimiter = rateLimit({
+  ...(sharedStore ? { store: sharedStore } : {}),
   windowMs: AI_RATE_LIMIT_WINDOW_MS,
   limit: AI_RATE_LIMIT_MAX_REQUESTS,
   standardHeaders: true,

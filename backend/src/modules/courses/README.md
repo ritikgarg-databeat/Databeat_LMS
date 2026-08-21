@@ -1,10 +1,17 @@
 # Courses Module
 
-Course entity — the top of the Course to Module to Lesson hierarchy.
+Owns the top-level Course → Module → Lesson hierarchy, publish lifecycle, group assignment,
+trainer scoping, duplication, and course deletion.
 
-Layering: `courses.routes.ts` → `courses.controller.ts` → `courses.service.ts` → `courses.repository.ts`
-(see ARCHITECTURE.md §3.1). `courses.dto.ts` defines request/response shapes, `courses.types.ts`
-defines internal domain shapes, `courses.interfaces.ts` defines the contracts controllers/services
-depend on, and `courses.validation.ts` holds the express-validator chains for this module's routes.
+Trainers can manage courses they created or courses assigned to their active groups; Super Admins
+have organization-wide access. Trainee reads require a published, non-deleted course assigned
+through an active group membership, and only published modules/lessons are returned.
 
-Foundation scaffolding only — no business logic or endpoints registered yet.
+`POST /:id/duplicate` deep-copies modules and lessons into a new unassigned `DRAFT`. Resources are
+included by default and can be excluded with `includeResources: false`; file resources receive
+independent physical copies so deleting either course cannot break the other. A failed duplicate
+cleans up any files already copied.
+
+Course deletion is a database soft delete for history, but active descendant resource files are
+collected first and removed from storage after the database update. Storage cleanup failures are
+logged with the owning course and path for manual retry.

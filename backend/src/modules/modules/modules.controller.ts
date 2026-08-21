@@ -21,21 +21,23 @@ export class ModulesController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const { courseId } = req.query as unknown as ListModulesQueryDto;
-    const modules = await this.service.list(courseId);
+    const modules = await this.service.list(courseId, req.user);
     this.ok(res, modules);
   };
 
   getById = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const module = await this.service.getById(req.params.id as string);
+    if (!req.user) throw new UnauthorizedError();
+    const module = await this.service.getById(req.params.id as string, req.user);
     this.ok(res, module);
   };
 
   create = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const module = await this.service.create(req.body as CreateModuleDto, req.user.id, req.ip);
+    const module = await this.service.create(req.body as CreateModuleDto, req.user, req.ip);
     this.created(res, module, 'Module created successfully.');
   };
 
@@ -45,7 +47,7 @@ export class ModulesController extends BaseController {
     const module = await this.service.update(
       req.params.id as string,
       req.body as UpdateModuleDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, module, 'Module updated successfully.');
@@ -57,7 +59,7 @@ export class ModulesController extends BaseController {
     const module = await this.service.updateStatus(
       req.params.id as string,
       req.body as UpdateModuleStatusDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, module, 'Module status updated successfully.');
@@ -66,14 +68,14 @@ export class ModulesController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.remove(req.params.id as string, req.user.id, req.ip);
+    await this.service.remove(req.params.id as string, req.user, req.ip);
     this.noContent(res);
   };
 
   reorder = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.reorder(req.body as ReorderModulesDto, req.user.id, req.ip);
+    await this.service.reorder(req.body as ReorderModulesDto, req.user, req.ip);
     this.ok(res, null, 'Modules reordered successfully.');
   };
 }

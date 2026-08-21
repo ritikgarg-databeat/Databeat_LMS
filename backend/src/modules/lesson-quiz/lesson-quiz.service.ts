@@ -8,11 +8,13 @@ import {
   LESSON_QUIZ_MIN_CONTENT_CHARS,
   LESSON_QUIZ_MIN_QUESTIONS,
   LESSON_QUIZ_OPTION_COUNT,
+  LESSON_QUIZ_PASS_PERCENTAGE,
 } from '@/constants/lesson-quiz';
 import { aiProvider } from '@/modules/ai';
 import { BaseService } from '@/services/base.service';
-import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from '@/utils/app-error';
 import { logger } from '@/utils/logger';
+import { redactSensitiveText } from '@/utils/pii-redaction.util';
 
 import type { SubmitLessonQuizDto } from './lesson-quiz.dto';
 import { LessonQuizRepository } from './lesson-quiz.repository';
@@ -62,12 +64,15 @@ export class LessonQuizService extends BaseService {
         score: attempt.score ?? 0,
         totalQuestions: attempt.totalQuestions,
         percentage: attempt.percentage ?? 0,
+        passingPercentage: LESSON_QUIZ_PASS_PERCENTAGE,
+        passed: (attempt.percentage ?? 0) >= LESSON_QUIZ_PASS_PERCENTAGE,
       };
     }
 
     return {
       required: true,
       status: 'GENERATED',
+      passingPercentage: LESSON_QUIZ_PASS_PERCENTAGE,
       questions: this.sanitizeQuestions(attempt.questions as unknown as StoredQuizQuestion[]),
     };
   }
@@ -75,7 +80,9 @@ export class LessonQuizService extends BaseService {
   async submit(lessonId: string, actor: Actor, dto: SubmitLessonQuizDto): Promise<LessonQuizResult> {
     await this.assertLessonReadable(lessonId, actor);
 
-    const attempt = await this.repository.findAttempt(lessonId, actor.id);
+    const lesson = await this.repository.findLessonById(lessonId);
+    if (!lesson) throw new NotFoundError('Lesson not found.');
+    const attempt = await this.repository.findAttempt(lessonId, actor.id, lesson.contentVersion);
     if (!attempt) throw new NotFoundError('No quiz has been generated for this lesson yet.');
     if (attempt.status === LessonQuizAttemptStatus.SUBMITTED) {
       throw new BadRequestError('This quiz has already been submitted.');
@@ -105,15 +112,28 @@ export class LessonQuizService extends BaseService {
       submittedAt: new Date(),
     });
 
-    return { score: correctCount, totalQuestions: questions.length, percentage, results };
+    return {
+      score: correctCount,
+      totalQuestions: questions.length,
+      percentage,
+      passingPercentage: LESSON_QUIZ_PASS_PERCENTAGE,
+      passed: percentage >= LESSON_QUIZ_PASS_PERCENTAGE,
+      results,
+    };
   }
 
   /** Called from progress.service.ts right before it allows a transition into COMPLETED. */
   async checkCompletionGate(lessonId: string, actor: Actor): Promise<void> {
     await this.assertLessonReadable(lessonId, actor);
     const attempt = await this.getOrCreateAttempt(lessonId, actor.id);
-    if (attempt && attempt.status === LessonQuizAttemptStatus.GENERATED) {
-      throw new ForbiddenError('Complete the lesson quiz before marking it complete.');
+    if (
+      attempt &&
+      (attempt.status === LessonQuizAttemptStatus.GENERATED ||
+        (attempt.percentage ?? 0) < LESSON_QUIZ_PASS_PERCENTAGE)
+    ) {
+      throw new ForbiddenError(
+        `Pass the lesson quiz with at least ${LESSON_QUIZ_PASS_PERCENTAGE}% before marking it complete.`,
+      );
     }
   }
 
@@ -128,10 +148,19 @@ export class LessonQuizService extends BaseService {
    * flags as a bug, not expected data.
    */
   private async getOrCreateAttempt(lessonId: string, userId: string) {
-    const existing = await this.repository.findAttempt(lessonId, userId);
-    if (existing) return existing;
+    const lesson = await this.repository.findLessonById(lessonId);
+    if (!lesson) throw new NotFoundError('Lesson not found.');
 
-    if (await this.repository.isLessonAlreadyCompleted(lessonId, userId)) return null;
+    const existing = await this.repository.findAttempt(lessonId, userId, lesson.contentVersion);
+    if (existing?.status === LessonQuizAttemptStatus.GENERATED) return existing;
+    if (
+      existing?.status === LessonQuizAttemptStatus.SUBMITTED &&
+      (existing.percentage ?? 0) >= LESSON_QUIZ_PASS_PERCENTAGE
+    ) {
+      return existing;
+    }
+
+    if (await this.repository.isLessonAlreadyCompleted(lessonId, userId, lesson.contentVersion)) return null;
 
     const lessonContent = await this.repository.findLessonContentForQuiz(lessonId);
     if (!lessonContent) throw new NotFoundError('Lesson not found.');
@@ -142,19 +171,32 @@ export class LessonQuizService extends BaseService {
       .trim();
 
     // Not enough real content to honestly quiz on — mirrors today's direct-complete behavior.
-    if (combinedContent.length < LESSON_QUIZ_MIN_CONTENT_CHARS) return null;
+    if (combinedContent.length < LESSON_QUIZ_MIN_CONTENT_CHARS) {
+      if (lessonContent.hasOpaqueFileContent) {
+        throw new ConflictError(
+          'This lesson needs readable text or a transcript before its completion quiz can be generated.',
+        );
+      }
+      return null;
+    }
 
     const generationStartedAt = Date.now();
     const questions = await this.generateQuestions(
       lessonContent.lessonTitle,
       combinedContent.slice(0, LESSON_QUIZ_MAX_CONTENT_CHARS),
     );
-    if (!questions) return null; // AI unavailable or persistently malformed — graceful fallback
+    if (!questions) {
+      throw new ServiceUnavailableError(
+        'The lesson quiz is temporarily unavailable. Completion is paused so learning evidence is not bypassed.',
+      );
+    }
     const generationDurationMs = Date.now() - generationStartedAt;
 
     return this.repository.createAttempt({
       lesson: { connect: { id: lessonId } },
       user: { connect: { id: userId } },
+      contentVersion: lessonContent.contentVersion,
+      attemptNumber: (existing?.attemptNumber ?? 0) + 1,
       questions: questions as unknown as Prisma.InputJsonValue,
       totalQuestions: questions.length,
       generationDurationMs,
@@ -169,7 +211,7 @@ export class LessonQuizService extends BaseService {
    * direct-complete behavior instead of permanently blocking every trainee.
    */
   private async generateQuestions(lessonTitle: string, content: string): Promise<StoredQuizQuestion[] | null> {
-    const baseMessage = `Lesson title: ${lessonTitle}\n\nLesson content:\n${content}`;
+    const baseMessage = redactSensitiveText(`Lesson title: ${lessonTitle}\n\nLesson content:\n${content}`);
 
     for (let attemptNumber = 0; attemptNumber < 2; attemptNumber += 1) {
       const userMessage =
@@ -249,12 +291,6 @@ export class LessonQuizService extends BaseService {
   /** Shared by every public method — Trainer/Super-Admin always allowed; others need the
    * self-contained lesson-accessibility check (Prompt 5 § SECURITY). */
   private async assertLessonReadable(lessonId: string, actor: Actor): Promise<void> {
-    if (actor.role === 'TRAINER' || actor.role === 'SUPER_ADMIN') {
-      const lesson = await this.repository.findLessonById(lessonId);
-      if (!lesson) throw new NotFoundError('Lesson not found.');
-      return;
-    }
-
     const accessible = await this.repository.isLessonAccessibleToUser(lessonId, actor.id, actor.role);
     if (!accessible) throw new ForbiddenError("You don't have permission to access this lesson's quiz.");
   }

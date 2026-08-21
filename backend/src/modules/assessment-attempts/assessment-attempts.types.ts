@@ -1,4 +1,8 @@
-import { QuestionType, type AssessmentAttemptStatus } from '@prisma/client';
+import {
+  QuestionType,
+  type AssessmentAttemptStatus,
+  type AssessmentSubmissionReason,
+} from '@prisma/client';
 
 // Internal domain types for the assessment-attempts module.
 
@@ -71,7 +75,10 @@ export interface AttemptSummary {
   userId: string;
   status: AssessmentAttemptStatus;
   startedAt: Date;
+  expiresAt: Date;
+  remainingSeconds: number;
   submittedAt: Date | null;
+  submissionReason: AssessmentSubmissionReason | null;
   gradedAt: Date | null;
   timeSpentSeconds: number;
   totalScore: number | null;

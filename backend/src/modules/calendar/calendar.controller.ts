@@ -20,8 +20,9 @@ export class CalendarController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListCalendarEventsQueryDto;
-    const events = await this.service.list({ from: query.from, to: query.to, type: query.type });
+    const events = await this.service.list({ from: query.from, to: query.to, type: query.type }, req.user);
     this.ok(res, events);
   };
 
@@ -43,7 +44,7 @@ export class CalendarController extends BaseController {
   create = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const event = await this.service.create(req.body as CreateCalendarEventDto, req.user.id, req.ip);
+    const event = await this.service.create(req.body as CreateCalendarEventDto, req.user, req.ip);
     this.created(res, event, 'Calendar event created successfully.');
   };
 
@@ -53,7 +54,7 @@ export class CalendarController extends BaseController {
     const event = await this.service.update(
       req.params.id as string,
       req.body as UpdateCalendarEventDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, event, 'Calendar event updated successfully.');
@@ -62,7 +63,7 @@ export class CalendarController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.softDelete(req.params.id as string, req.user.id, req.ip);
+    await this.service.softDelete(req.params.id as string, req.user, req.ip);
     this.noContent(res);
   };
 }

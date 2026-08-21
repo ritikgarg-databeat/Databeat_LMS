@@ -1,8 +1,8 @@
 # Questions Module
 
 Flat, top-level question bank (Prompt 6) — reusable questions independent of any specific
-assessment. Trainer/Super-Admin manage everything; Trainees have no access to this module at
-all (they only ever see assessment content through the attempts flow). An assessment references
+assessment. A Trainer manages only questions they created; Super Admin manages everything;
+Trainees have no access to this module at all (they only ever see assessment content through the attempts flow). An assessment references
 a bank question via a separate `AssessmentQuestion` snapshot (owned by the assessments module),
 so deleting or editing a bank question never changes an assessment that already added it.
 

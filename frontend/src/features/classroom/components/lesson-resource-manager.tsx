@@ -144,8 +144,11 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
         return;
       }
       try {
-        await uploadResource.mutateAsync({ lessonId, payload: { title: values.title, type: values.type, file } });
-        toast.success('Resource uploaded successfully.');
+        await uploadResource.mutateAsync({
+          lessonId,
+          payload: { title: values.title, type: values.type, file },
+        });
+        toast.success('Resource uploaded. Completed trainees must review the lesson and retake its quiz.');
       } catch (error) {
         toast.error(getErrorMessage(error));
         return;
@@ -156,7 +159,7 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
           lessonId,
           payload: { type: values.type, title: values.title, content: values.content ?? '' },
         });
-        toast.success('Resource added successfully.');
+        toast.success('Resource added. Completed trainees must review the lesson and retake its quiz.');
       } catch (error) {
         toast.error(getErrorMessage(error));
         return;
@@ -204,13 +207,18 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
                   : resource.content;
               return (
                 <li key={resource.id} className="flex items-start gap-3 rounded-md border p-3">
-                  <ResourceTypeIcon type={resource.type} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <ResourceTypeIcon
+                    type={resource.type}
+                    className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{resource.title}</p>
                     {meta.isFileBacked ? (
                       <p className="text-xs text-muted-foreground">
                         {resource.originalFilename ?? meta.label}
-                        {resource.fileSizeBytes !== null ? ` • ${formatFileSize(resource.fileSizeBytes)}` : ''}
+                        {resource.fileSizeBytes !== null
+                          ? ` • ${formatFileSize(resource.fileSizeBytes)}`
+                          : ''}
                       </p>
                     ) : resource.type === 'EXTERNAL_LINK' && resource.content ? (
                       <a
@@ -305,7 +313,9 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
                     <p className="text-sm font-medium">
                       {isDragActive ? 'Drop the file here...' : 'Drag & drop a file here, or click to browse'}
                     </p>
-                    <p className="text-xs text-muted-foreground">Max size {formatFileSize(MAX_LESSON_FILE_SIZE_BYTES)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Max size {formatFileSize(MAX_LESSON_FILE_SIZE_BYTES)}
+                    </p>
                   </>
                 )}
               </div>
@@ -344,13 +354,22 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
                     disabled={isSubmitting}
                     {...register('content')}
                   />
-                  {errors.content ? <p className="text-sm text-destructive">{errors.content.message}</p> : null}
+                  {errors.content ? (
+                    <p className="text-sm text-destructive">{errors.content.message}</p>
+                  ) : null}
                 </div>
               ) : (
                 <div className="space-y-2">
                   <Label htmlFor="resource-content-text">Content</Label>
-                  <Textarea id="resource-content-text" rows={6} disabled={isSubmitting} {...register('content')} />
-                  {errors.content ? <p className="text-sm text-destructive">{errors.content.message}</p> : null}
+                  <Textarea
+                    id="resource-content-text"
+                    rows={6}
+                    disabled={isSubmitting}
+                    {...register('content')}
+                  />
+                  {errors.content ? (
+                    <p className="text-sm text-destructive">{errors.content.message}</p>
+                  ) : null}
                 </div>
               )}
             </TabsContent>
@@ -373,7 +392,9 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
         onOpenChange={(open) => !open && setDeletingResource(null)}
         title="Delete resource"
         description={
-          deletingResource ? `${deletingResource.title} will be permanently deleted. This cannot be undone.` : undefined
+          deletingResource
+            ? `${deletingResource.title} will be permanently deleted. This cannot be undone.`
+            : undefined
         }
         confirmLabel="Delete"
         destructive

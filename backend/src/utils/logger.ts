@@ -25,15 +25,12 @@ export const logger = winston.createLogger({
     winston.format.json(),
   ),
   transports: [
+    new winston.transports.Console({
+      format: isProduction
+        ? winston.format.combine(winston.format.timestamp(), winston.format.json())
+        : winston.format.combine(winston.format.colorize(), winston.format.simple()),
+    }),
     new winston.transports.File({ filename: path.join(LOGS_DIR, 'error.log'), level: 'error' }),
     new winston.transports.File({ filename: path.join(LOGS_DIR, 'combined.log') }),
   ],
 });
-
-if (!isProduction) {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.combine(winston.format.colorize(), winston.format.simple()),
-    }),
-  );
-}

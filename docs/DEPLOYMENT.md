@@ -5,20 +5,25 @@ and a stateful Node backend API) plus a managed Neon PostgreSQL database. See th
 [`README.md`](../README.md) for local development setup; this doc assumes you're deploying an
 already-working local checkout to a real environment.
 
+For day-two process, health, backup, upload, and retention procedures, also read
+[`OPERATIONS.md`](OPERATIONS.md).
+
 ---
 
 ## Architecture recap (what you're deploying)
 
 - **Frontend**: a Vite-built static React SPA (client-side routed with React Router) — deploy
   the build output to any static host or CDN.
-- **Backend**: a long-running Express/Node process — needs a persistent host (VM, container,
-  PaaS with a persistent dyno/instance), **not** a stateless serverless function, because:
+- **Backend API + worker**: two long-running Express/Node build targets — both need a persistent
+  host/process manager rather than request-scoped serverless functions:
   - Local file uploads (`UPLOAD_PATH`) are written to disk on whichever instance handled the
     request — this only works correctly with a single backend instance, or with `UPLOAD_PATH`
     pointed at shared/networked storage if you scale horizontally.
-  - The global rate limiter and `express-rate-limit` middleware track state in-process per
-    instance (acceptable for a single instance; for multiple instances behind a load balancer
-    you'd want a shared store like Redis — out of scope for this build).
+  - The API serves HTTP only (`RUN_SCHEDULER=false`). Exactly one worker runs assessment expiry,
+    reminder, and optional retention schedules. Critical jobs catch up immediately after restart
+    and prevent overlapping executions.
+  - Production rate limiting uses the shared PostgreSQL store (`RATE_LIMIT_STORE=postgres`), so
+    counters remain consistent across API replicas.
 - **Database**: Neon serverless PostgreSQL (already the target throughout development).
 
 ---
@@ -59,7 +64,11 @@ already-working local checkout to a real environment.
    equivalent variables through your host/CI's environment-variable configuration — never
    commit the real `.env`). Fill in every `REQUIRED` value — see the file's own comments for
    what each one does. At minimum: `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`,
-   `CORS_ORIGIN` (must exactly match the frontend's deployed origin), `NODE_ENV=production`.
+   `CORS_ORIGIN` (must exactly match the frontend's deployed origin), `NODE_ENV=production`,
+   `RUN_SCHEDULER=false`, and `RATE_LIMIT_STORE=postgres`. Configure `PASSWORD_RESET_URL` and
+   `EMAIL_WEBHOOK_URL` before relying on self-service password reset. Tune
+   `DATABASE_POOL_MAX`/`DATABASE_POOL_WARM_CONNECTIONS` for each API replica and normally keep
+   the worker-specific pool/warm values at `1`; see the operations runbook.
 2. Install dependencies and build:
    ```bash
    cd backend
@@ -69,13 +78,14 @@ already-working local checkout to a real environment.
    ```
 3. Run migrations against the production database (see § 1 step 5) if you haven't already.
 4. Seed the Super Admin account (see § 3) if this is a fresh database.
-5. Start the server:
+5. Start the API and one worker from the same build:
    ```bash
-   npm run start          # runs node dist/server.js
+   npm run start          # node dist/server.js
+   npm run start:worker   # node dist/worker.js (separate process)
    ```
-   In production, run this under a process manager that restarts on crash and survives
-   terminal disconnects — e.g. `pm2 start dist/server.js --name databeat-lms-api`, a systemd
-   unit, or your container orchestrator's own restart policy if deploying via Docker.
+   Run both under a process manager that restarts on crash and survives terminal disconnects.
+   Scale API processes only; keep one scheduler worker unless a distributed job coordinator is
+   introduced later.
 6. Put a reverse proxy (Nginx, Caddy, your cloud provider's load balancer) in front of the
    Node process to terminate TLS and forward to `PORT` (default `5000`) — the app itself
    doesn't terminate HTTPS. Confirm the proxy forwards the real client IP (`X-Forwarded-For`)
@@ -83,8 +93,8 @@ already-working local checkout to a real environment.
 7. Confirm `UPLOAD_PATH` points at a directory that exists, is writable by the process, and
    persists across deploys/restarts (not a container's ephemeral filesystem, unless you mount a
    persistent volume there).
-8. Smoke-test: `curl https://your-api-domain/health` should return
-   `{"success":true,"message":"Service is healthy",...}`.
+8. Smoke-test `GET /health/live` (process only) and `GET /health/ready` (database + upload storage).
+   `/health` remains a compatibility alias for readiness.
 
 ---
 
@@ -172,7 +182,9 @@ their password-change history already set, so they skip the forced first-login p
 
 ## 6. Post-deploy checklist
 
-- [ ] `GET /health` on the backend returns 200.
+- [ ] `GET /health/live` and `GET /health/ready` return 200.
+- [ ] Exactly one worker is running and its startup log lists `expired-assessment-attempts` and
+      `deadline-reminders`; the reminder catch-up completes without error.
 - [ ] Frontend loads and `/login` successfully authenticates.
 - [ ] Logged-in Super Admin is immediately prompted to change their password, and the app
       accepts no other action until it's done.
@@ -184,19 +196,26 @@ their password-change history already set, so they skip the forced first-login p
       `.env.example` placeholders.
 - [ ] File uploads (e.g. an avatar or a lesson resource) succeed and are retrievable after a
       backend restart (confirms `UPLOAD_PATH` is a persistent, correctly-permissioned path).
+- [ ] Deleting a test resource removes its physical upload; deleting a test lesson/course removes
+      descendant files while files belonging to active or draft courses remain available.
 - [ ] TLS/HTTPS is terminated in front of the backend (check for a valid certificate, not a
       bare HTTP connection).
 - [ ] Rate limiting headers (`RateLimit-Limit`, etc.) are present on API responses.
+- [ ] `RATE_LIMIT_STORE=postgres` is set and shared by every API replica.
+- [ ] Forgot-password returns the same message for known/unknown emails and the configured email
+      webhook delivers a usable, single-use reset link.
 - [ ] See `backend/docs/ERROR_HANDLING.md` for what a real 500 should look like — confirm no
       stack traces or internal details are visible in any error response from the deployed API.
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| Every API call fails with a CORS error in the browser console | `CORS_ORIGIN` doesn't exactly match the frontend's deployed origin (check scheme, exact host, port) |
-| App works locally but 401s immediately in production | `JWT_SECRET`/`JWT_REFRESH_SECRET` weren't set (or differ between the value used to sign vs. verify — e.g. across multiple backend instances not sharing the same `.env`) |
-| Backend won't start in production, "Missing required environment variable" | Check `CORS_ORIGIN`, `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` are all set — these are all required when `NODE_ENV=production` |
-| Refreshing any non-root URL (e.g. `/admin/settings`) 404s | Static host isn't configured with SPA fallback routing — see § 5 step 4 |
-| File uploads succeed but later 404 on download | `UPLOAD_PATH` isn't persistent across restarts/deploys (ephemeral container filesystem), or multiple backend instances don't share the same storage path |
-| Everyone behind the same office/VPN IP gets rate-limited together | Expected with the current IP-keyed global rate limiter behind NAT — see `backend/docs/ERROR_HANDLING.md`/the security hardening notes for the recommended fix at real scale (a CDN/WAF layer, or a hybrid auth-then-IP key) |
+| Symptom                                                                    | Likely cause                                                                                                                                                             |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Every API call fails with a CORS error in the browser console              | `CORS_ORIGIN` doesn't exactly match the frontend's deployed origin (check scheme, exact host, port)                                                                      |
+| App works locally but 401s immediately in production                       | `JWT_SECRET`/`JWT_REFRESH_SECRET` weren't set (or differ between the value used to sign vs. verify — e.g. across multiple backend instances not sharing the same `.env`) |
+| Backend won't start in production, "Missing required environment variable" | Check `CORS_ORIGIN`, `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` are all set — these are all required when `NODE_ENV=production`                                  |
+| Refreshing any non-root URL (e.g. `/admin/settings`) 404s                  | Static host isn't configured with SPA fallback routing — see § 5 step 4                                                                                                  |
+| File uploads succeed but later 404 on download                             | `UPLOAD_PATH` isn't persistent across restarts/deploys (ephemeral container filesystem), or multiple backend instances don't share the same storage path                 |
+| Timed attempts remain `IN_PROGRESS`, or reminders never arrive             | The worker is not running. Start `npm run start:worker --prefix backend`; keep `RUN_SCHEDULER=false` on API replicas                                                     |
+| Password-reset request succeeds but no email arrives                       | `EMAIL_WEBHOOK_URL` is unset/unreachable or its bearer token is wrong; inspect structured backend logs using the request id                                              |
+| Everyone behind the same office/VPN IP gets rate-limited together          | Confirm `TRUST_PROXY` matches the proxy topology and add a CDN/WAF policy if a shared NAT still needs a different fairness model                                         |

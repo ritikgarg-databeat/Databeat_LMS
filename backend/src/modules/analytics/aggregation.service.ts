@@ -1,7 +1,8 @@
-import type { AssessmentAttemptStatus, QuestionCategory } from '@prisma/client';
+import type { AssessmentAttemptStatus, QuestionCategory, UserPerformanceSnapshot } from '@prisma/client';
 
 import { ANALYTICS_ACTIVITY_WINDOW_DAYS, ANALYTICS_SNAPSHOT_TTL_MS } from '@/constants/analytics';
 import { BaseService } from '@/services/base.service';
+import { logger } from '@/utils/logger';
 
 import { AnalyticsRepository, type NewDailyActivityRow } from './analytics.repository';
 import type {
@@ -26,15 +27,20 @@ const ATTEMPT_SUBMITTED_STATUSES: AssessmentAttemptStatus[] = ['SUBMITTED', 'PEN
 /**
  * The analytics "Aggregation Jobs" service — sole writer of the analytics cache tables
  * (UserDailyActivity, UserPerformanceSnapshot, CourseAnalyticsSnapshot,
- * AssessmentAnalyticsSnapshot). Every `ensure*` method is a lazy recompute-when-stale guard
- * (skip when `computedAt` is within ANALYTICS_SNAPSHOT_TTL_MS); `refreshAll` is the force
- * entry point a future scheduler/queue calls.
+ * AssessmentAnalyticsSnapshot). Every `ensure*` method computes missing data synchronously,
+ * serves stale data while refreshing it in the background, and skips work while `computedAt` is
+ * within ANALYTICS_SNAPSHOT_TTL_MS. `refreshAll` is the force entry point for a scheduler/queue.
  *
  * Concurrency: every recompute is an idempotent window-rewrite or upsert derived purely from
  * transactional-table data, so concurrent duplicate work is harmless (last write wins, both
  * writes carry the same derived values) — no locking needed.
  */
 export class AggregationService extends BaseService {
+  private readonly dailyActivityRefreshes = new Map<string, Promise<void>>();
+  private readonly userSnapshotRefreshes = new Map<string, Promise<void>>();
+  private readonly courseSnapshotRefreshes = new Map<string, Promise<void>>();
+  private readonly assessmentSnapshotRefreshes = new Map<string, Promise<void>>();
+
   constructor(protected readonly repository: AnalyticsRepository = new AnalyticsRepository()) {
     super();
   }
@@ -42,57 +48,78 @@ export class AggregationService extends BaseService {
   /**
    * Recompute the user's last `days` (default ANALYTICS_ACTIVITY_WINDOW_DAYS) days of
    * UserDailyActivity unless the newest row's computedAt is still within TTL. A user with zero
-   * activity persists no rows (only nonzero days are stored), so the guard can't see freshness
-   * for them and recomputes on each access — harmless: five cheap indexed reads and no writes.
+   * activity persists an all-zero marker for today so the guard can still observe freshness.
    */
-  async ensureUserDailyActivity(userId: string, days: number = ANALYTICS_ACTIVITY_WINDOW_DAYS): Promise<void> {
+  async ensureUserDailyActivity(
+    userId: string,
+    days: number = ANALYTICS_ACTIVITY_WINDOW_DAYS,
+  ): Promise<void> {
     const latestComputedAt = await this.repository.findLatestDailyActivityComputedAt(userId);
-    if (latestComputedAt && Date.now() - latestComputedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS) return;
-    await this.recomputeUserDailyActivity(userId, days);
+    if (!latestComputedAt) {
+      await this.refreshDailyActivity(userId, days);
+      return;
+    }
+    if (Date.now() - latestComputedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS) return;
+
+    void this.refreshDailyActivity(userId, days).catch((error: unknown) => {
+      logger.error('Background daily-activity refresh failed', { error, userId });
+    });
   }
 
   /** Recompute UserPerformanceSnapshot for every given user whose row is missing or stale. */
-  async ensureUserSnapshots(userIds: string[]): Promise<void> {
+  async ensureUserSnapshots(userIds: string[]): Promise<UserPerformanceSnapshot[]> {
     const uniqueIds = [...new Set(userIds)];
-    if (!uniqueIds.length) return;
+    if (!uniqueIds.length) return [];
 
-    const ages = await this.repository.findUserSnapshotAges(uniqueIds);
-    const computedAtByUser = new Map(ages.map((row) => [row.userId, row.computedAt]));
+    const snapshots = await this.repository.findUserSnapshots(uniqueIds);
+    const computedAtByUser = new Map(snapshots.map((row) => [row.userId, row.computedAt]));
     const staleCutoff = Date.now() - ANALYTICS_SNAPSHOT_TTL_MS;
+    const missingIds = uniqueIds.filter((id) => !computedAtByUser.has(id));
     const staleIds = uniqueIds.filter((id) => {
       const computedAt = computedAtByUser.get(id);
-      return !computedAt || computedAt.getTime() < staleCutoff;
+      return computedAt !== undefined && computedAt.getTime() < staleCutoff;
     });
 
-    // Sequential per-user recompute: fine at this scale (a group is tens of trainees, and each
-    // iteration is itself batched Prisma reads). This loop is the background-job upgrade point —
-    // a future scheduler/queue would run the same per-user recompute off the request path.
+    await Promise.all(missingIds.map((userId) => this.refreshUserSnapshot(userId)));
     for (const userId of staleIds) {
-      await this.ensureUserDailyActivity(userId);
-      await this.recomputeUserSnapshot(userId);
+      void this.refreshUserSnapshot(userId).catch((error: unknown) => {
+        logger.error('Background user analytics refresh failed', { error, userId });
+      });
     }
+    return missingIds.length > 0 ? this.repository.findUserSnapshots(uniqueIds) : snapshots;
   }
 
   /** TTL-guarded recompute of CourseAnalyticsSnapshot. */
   async ensureCourseSnapshot(courseId: string): Promise<void> {
     const computedAt = await this.repository.findCourseSnapshotComputedAt(courseId);
-    if (computedAt && Date.now() - computedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS) return;
-    await this.recomputeCourseSnapshot(courseId);
+    if (!computedAt) {
+      await this.refreshCourseSnapshot(courseId);
+      return;
+    }
+    if (Date.now() - computedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS) return;
+    void this.refreshCourseSnapshot(courseId).catch((error: unknown) => {
+      logger.error('Background course analytics refresh failed', { courseId, error });
+    });
   }
 
   /** TTL-guarded recompute of AssessmentAnalyticsSnapshot. */
   async ensureAssessmentSnapshot(assessmentId: string): Promise<void> {
     const computedAt = await this.repository.findAssessmentSnapshotComputedAt(assessmentId);
-    if (computedAt && Date.now() - computedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS) return;
-    await this.recomputeAssessmentSnapshot(assessmentId);
+    if (!computedAt) {
+      await this.refreshAssessmentSnapshot(assessmentId);
+      return;
+    }
+    if (Date.now() - computedAt.getTime() < ANALYTICS_SNAPSHOT_TTL_MS) return;
+    void this.refreshAssessmentSnapshot(assessmentId).catch((error: unknown) => {
+      logger.error('Background assessment analytics refresh failed', { assessmentId, error });
+    });
   }
 
   /**
    * Force-recompute (TTL ignored) every active trainee's daily activity + performance snapshot,
    * every non-deleted course snapshot, and every non-deleted assessment snapshot. This is the
    * entry point a future scheduler/queue calls — the "background processing ready" seam
-   * (Prompt 8 § PERFORMANCE): run this off the request path on an interval and the lazy TTL
-   * guards simply stop firing because every snapshot is always fresh.
+   * (Prompt 8 § PERFORMANCE). The stale-while-refresh guards remain a request-path safety net.
    */
   async refreshAll(): Promise<RefreshResult> {
     const [userIds, courseIds, assessmentIds] = await Promise.all([
@@ -101,16 +128,9 @@ export class AggregationService extends BaseService {
       this.repository.findLiveAssessmentIds(),
     ]);
 
-    for (const userId of userIds) {
-      await this.recomputeUserDailyActivity(userId, ANALYTICS_ACTIVITY_WINDOW_DAYS);
-      await this.recomputeUserSnapshot(userId);
-    }
-    for (const courseId of courseIds) {
-      await this.recomputeCourseSnapshot(courseId);
-    }
-    for (const assessmentId of assessmentIds) {
-      await this.recomputeAssessmentSnapshot(assessmentId);
-    }
+    for (const userId of userIds) await this.refreshUserSnapshot(userId);
+    for (const courseId of courseIds) await this.refreshCourseSnapshot(courseId);
+    for (const assessmentId of assessmentIds) await this.refreshAssessmentSnapshot(assessmentId);
 
     return { users: userIds.length, courses: courseIds.length, assessments: assessmentIds.length };
   }
@@ -157,7 +177,63 @@ export class AggregationService extends BaseService {
     for (const timestamp of aiMessages) bucketFor(timestamp).aiMessages += 1;
     for (const timestamp of qnaPosts) bucketFor(timestamp).qnaPosts += 1;
 
-    await this.repository.replaceDailyActivity(userId, windowStart, [...buckets.values()]);
+    const rows = [...buckets.values()];
+    if (rows.length === 0) {
+      rows.push({
+        date: utcDayToDate(today),
+        logins: 0,
+        lessonsCompleted: 0,
+        assessmentsSubmitted: 0,
+        aiMessages: 0,
+        qnaPosts: 0,
+      });
+    }
+    await this.repository.replaceDailyActivity(userId, windowStart, rows);
+  }
+
+  private refreshDailyActivity(userId: string, days: number): Promise<void> {
+    const existing = this.dailyActivityRefreshes.get(userId);
+    if (existing) return existing;
+
+    const refresh = this.recomputeUserDailyActivity(userId, days).finally(() => {
+      this.dailyActivityRefreshes.delete(userId);
+    });
+    this.dailyActivityRefreshes.set(userId, refresh);
+    return refresh;
+  }
+
+  private refreshUserSnapshot(userId: string): Promise<void> {
+    const existing = this.userSnapshotRefreshes.get(userId);
+    if (existing) return existing;
+
+    const refresh = (async () => {
+      await this.refreshDailyActivity(userId, ANALYTICS_ACTIVITY_WINDOW_DAYS);
+      await this.recomputeUserSnapshot(userId);
+    })().finally(() => {
+      this.userSnapshotRefreshes.delete(userId);
+    });
+    this.userSnapshotRefreshes.set(userId, refresh);
+    return refresh;
+  }
+
+  private refreshCourseSnapshot(courseId: string): Promise<void> {
+    const existing = this.courseSnapshotRefreshes.get(courseId);
+    if (existing) return existing;
+    const refresh = this.recomputeCourseSnapshot(courseId).finally(() => {
+      this.courseSnapshotRefreshes.delete(courseId);
+    });
+    this.courseSnapshotRefreshes.set(courseId, refresh);
+    return refresh;
+  }
+
+  private refreshAssessmentSnapshot(assessmentId: string): Promise<void> {
+    const existing = this.assessmentSnapshotRefreshes.get(assessmentId);
+    if (existing) return existing;
+    const refresh = this.recomputeAssessmentSnapshot(assessmentId).finally(() => {
+      this.assessmentSnapshotRefreshes.delete(assessmentId);
+    });
+    this.assessmentSnapshotRefreshes.set(assessmentId, refresh);
+    return refresh;
   }
 
   /** Recompute + upsert the user's UserPerformanceSnapshot from the transactional tables. */
@@ -204,7 +280,9 @@ export class AggregationService extends BaseService {
     const lessonsCompleted = completedLessonIds.size;
     const completionPercentage = percentage(lessonsCompleted, totalAssignedLessons);
 
-    const scores = attempts.map((attempt) => attempt.percentage).filter((value): value is number => value !== null);
+    const scores = attempts
+      .map((attempt) => attempt.percentage)
+      .filter((value): value is number => value !== null);
     const rawAverageScore = mean(scores);
     const averageScore = rawAverageScore === null ? null : round1(rawAverageScore);
 
@@ -315,7 +393,9 @@ export class AggregationService extends BaseService {
     ).length;
     const gradedCount = attempts.filter((attempt) => attempt.status === 'GRADED').length;
 
-    const scores = attempts.map((attempt) => attempt.percentage).filter((value): value is number => value !== null);
+    const scores = attempts
+      .map((attempt) => attempt.percentage)
+      .filter((value): value is number => value !== null);
     const rawAverageScore = mean(scores);
     const averageScore = rawAverageScore === null ? null : round1(rawAverageScore);
 
@@ -352,7 +432,10 @@ export class AggregationService extends BaseService {
       };
     });
 
-    const topicTallies = new Map<QuestionCategory | 'UNKNOWN', { answered: number; correct: number; decided: number }>();
+    const topicTallies = new Map<
+      QuestionCategory | 'UNKNOWN',
+      { answered: number; correct: number; decided: number }
+    >();
     for (const question of questions) {
       const category = question.question?.category ?? 'UNKNOWN';
       const tally = answerTallies.get(question.id) ?? { answered: 0, correct: 0, decided: 0 };

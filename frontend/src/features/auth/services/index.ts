@@ -8,6 +8,7 @@ import type {
   ForgotPasswordPayload,
   LoginPayload,
   LoginResult,
+  ResetPasswordPayload,
 } from '../types';
 
 export const authApi = {
@@ -42,5 +43,9 @@ export const authApi = {
 
   async forgotPassword(payload: ForgotPasswordPayload): Promise<void> {
     await apiClient.post('/auth/forgot-password', payload);
+  },
+
+  async resetPassword(payload: ResetPasswordPayload): Promise<void> {
+    await apiClient.post('/auth/reset-password', payload);
   },
 };

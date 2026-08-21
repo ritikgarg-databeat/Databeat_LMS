@@ -17,9 +17,15 @@ export const AI_MAX_RESPONSE_TOKENS = 4096;
  * conversation is serialized) needs its own bound to stay a sane query/payload size. */
 export const AI_CONVERSATION_MESSAGES_MAX = 200;
 
-/** Lesson text content (concatenated from its MARKDOWN/CODE_SNIPPET resources) is truncated to
- * this many characters before being added to the system prompt — see context-builder.ts. */
-export const AI_CONTEXT_MAX_LESSON_CONTENT_CHARS = 6000;
+/** Lesson description plus Markdown/code/PDF/DOCX/PPTX text included in the tutor prompt. */
+export const AI_CONTEXT_MAX_LESSON_CONTENT_CHARS = 12_000;
+
+/** Bounds the dynamic department/course catalog injected into a main-tutor request. */
+export const AI_CONTEXT_MAX_LEARNING_SCOPE_CHARS = 6000;
+export const AI_CONTEXT_MAX_COURSES = 25;
+
+/** Avoid repeatedly parsing the same PDF/DOCX/PPTX on every turn of a lesson conversation. */
+export const AI_DOCUMENT_TEXT_CACHE_MAX_ENTRIES = 100;
 
 /** Stricter than the app-wide general rate limiter (100 req/15min) — each call is a real,
  * billed LLM request, so /ai/chat gets its own tighter, per-user budget. */

@@ -23,6 +23,12 @@ interface Actor {
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const DASHBOARD_CACHE_TTL_MS = 60_000;
+
+interface CachedDashboard<T> {
+  value: T;
+  expiresAt: number;
+}
 
 /**
  * Business logic for the dashboard module. Controllers call into this layer only.
@@ -33,6 +39,11 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * for the full "field → source" table and the reasoning behind each feature-local query.
  */
 export class DashboardService extends BaseService {
+  private readonly traineeCache = new Map<string, CachedDashboard<TraineeDashboard>>();
+  private readonly trainerCache = new Map<string, CachedDashboard<TrainerDashboard>>();
+  private readonly traineeInFlight = new Map<string, Promise<TraineeDashboard>>();
+  private readonly trainerInFlight = new Map<string, Promise<TrainerDashboard>>();
+
   constructor(
     protected readonly repository: DashboardRepository = new DashboardRepository(),
     private readonly analytics: AnalyticsService = analyticsService,
@@ -51,17 +62,27 @@ export class DashboardService extends BaseService {
    * `calendarService.listMine` are all self-scoped by construction).
    */
   async getTraineeDashboard(actor: Actor): Promise<TraineeDashboard> {
+    return this.loadCachedDashboard(
+      `${actor.role}:${actor.id}`,
+      this.traineeCache,
+      this.traineeInFlight,
+      () => this.buildTraineeDashboard(actor),
+    );
+  }
+
+  private async buildTraineeDashboard(actor: Actor): Promise<TraineeDashboard> {
     const userAnalytics = await this.analytics.getMyAnalytics(actor);
 
     const now = new Date();
     const windowEnd = new Date(now.getTime() + DASHBOARD_UPCOMING_EVENTS_WINDOW_DAYS * MS_PER_DAY);
 
-    const [continueLearningRows, upcomingAssessmentRows, upcomingEventRows, recommendations] = await Promise.all([
-      this.progress.getContinueLearning(actor.id, DASHBOARD_CONTINUE_LEARNING_LIMIT),
-      this.repository.findUpcomingAssessmentsForUser(actor.id, DASHBOARD_UPCOMING_ASSESSMENTS_LIMIT),
-      this.calendar.listMine(actor.id, { from: now.toISOString(), to: windowEnd.toISOString() }),
-      this.insights.getUserInsights(actor.id, userAnalytics),
-    ]);
+    const [continueLearningRows, upcomingAssessmentRows, upcomingEventRows, recommendations] =
+      await Promise.all([
+        this.progress.getContinueLearning(actor.id, DASHBOARD_CONTINUE_LEARNING_LIMIT),
+        this.repository.findUpcomingAssessmentsForUser(actor.id, DASHBOARD_UPCOMING_ASSESSMENTS_LIMIT),
+        this.calendar.listMine(actor.id, { from: now.toISOString(), to: windowEnd.toISOString() }),
+        this.insights.getUserInsights(actor.id, userAnalytics),
+      ]);
 
     return {
       welcome: {
@@ -96,13 +117,15 @@ export class DashboardService extends BaseService {
         averageScore: userAnalytics.performance.averageScore,
         taken: userAnalytics.performance.assessmentsTaken,
         passed: userAnalytics.performance.assessmentsPassed,
-        recentResults: userAnalytics.recentAttempts.slice(0, DASHBOARD_RECENT_RESULTS_LIMIT).map((attempt) => ({
-          assessmentId: attempt.assessmentId,
-          title: attempt.assessmentTitle,
-          percentage: attempt.percentage,
-          passed: attempt.passed,
-          submittedAt: attempt.submittedAt,
-        })),
+        recentResults: userAnalytics.recentAttempts
+          .slice(0, DASHBOARD_RECENT_RESULTS_LIMIT)
+          .map((attempt) => ({
+            assessmentId: attempt.assessmentId,
+            title: attempt.assessmentTitle,
+            percentage: attempt.percentage,
+            passed: attempt.passed,
+            submittedAt: attempt.submittedAt,
+          })),
       },
       upcomingEvents: upcomingEventRows.slice(0, DASHBOARD_UPCOMING_EVENTS_LIMIT).map((event) => ({
         id: event.id,
@@ -121,19 +144,29 @@ export class DashboardService extends BaseService {
    * every count derived from it below inherits that same scoping automatically.
    */
   async getTrainerDashboard(actor: Actor): Promise<TrainerDashboard> {
+    return this.loadCachedDashboard(
+      `${actor.role}:${actor.id}`,
+      this.trainerCache,
+      this.trainerInFlight,
+      () => this.buildTrainerDashboard(actor),
+    );
+  }
+
+  private async buildTrainerDashboard(actor: Actor): Promise<TrainerDashboard> {
     const groups = await this.analytics.getGroupsAnalytics(actor, {});
     const groupIds = groups.map((group) => group.groupId);
     const isSuperAdmin = actor.role === 'SUPER_ADMIN';
 
-    const [leaderboardEntries, totalCourses, activeAssessments, assessmentStats, insights] = await Promise.all([
-      this.analytics.getLeaderboard({ limit: 10 }, actor),
-      isSuperAdmin ? this.repository.countAllCourses() : this.repository.countCoursesForGroups(groupIds),
-      isSuperAdmin
-        ? this.repository.countAllPublishedAssessments()
-        : this.repository.countActiveAssessmentsForGroups(groupIds),
-      this.assessments.getStats(),
-      this.buildTrainerInsights(groups, actor),
-    ]);
+    const [leaderboardEntries, totalCourses, activeAssessments, assessmentStats, insights] =
+      await Promise.all([
+        this.analytics.getLeaderboard({ limit: 10 }, actor, groupIds),
+        isSuperAdmin ? this.repository.countAllCourses() : this.repository.countCoursesForGroups(groupIds),
+        isSuperAdmin
+          ? this.repository.countAllPublishedAssessments()
+          : this.repository.countActiveAssessmentsForGroups(groupIds),
+        this.assessments.getStats(actor),
+        this.buildTrainerInsights(groups, actor),
+      ]);
 
     return {
       overview: {
@@ -153,11 +186,7 @@ export class DashboardService extends BaseService {
       groups,
       leaderboard: { items: leaderboardEntries },
       insights,
-      // Reuses AssessmentsService#getStats verbatim — that count is ORG-WIDE (every
-      // PENDING_REVIEW attempt), not scoped to this trainer's groups. Documented limitation,
-      // see README.md § Known limitations: the assessments module has no trainer-scoped
-      // variant of this count today, and adding one would mean querying outside this module's
-      // ownership boundary rather than through an existing reusable method.
+      // getStats applies the same active trainer assessment scope as assessment management.
       pendingGradingCount: assessmentStats.pendingGradingCount,
     };
   }
@@ -175,12 +204,19 @@ export class DashboardService extends BaseService {
         source: 'HEURISTIC' as const,
         generatedAt: new Date(),
         insights: [
-          { kind: 'GENERAL' as const, text: 'No groups assigned yet — insights will appear once you have trainees to track.' },
+          {
+            kind: 'GENERAL' as const,
+            text: 'No groups assigned yet — insights will appear once you have trainees to track.',
+          },
         ],
       };
     }
 
-    const worst = groups.reduce((current, candidate) => (this.isWorse(candidate, current) ? candidate : current));
+    const worst = groups.reduce((current, candidate) =>
+      this.isWorse(candidate, current) ? candidate : current,
+    );
+    const cached = await this.insights.getFreshGroupInsights(worst.groupId);
+    if (cached) return cached;
     const detail = await this.analytics.getGroupAnalytics(worst.groupId, actor);
     return this.insights.getGroupInsights(worst.groupId, detail);
   }
@@ -201,6 +237,36 @@ export class DashboardService extends BaseService {
   private meanOrNull(values: number[]): number | null {
     if (values.length === 0) return null;
     return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+  }
+
+  /**
+   * Dashboards aggregate several independently authorized services. A short per-user cache keeps
+   * route changes and duplicate browser requests from repeating the complete query fan-out, while
+   * the small TTL keeps newly published learning data visible promptly. Concurrent cache misses
+   * share the same promise so a slow database cannot trigger a request stampede.
+   */
+  private async loadCachedDashboard<T>(
+    key: string,
+    cache: Map<string, CachedDashboard<T>>,
+    inFlight: Map<string, Promise<T>>,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    const cached = cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) cache.delete(key);
+
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+
+    const request = load()
+      .then((value) => {
+        cache.set(key, { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS });
+        return value;
+      })
+      .finally(() => inFlight.delete(key));
+
+    inFlight.set(key, request);
+    return request;
   }
 }
 

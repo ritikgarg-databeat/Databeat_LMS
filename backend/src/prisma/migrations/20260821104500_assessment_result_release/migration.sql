@@ -1,0 +1,4 @@
+ALTER TYPE "AuditAction" ADD VALUE 'ASSESSMENT_RESULTS_RELEASED';
+
+ALTER TABLE "assessments"
+ADD COLUMN "resultsReleasedAt" TIMESTAMP(3);

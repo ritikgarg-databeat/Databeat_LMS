@@ -1,18 +1,17 @@
 # Databeat LMS — Enterprise Architecture Document
 
-**Phase 1: System Architecture & Technical Design**
-**Status:** Design only — no application code included, per phase scope.
+**Status:** Implemented architecture, updated 2026-08-21. Future items are labelled explicitly.
 
 ---
 
 ## 1. Executive Summary
 
-Databeat LMS is a multi-tenant-ready (single-tenant at launch), role-based enterprise Learning Management System for corporate training. It is designed as a modular monolith on day one — a single deployable Node.js/Express service and a single React SPA — structured internally so that any module (Assessments, AI, Notifications, File Storage) can be extracted into an independent service later without touching unrelated code.
+Databeat LMS is a single-tenant, role-based enterprise Learning Management System for corporate training. It is implemented as a modular monolith: one React SPA, a long-running Node.js/Express API, a separate scheduler worker built from the same backend, and PostgreSQL. Internal module/service/repository boundaries and provider abstractions keep future extraction possible without pretending the current deployment is already microservices or multi-tenant SaaS.
 
 Three governing constraints shaped every decision below:
 
 1. **5–10 year maintainability.** Every cross-cutting concern (storage, AI, notifications, auth) is defined behind an interface/provider abstraction so the underlying implementation (local disk → S3, one LLM vendor → another) can change without touching business logic or the database schema.
-2. **RBAC that survives new roles.** Only three roles exist today, but the permission model is table-driven (`Role` ↔ `Permission`), not hardcoded `if (role === 'trainer')` checks scattered through the code. Adding "Manager" or "Auditor" later is a data change, not a code change.
+2. **Explicit RBAC and ownership scope.** The current `Role` enum has `SUPER_ADMIN`, `TRAINER`, and `TRAINEE`. Route middleware enforces coarse roles, while shared policy helpers and repository queries enforce active-group/resource ownership. Adding a new role is a schema/code change and must include a scope review.
 3. **Boring, provable technology at the edges.** Postgres (Neon), JWT, Express, Prisma — nothing exotic in the foundation. The only area that is deliberately designed for churn is the AI layer, because that's the one part of the stack where the "best" vendor/model will change over the product's lifetime.
 
 ---
@@ -89,7 +88,10 @@ Pages never call Axios directly — they call a typed `useXQuery`/`useXMutation`
 
 ### 3.3 Multi-tenancy stance
 
-Single-tenant at launch (one company per deployment), but every table that is org-scoped includes an `organizationId` column from day one, unused/fixed-to-one-row today. This is the cheapest possible insurance against a future "sell to multiple companies" pivot — retrofitting tenant isolation into a schema after the fact is materially more painful than including a nullable/default column now.
+The current schema is single-tenant: one company per deployment, with no `organizationId` column
+or row-level tenant policy. Multi-tenancy remains a future product/schema project and must not be
+claimed as implemented. A SaaS conversion would require tenant identity, query scoping/RLS,
+tenant-aware uniqueness, migrations, operational isolation, and cross-tenant security tests.
 
 ---
 
@@ -102,8 +104,8 @@ User → POST /api/v1/auth/login {email, password}
      → AuthController → AuthService
          → UserRepository.findByEmail()
          → bcrypt.compare(password, hash)
-         → issue Access Token (JWT, 15 min, RS256, contains userId, role, permissionsVersion)
-         → issue Refresh Token (opaque random 256-bit token, stored hashed in RefreshToken table, 7-30 days)
+         → issue Access JWT (15 min by default; contains sub, role, mustChangePassword)
+         → issue Refresh JWT (unique jti; full token hash stored in RefreshToken, 7/30 days)
          → set Refresh Token as httpOnly, Secure, SameSite=Strict cookie
          → return Access Token in JSON body (kept in memory on client, never localStorage)
      → AuditLogService.record("LOGIN_SUCCESS")
@@ -113,34 +115,36 @@ User → POST /api/v1/auth/login {email, password}
 
 ```
 Trainee opens Lesson → GET /api/v1/lessons/:id
-  → LessonService.get(id) checks group/course assignment via GroupMember + CourseAssignment
-  → returns Lesson + Resources + Progress record (create-if-absent, status=IN_PROGRESS)
+  → lesson/resource/progress repositories enforce published course/module/lesson plus active-group assignment
+  → viewer posts bounded time deltas only while visible/recently active (server caps each delta at 60s)
 
-Client tracks time-on-page → POST /api/v1/progress/:lessonId/heartbeat every N seconds
-  → ProgressService accumulates timeSpentSeconds
+Trainee clicks "Mark Complete" → POST /api/v1/lessons/:id/progress {status: COMPLETED}
+  → ProgressService checks the current Lesson.contentVersion
+  → LessonQuizService generates/loads a grounded current-version quiz when enough readable theory exists
+  → opaque evidence/provider failure pauses completion; genuinely short text may require no quiz
+  → learner must pass at 70% (retry attempts are versioned and retained)
+  → ProgressService records completedContentVersion and completedAt
 
-Trainee clicks "Mark Complete" → POST /api/v1/progress/:lessonId/complete
-  → ProgressService sets status=COMPLETED, completedAt=now
-  → triggers CourseProgressRecalculation (module % → course %)
-  → NotificationService (optional): notify trainer on milestone (e.g., course completed)
-  → AnalyticsService: increment trainee's daily learning-hours rollup (async/background-job-ready)
+Trainer changes lesson/resource content
+  → contentVersion increments, completed progress reopens, hasNewContent becomes true
+  → old quiz attempts remain historical but cannot satisfy the new version
 ```
 
 ### 4.3 Trainer Creates an Assessment
 
 ```
-Trainer → Course Builder UI → POST /api/v1/assessments {courseId, config}
+Trainer → Assessment Builder UI → POST /api/v1/assessments {config}
   → AssessmentService validates config (passing marks, timer, randomization rules)
-  → QuestionBankService pulls/creates Questions (tagged by topic, difficulty, type)
-  → Assessment linked to Course/Module and optionally to specific Groups
+  → bank questions are snapshotted into AssessmentQuestion rows
+  → assessment is published and assigned to active Groups
 
-Trainee attempts → POST /api/v1/assessments/:id/attempts
-  → AttemptService generates a randomized/frozen question set snapshot (stored on the Attempt,
-    so later edits to the Question Bank never change a historical attempt)
-  → timer enforced server-side (attempt has serverStartedAt + durationSeconds; late submits rejected)
-  → submission → AutoEvaluationService scores objective types instantly;
-    subjective/coding/SQL queued for ManualEvaluation (trainer) or AI-assisted pre-scoring
-  → ResultService persists Result, triggers AnalyticsService + NotificationService
+Trainee starts → POST /api/v1/assessments/:id/attempts/start
+  → AttemptService stores randomized presentation order and immutable server expiresAt
+  → answer writes are rejected after expiry; worker finalizes abandoned attempts every minute
+  → objective types auto-grade; subjective/code/file types stay PENDING_REVIEW
+  → after any attempt exists, assessment scoring/structure is immutable
+  → immediate results show after grading, or a trainer performs one-time result release
+  → released learners receive an in-app notification
 ```
 
 ### 4.4 AI Tutor Chat (Lesson-Aware)
@@ -148,19 +152,54 @@ Trainee attempts → POST /api/v1/assessments/:id/attempts
 ```
 Trainee → AI Chat widget on Lesson page → POST /api/v1/ai/chat {lessonId, message, conversationId}
   → AIController → AIService
-      → ContextBuilder: fetch lesson content + trainee's recent progress/weak topics
-      → AIProviderAdapter.chat({systemPrompt, context, message}) — provider-agnostic interface
-      → response streamed back via SSE/chunked response
-      → ConversationRepository persists turn (for audit + "continue chat" later)
-  → No AI call ever touches the DB directly — only via the same Service/Repository layers as
-    everything else, so AI actions are auditable like any other user action.
+      → ContextBuilder fetches source-labelled live lesson evidence and rechecks access
+      → PromptManager requires ANSWER/REFUSE plus permitted evidence ids
+      → common personal identifiers/credentials are redacted from the outbound copy
+      → AIProvider.chat(...) performs a bounded request/response vendor call
+      → PromptManager rejects malformed, unsupported, invented-evidence, and irrelevant output
+      → AiRepository persists the original user turn and safe final assistant Markdown
 ```
 
 ---
 
 ## 5. Folder Structure
 
-### 5.1 Backend (`/server`)
+Current repository roots:
+
+```text
+ai-lms/
+├── backend/
+│   └── src/
+│       ├── config/          environment, Prisma, CORS
+│       ├── middleware/      auth/RBAC, request id/logging, rate limits, uploads, errors
+│       ├── modules/         26 vertical domain modules
+│       ├── policies/        active-group and trainer-resource scope
+│       ├── repositories/    shared repository base/audit repository
+│       ├── services/        audit, password-reset delivery, PostgreSQL rate-limit store
+│       ├── storage/         StorageProvider + LocalStorageProvider
+│       ├── jobs/            reminder, expiry, optional retention + scheduler
+│       ├── prisma/          schema, 17 migrations, seeds, invariant checker
+│       ├── tests/           focused hardening regression suite
+│       ├── app.ts           middleware/routes/health assembly
+│       ├── server.ts        API process bootstrap
+│       └── worker.ts        scheduler process bootstrap
+├── frontend/
+│   └── src/
+│       ├── components/      UI primitives, shared components, layout
+│       ├── features/        domain pages/components/hooks/services/types
+│       ├── routes/          lazy route tree and guards
+│       ├── services/api/    Axios and refresh handling
+│       ├── providers/       auth/theme/query providers
+│       └── store/           client-only Zustand state
+├── docs/                    AI, deployment, operations, testing, git workflow
+└── .github/workflows/       automated quality gate
+```
+
+Every backend feature follows routes → controller → service → repository → Prisma. Every frontend
+feature keeps API service/hooks/types beside its pages/components, while cross-feature primitives
+remain shared.
+
+### 5.1 Legacy backend design sketch (historical; `/server` is now `/backend`)
 
 ```
 server/
@@ -214,7 +253,7 @@ server/
 
 Each `modules/*` folder is self-contained (routes, controller, service, repository, validation) so a module can be lifted into its own service later by moving one folder.
 
-### 5.2 Frontend (`/client`)
+### 5.2 Legacy frontend design sketch (historical; `/client` is now `/frontend`)
 
 ```
 client/
@@ -262,54 +301,99 @@ client/
 
 ## 6. Database Entity Map & Rationale
 
-| Entity | Purpose | Key Relationships |
-|---|---|---|
-| `User` | Single identity table for all humans in the system (Super Admin, Trainer, Trainee). One table, not three, so auth/session logic is uniform. | Has one `Role` (via `roleId`), belongs to `Organization`, has many `RefreshToken`, `AuditLog`, `Notification` |
-| `Role` | Named role (SUPER_ADMIN, TRAINER, TRAINEE) | Many-to-many with `Permission` via `RolePermission` |
-| `Permission` | Atomic capability (`user:create`, `assessment:publish`, etc.) | M2M with `Role` |
-| `RolePermission` | Join table | — |
-| `RefreshToken` | Hashed refresh tokens, one row per active session/device, supports revocation | Belongs to `User` |
-| `Organization` | Tenant boundary (single row at launch; future multi-tenant hook) | Root of all org-scoped data |
-| `Department` | Organizational grouping created by Trainer/Admin (e.g., "Engineering") | Has many `Group`, `User` (via `departmentId`) |
-| `Group` | A cohort of trainees assigned to classrooms/assessments/events together | Belongs to `Department`; M2M with `User` via `GroupMember`; M2M with `Course` via `CourseAssignment` |
-| `GroupMember` | Join table, trainee ↔ group | — |
-| `Course` | Top of classroom hierarchy | Has many `Module`; M2M with `Group` via `CourseAssignment`; created by a `Trainer` (User) |
-| `CourseAssignment` | Which groups/trainees can access a course | Links `Course` ↔ `Group` (or directly to `User` for ad-hoc assignment) |
-| `Module` | Grouping of lessons within a course | Belongs to `Course`; has many `Lesson` |
-| `Lesson` | Unit of content (video/pdf/markdown/etc.) | Belongs to `Module`; has many `LessonResource`; has many `Progress` |
-| `LessonResource` | A file/link/snippet attached to a lesson (metadata + path only) | Belongs to `Lesson`; references `FileAsset` |
-| `FileAsset` | Storage-agnostic file metadata (mimetype, size, relative path, checksum) | Referenced by `LessonResource`, `AssessmentQuestion` (file-upload type), `User` (avatar) |
-| `Progress` | Per-trainee, per-lesson tracking: status, time spent, last viewed, completedAt | Belongs to `User` + `Lesson` |
-| `Assignment` | A gradable task attached to a lesson/module (distinct from Assessment — project-style work) | Belongs to `Lesson`/`Module`; has many `AssignmentSubmission` |
-| `AssignmentSubmission` | Trainee's submitted work + trainer grade/feedback | Belongs to `Assignment` + `User` |
-| `QuestionBank` | Logical grouping/category of questions (by topic/course) | Has many `Question` |
-| `Question` | A single question: type (MCQ, multi-select, fill-blank, true/false, subjective, SQL, coding, file-upload), options, correct answer(s), difficulty, tags | Belongs to `QuestionBank`; used by `Assessment` via `AssessmentQuestion` |
-| `Assessment` | A configured test: timer, passing marks, randomization flag, attempt limit | Belongs to `Course`/`Module`; M2M with `Question` via `AssessmentQuestion`; assignable to `Group` |
-| `AssessmentQuestion` | Join table (ordering, marks-per-question override) | — |
-| `Attempt` | A trainee's instance of taking an assessment; stores a **frozen snapshot** of the question set at attempt time | Belongs to `Assessment` + `User`; has many `AttemptAnswer` |
-| `AttemptAnswer` | Trainee's answer per question in an attempt, plus auto/manual score | Belongs to `Attempt` + `Question` |
-| `Result` | Aggregated outcome of an `Attempt` (score, pass/fail, evaluated by) | Belongs to `Attempt` (1:1) |
-| `CalendarEvent` | Event/meeting/live session/deadline/holiday/exam | Created by `User` (trainer/admin); M2M with `Group` via `EventAssignment` |
-| `EventAssignment` | Which groups/users an event applies to | — |
-| `QnaQuestion` | Forum question | Belongs to `User` (author), optionally to `Course`/`Lesson`; has many `QnaAnswer`, tags via `QnaTag` |
-| `QnaAnswer` | Answer to a forum question, may be trainer-verified | Belongs to `QnaQuestion` + `User`; has many `QnaComment`, `QnaUpvote` |
-| `QnaComment` | Comment thread on a question or answer | — |
-| `QnaUpvote` | Upvote record (prevents duplicate votes) | Belongs to `User` + target |
-| `QnaTag` | Tag taxonomy for search/filter | M2M with `QnaQuestion` |
-| `AiConversation` | A chat thread between a trainee and the AI tutor | Belongs to `User`, optionally scoped to `Lesson`/`Course` |
-| `AiMessage` | Individual turn in a conversation (role: user/assistant, content, tokenUsage) | Belongs to `AiConversation` |
-| `Notification` | In-app notification record (type, payload, read/unread) | Belongs to `User` |
-| `AnalyticsSnapshot` | Pre-aggregated rollups (daily learning hours, completion %, streaks) computed by background job, read by dashboards | Belongs to `User` or `Group`/`Department` (polymorphic scope) |
-| `AuditLog` | Immutable record of security-relevant actions (login, role change, password reset, deletion) | Belongs to `User` (actor); references target entity type/id |
-| `SystemSetting` | Key-value platform configuration (branding, feature flags, password policy) | Global, singleton-per-org |
+The table below this current map is the original design proposal and contains entity names that
+were not adopted. The implemented Prisma schema currently groups 42 models as follows:
 
-**Why a single `User` table instead of separate `Trainer`/`Trainee` tables:** authentication, password reset, and profile logic would otherwise be duplicated three ways. Role-specific behavior is driven by `roleId` + the `RolePermission` table, not by table shape. This is the single highest-leverage decision in the schema for long-term maintainability — it's what makes "add a fourth role" a config change instead of a migration-plus-refactor.
+| Domain                          | Implemented models                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity/security               | `User`, `RefreshToken`, `PasswordResetToken`, `RateLimitBucket`, `AuditLog`                                                                       |
+| Organization                    | `Department`, `ExperienceLevel`, `Group`, `GroupMember`                                                                                           |
+| Classroom                       | `Course`, `CourseModule`, `Lesson`, `LessonResource`, `CourseGroupAssignment`, `LessonProgress`, `LessonQuizAttempt`                              |
+| Assessment                      | `Question`, `QuestionOption`, `Assessment`, `AssessmentQuestion`, `AssessmentGroupAssignment`, `AssessmentAttempt`, `AssessmentAnswer`            |
+| Calendar/notifications/settings | `CalendarEvent`, `CalendarEventAssignment`, `Notification`, `NotificationPreference`, `PlatformSettings`                                          |
+| AI/Q&A                          | `AiConversation`, `AiMessage`, `QnaQuestion`, `QnaAnswer`, `QnaComment`, `QnaVote`, `QnaTag`, `QnaQuestionTag`, `QnaAttachment`                   |
+| Analytics/impact                | `TimingObservation`, `UserDailyActivity`, `UserPerformanceSnapshot`, `CourseAnalyticsSnapshot`, `AssessmentAnalyticsSnapshot`, `AnalyticsInsight` |
 
-**Why `Attempt` freezes a question snapshot:** if a trainer edits a question in the bank after trainees have already attempted an assessment using it, historical results must not silently change. The snapshot (stored as JSON on `Attempt`) guarantees `Result` integrity is permanent and auditable.
+Important implemented invariants: role is an enum on `User`; there is no Organization/Permission
+model; assessment questions are snapshotted into `AssessmentQuestion`; answers belong to
+`AssessmentAttempt`; lesson completion and quizzes carry content versions; calendar/Q&A shape
+constraints are enforced by additive SQL migrations; uploaded bytes are not stored in Postgres.
+
+### Original proposal (historical, not the current schema)
+
+| Entity                 | Purpose                                                                                                                                                 | Key Relationships                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `User`                 | Single identity table for all humans in the system (Super Admin, Trainer, Trainee). One table, not three, so auth/session logic is uniform.             | Has one `Role` (via `roleId`), belongs to `Organization`, has many `RefreshToken`, `AuditLog`, `Notification` |
+| `Role`                 | Named role (SUPER_ADMIN, TRAINER, TRAINEE)                                                                                                              | Many-to-many with `Permission` via `RolePermission`                                                           |
+| `Permission`           | Atomic capability (`user:create`, `assessment:publish`, etc.)                                                                                           | M2M with `Role`                                                                                               |
+| `RolePermission`       | Join table                                                                                                                                              | —                                                                                                             |
+| `RefreshToken`         | Hashed refresh tokens, one row per active session/device, supports revocation                                                                           | Belongs to `User`                                                                                             |
+| `Organization`         | Tenant boundary (single row at launch; future multi-tenant hook)                                                                                        | Root of all org-scoped data                                                                                   |
+| `Department`           | Organizational grouping created by Trainer/Admin (e.g., "Engineering")                                                                                  | Has many `Group`, `User` (via `departmentId`)                                                                 |
+| `Group`                | A cohort of trainees assigned to classrooms/assessments/events together                                                                                 | Belongs to `Department`; M2M with `User` via `GroupMember`; M2M with `Course` via `CourseAssignment`          |
+| `GroupMember`          | Join table, trainee ↔ group                                                                                                                             | —                                                                                                             |
+| `Course`               | Top of classroom hierarchy                                                                                                                              | Has many `Module`; M2M with `Group` via `CourseAssignment`; created by a `Trainer` (User)                     |
+| `CourseAssignment`     | Which groups/trainees can access a course                                                                                                               | Links `Course` ↔ `Group` (or directly to `User` for ad-hoc assignment)                                        |
+| `Module`               | Grouping of lessons within a course                                                                                                                     | Belongs to `Course`; has many `Lesson`                                                                        |
+| `Lesson`               | Unit of content (video/pdf/markdown/etc.)                                                                                                               | Belongs to `Module`; has many `LessonResource`; has many `Progress`                                           |
+| `LessonResource`       | A file/link/snippet attached to a lesson (metadata + path only)                                                                                         | Belongs to `Lesson`; references `FileAsset`                                                                   |
+| `FileAsset`            | Storage-agnostic file metadata (mimetype, size, relative path, checksum)                                                                                | Referenced by `LessonResource`, `AssessmentQuestion` (file-upload type), `User` (avatar)                      |
+| `Progress`             | Per-trainee, per-lesson tracking: status, time spent, last viewed, completedAt                                                                          | Belongs to `User` + `Lesson`                                                                                  |
+| `Assignment`           | A gradable task attached to a lesson/module (distinct from Assessment — project-style work)                                                             | Belongs to `Lesson`/`Module`; has many `AssignmentSubmission`                                                 |
+| `AssignmentSubmission` | Trainee's submitted work + trainer grade/feedback                                                                                                       | Belongs to `Assignment` + `User`                                                                              |
+| `QuestionBank`         | Logical grouping/category of questions (by topic/course)                                                                                                | Has many `Question`                                                                                           |
+| `Question`             | A single question: type (MCQ, multi-select, fill-blank, true/false, subjective, SQL, coding, file-upload), options, correct answer(s), difficulty, tags | Belongs to `QuestionBank`; used by `Assessment` via `AssessmentQuestion`                                      |
+| `Assessment`           | A configured test: timer, passing marks, randomization flag, attempt limit                                                                              | Belongs to `Course`/`Module`; M2M with `Question` via `AssessmentQuestion`; assignable to `Group`             |
+| `AssessmentQuestion`   | Join table (ordering, marks-per-question override)                                                                                                      | —                                                                                                             |
+| `Attempt`              | A trainee's instance of taking an assessment; stores a **frozen snapshot** of the question set at attempt time                                          | Belongs to `Assessment` + `User`; has many `AttemptAnswer`                                                    |
+| `AttemptAnswer`        | Trainee's answer per question in an attempt, plus auto/manual score                                                                                     | Belongs to `Attempt` + `Question`                                                                             |
+| `Result`               | Aggregated outcome of an `Attempt` (score, pass/fail, evaluated by)                                                                                     | Belongs to `Attempt` (1:1)                                                                                    |
+| `CalendarEvent`        | Event/meeting/live session/deadline/holiday/exam                                                                                                        | Created by `User` (trainer/admin); M2M with `Group` via `EventAssignment`                                     |
+| `EventAssignment`      | Which groups/users an event applies to                                                                                                                  | —                                                                                                             |
+| `QnaQuestion`          | Forum question                                                                                                                                          | Belongs to `User` (author), optionally to `Course`/`Lesson`; has many `QnaAnswer`, tags via `QnaTag`          |
+| `QnaAnswer`            | Answer to a forum question, may be trainer-verified                                                                                                     | Belongs to `QnaQuestion` + `User`; has many `QnaComment`, `QnaUpvote`                                         |
+| `QnaComment`           | Comment thread on a question or answer                                                                                                                  | —                                                                                                             |
+| `QnaUpvote`            | Upvote record (prevents duplicate votes)                                                                                                                | Belongs to `User` + target                                                                                    |
+| `QnaTag`               | Tag taxonomy for search/filter                                                                                                                          | M2M with `QnaQuestion`                                                                                        |
+| `AiConversation`       | A chat thread between a trainee and the AI tutor                                                                                                        | Belongs to `User`, optionally scoped to `Lesson`/`Course`                                                     |
+| `AiMessage`            | Individual turn in a conversation (role: user/assistant, content, tokenUsage)                                                                           | Belongs to `AiConversation`                                                                                   |
+| `Notification`         | In-app notification record (type, payload, read/unread)                                                                                                 | Belongs to `User`                                                                                             |
+| `AnalyticsSnapshot`    | Pre-aggregated rollups (daily learning hours, completion %, streaks) computed by background job, read by dashboards                                     | Belongs to `User` or `Group`/`Department` (polymorphic scope)                                                 |
+| `AuditLog`             | Immutable record of security-relevant actions (login, role change, password reset, deletion)                                                            | Belongs to `User` (actor); references target entity type/id                                                   |
+| `SystemSetting`        | Key-value platform configuration (branding, feature flags, password policy)                                                                             | Global, singleton-per-org                                                                                     |
+
+**Implemented rationale for a single `User` table:** authentication, password reset, profile, and
+session logic remain uniform. Role-specific behavior is driven by the `Role` enum plus route and
+resource-scope policy, not separate user table shapes.
+
+**Implemented assessment snapshot:** bank content is copied into `AssessmentQuestion` before an
+attempt. Once attempts exist, definition/scoring edits lock so history cannot silently change.
 
 ---
 
 ## 7. ERD (Text Form)
+
+Current high-level relationships:
+
+```text
+Department 1─* Group *─* User (GroupMember)
+Group *─* Course (CourseGroupAssignment)
+Group *─* Assessment (AssessmentGroupAssignment)
+
+Course 1─* CourseModule 1─* Lesson 1─* LessonResource
+Lesson *─* User (LessonProgress, version-aware)
+Lesson *─* User (LessonQuizAttempt, contentVersion + attemptNumber)
+
+Question 1─* QuestionOption
+Assessment 1─* AssessmentQuestion
+Assessment *─* User (AssessmentAttempt) 1─* AssessmentAnswer
+
+User 1─* RefreshToken / PasswordResetToken / Notification / AuditLog
+User 1─* AiConversation 1─* AiMessage
+QnaQuestion 1─* QnaAnswer / QnaComment / QnaVote / QnaAttachment
+```
+
+### Original proposal ERD (historical, not the current schema)
 
 ```
 Organization 1───* Department 1───* Group *───* User (via GroupMember)
@@ -390,12 +474,12 @@ Group/Department/User ◄── AnalyticsSnapshot (polymorphic scope, computed a
 
 ## 9. Authentication Architecture
 
-- **Access Token:** JWT, RS256, 15-minute expiry. Payload: `sub` (userId), `role`, `permissionsVersion`, `iat`/`exp`. Kept in memory on the client (a module-level variable in the API layer), never in `localStorage`/`sessionStorage`, to reduce XSS token-theft blast radius.
-- **Refresh Token:** Opaque random value (not a JWT), stored **hashed** (SHA-256) in the `RefreshToken` table with `userId`, `expiresAt`, `revokedAt`, `replacedByTokenId`, `userAgent`/`ip` (for session listing/"log out other devices" later). Delivered as an `httpOnly`, `Secure`, `SameSite=Strict` cookie — never readable by JS.
+- **Access Token:** HMAC-signed JWT, 15-minute default expiry. Payload: `sub` (userId), `role`, `mustChangePassword`, `iat`/`exp`. Kept in memory on the client, never browser storage.
+- **Refresh Token:** separately signed JWT with `sub`, unique `jti`, and `rememberMe`. Its full SHA-256 hash and metadata are stored in `RefreshToken`; the token is delivered as an `httpOnly` cookie (Secure in production).
 - **Rotation:** Every refresh issues a new refresh token and revokes the old one, linked via `replacedByTokenId`. If a revoked token is presented again (reuse), the entire token family is revoked and the user is forced to re-authenticate — this is the standard defense against stolen-refresh-token replay.
-- **`permissionsVersion`:** A counter on `Role`/`Organization`, bumped whenever role→permission mappings change. Access tokens embed the version at issue time; middleware compares it to the current version and rejects (403, forcing silent refresh) if stale — this lets us revoke *permissions*, not just sessions, without waiting 15 minutes.
+- **Current-state recheck:** authenticated requests reload the active user/current role. Deactivation, role changes, and password-reset session revocation therefore take effect without relying only on stale access-token claims.
 - **Password storage:** bcrypt, cost factor 12 (tunable via env, re-hash-on-login if cost factor increases later).
-- **Password reset (Trainer-initiated for Trainees, Admin for Trainers):** generates a single-use, time-boxed (1 hour) reset token, hashed at rest, emailed or shown to the initiating trainer/admin per org policy — never returned in a generic "success" response that leaks whether an email exists.
+- **Password reset:** forgot-password always returns the same response, generates a random single-use token for an active matching user, stores only its hash, and delivers the link through an optional authenticated webhook. Reset consumes the token atomically, updates the password, and revokes old sessions. Expiry defaults to 30 minutes and is configurable.
 
 ---
 
@@ -403,41 +487,46 @@ Group/Department/User ◄── AnalyticsSnapshot (polymorphic scope, computed a
 
 Two layers, deliberately separate:
 
-1. **Role** — coarse identity (`SUPER_ADMIN`, `TRAINER`, `TRAINEE`). Drives which parts of the UI/nav render.
-2. **Permission** — fine-grained capability strings, e.g. `user:create`, `user:disable`, `department:create`, `course:publish`, `assessment:grade`, `analytics:view:department`, `settings:manage`. Roles are just named bundles of permissions (`RolePermission`).
+1. **Role middleware** — coarse identity (`SUPER_ADMIN`, `TRAINER`, `TRAINEE`) controls route categories and UI navigation.
+2. **Resource scope policy** — services/repositories constrain records by creator, assigned active groups, trainer ownership, publication, and soft-delete state. Super Admin bypass is explicit per domain.
 
 ```
 Middleware chain per protected route:
   authenticate (verify JWT, attach req.user)
-  → authorize('assessment:publish')  // checks req.user's role's permission set
-  → scopeGuard('department')          // ensures target resource is within actor's dept/org (for Trainer)
+  → requireRole('TRAINER', 'SUPER_ADMIN')
+  → service/repository scope assertion for the target assessment/group/course
   → controller handler
 ```
 
-**Why not just `if (role === 'trainer')` checks:** those checks calcify — every new role requires touching every guarded route. With permission-bundle RBAC, introducing e.g. "Department Manager" (read-only analytics, no user management) is one row insert into `RolePermission`, zero code changes.
-
-**Scoping beyond role:** a Trainer's permissions are further scoped to the departments/groups they manage (`scopeGuard` middleware checks the target record's `departmentId`/`groupId` against the trainer's assigned scope). Super Admin bypasses scope checks. This prevents "Trainer A can see Trainer B's group data" — a common LMS data-leak class of bug.
+There is no `Permission`/`RolePermission` table in the current schema. Adding a role such as
+Department Manager requires explicit schema, route, policy, UI, and regression-test work.
+`activeGroupScope`, `trainerCourseScope`, `trainerAssessmentScope`, and module-specific ownership
+checks prevent archived groups or Trainer A's ownership from granting Trainer B access.
 
 ---
 
 ## 11. API Architecture
 
 - **Base path & versioning:** `/api/v1/...`. Version bump (`/api/v2`) only on breaking contract changes; additive changes (new optional fields) ship within v1.
-- **Resource naming:** plural, kebab-case nouns — `/api/v1/question-banks`, `/api/v1/calendar-events`. Nested resources only one level deep for readability: `/api/v1/courses/:courseId/modules`, not four levels of nesting; deeper relationships use query params (`/api/v1/lessons?moduleId=...`).
-- **HTTP verbs:** standard REST semantics (GET/POST/PATCH/DELETE). PATCH for partial updates, PUT unused.
-- **Request format:** JSON body, camelCase keys, validated at the route boundary via Zod schemas (`validate.middleware`) before the controller ever sees the payload.
+- **Resource naming:** plural route modules below `/api/v1`; relationship-owned resources are nested where their parent id is required (`/groups/:id/members`, `/lessons/:id/resources`, `/assessments/:id/attempts`).
+- **HTTP verbs:** standard GET/POST/PATCH/DELETE plus PUT for assessment answer autosave.
+- **Request format:** JSON or multipart form data with camelCase fields, validated at the route boundary with `express-validator` before controllers run.
 - **Response envelope (success):**
   ```
-  { "data": <resource or array>, "meta": { "page", "pageSize", "total" } }   // meta only on paginated list endpoints
+  { "success": true, "message": "...", "data": <resource or paginated object> }
   ```
 - **Response envelope (error):**
   ```
-  { "error": { "code": "VALIDATION_ERROR", "message": "human-readable summary", "details": [ ... field errors ... ] } }
+  { "success": false, "message": "human-readable summary", "errors": [ ...safe details ] }
   ```
-  Error `code` is a stable machine-readable enum (`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_ERROR`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL_ERROR`) the frontend can switch on without parsing message strings. Internal errors never leak stack traces or DB details in production responses (see §17).
+  HTTP status and the standard envelope drive client handling. Internal stack traces, SQL details,
+  and provider errors are logged server-side and never returned in production.
 - **Pagination:** cursor-based for high-volume/append-mostly lists (Audit Logs, Notifications, Q&A feed); offset/limit (`page`, `pageSize`) for admin tables where jump-to-page UX matters (Users, Reports).
 - **Auth requirement declaration:** every route file declares required permission(s) alongside the route definition (`router.post('/', authorize('course:create'), ...)`), so the permission model is discoverable by reading routes, not by hunting through service code.
-- **File endpoints:** uploads via `multipart/form-data` through Multer → validated (mimetype allowlist, size cap) → handed to the Storage Service → only the returned `FileAsset` metadata is persisted in Postgres. Downloads are streamed (`Content-Disposition`, range-request support for video) rather than loaded fully into memory.
+- **File endpoints:** uploads use multipart + disk-temporary Multer handling, size/type/signature
+  validation, and the storage provider. PostgreSQL stores metadata plus a relative pointer.
+  Downloads stream through the provider with safe disposition; they are not loaded fully into
+  application memory.
 
 ---
 
@@ -445,10 +534,10 @@ Middleware chain per protected route:
 
 Two clearly separated kinds of state, never mixed:
 
-| Kind | Tool | Examples |
-|---|---|---|
-| **Server state** (anything from the API) | TanStack Query | courses, users, assessments, analytics — all fetched, cached, invalidated, and re-fetched via Query hooks. Mutations use `useMutation` + targeted `invalidateQueries`. |
-| **Client/UI state** (never persisted server-side) | Zustand (lightweight) + local `useState` | sidebar collapsed/expanded, active theme, multi-step form wizard step, modal open/closed |
+| Kind                                              | Tool                                     | Examples                                                                                                                                                               |
+| ------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Server state** (anything from the API)          | TanStack Query                           | courses, users, assessments, analytics — all fetched, cached, invalidated, and re-fetched via Query hooks. Mutations use `useMutation` + targeted `invalidateQueries`. |
+| **Client/UI state** (never persisted server-side) | Zustand (lightweight) + local `useState` | sidebar collapsed/expanded, active theme, multi-step form wizard step, modal open/closed                                                                               |
 
 **Why not Redux:** with TanStack Query owning all server data (including its own cache, loading/error states, and background refetch), a global store is only needed for a small amount of pure UI state — Zustand covers that with far less boilerplate. Auth identity (current user, permissions) lives in a small `AuthProvider` context backed by a Query hook (`useCurrentUser`), not duplicated into a separate store.
 
@@ -460,20 +549,37 @@ Forms: React Hook Form + Zod resolver everywhere, with the same Zod schemas mirr
 
 ```ts
 interface StorageProvider {
-  save(buffer: Buffer, meta: { entityType: string; entityId: string; originalName: string }): Promise<FileAssetPointer>
-  getReadStream(pointer: FileAssetPointer, range?: { start: number; end: number }): Promise<ReadableStream>
-  delete(pointer: FileAssetPointer): Promise<void>
-  getSignedUrl?(pointer: FileAssetPointer, expiresInSeconds: number): Promise<string> // no-op locally, real for S3/R2
+  save(input: {
+    buffer?: Buffer;
+    tempPath?: string;
+    originalName: string;
+    entityType: string;
+  }): Promise<StoredFilePointer>;
+  copy(
+    pointer: StoredFilePointer,
+    originalName: string,
+    entityType: string,
+  ): Promise<StoredFilePointer>;
+  getReadStream(pointer: StoredFilePointer): Promise<Readable>;
+  delete(pointer: StoredFilePointer): Promise<void>;
+  checkHealth(): Promise<void>;
 }
 ```
 
-*(Interface shown for design clarity only — no implementation in this phase.)*
-
-- **`LocalStorageProvider`** (launch implementation): writes to `storage/<entityType>/<entityId>/<uuid>-<sanitizedFilename>` on the application server's disk. Path traversal is prevented by generating the filename server-side (never trusting the client's original filename for the path) and validating `entityType` against an allowlist.
-- **Postgres stores only:** relative path, original filename, mimetype, size, checksum (SHA-256, for integrity/dedup), uploader, `entityType`/`entityId`. Never binary content.
-- **Swap path to cloud storage:** implement `S3StorageProvider`/`R2StorageProvider` against the same interface, flip one DI binding (`storageProvider = new S3StorageProvider(...)`), backfill existing files with a one-time migration script. Zero changes to controllers/services, because they only ever call `storageProvider.save()`/`getReadStream()`.
-- **Validation:** MIME-type allowlist per upload context (lesson resources allow video/pdf/docx/pptx/image/zip/markdown; avatar uploads allow image only), max size per type, virus-scan hook point reserved (no-op today, pluggable later, e.g., ClamAV).
-- **Video/large files:** served via streamed range requests (`Accept-Ranges`, `Content-Range`) so the browser can seek without downloading the whole file — works identically once swapped to S3 pre-signed URLs.
+- **`LocalStorageProvider` (implemented):** writes below `UPLOAD_PATH/<entityType>/` with generated
+  safe filenames. Entity namespaces are validated and every resolved pointer must remain below the
+  configured root. `checkHealth()` verifies the root is readable/writable for readiness.
+- **PostgreSQL stores:** relative path, original filename, MIME type, size, and owning domain
+  relation. File bytes remain outside PostgreSQL.
+- **Upload path:** Multer writes to an OS temporary directory, modules validate allowlist/size and
+  magic bytes, then the provider copies the file into durable storage and removes the temporary
+  file on all paths.
+- **Lifecycle:** resource deletion removes its file; lesson/course deletion collects descendant
+  pointers and performs best-effort physical cleanup. Deep course duplication uses independent
+  file copies. Failed cleanup is structured-log visible for manual retry.
+- **Cloud path (future):** implement the same interface for S3/R2/Azure/GCS and backfill existing
+  pointers. Shared/object storage is required before horizontally scaling API instances without a
+  shared volume. Malware scanning is still a future integration and must not be claimed today.
 
 ---
 
@@ -481,53 +587,71 @@ interface StorageProvider {
 
 ```ts
 interface AIProvider {
-  chat(input: { systemPrompt: string; messages: ChatMessage[]; stream?: boolean }): Promise<AIResponse | AsyncIterable<AIChunk>>
-  generateStructured<T>(input: { prompt: string; schema: JsonSchema }): Promise<T>  // for quiz/question generation
+  chat(input: {
+    systemPrompt: string;
+    history: { role: "user" | "assistant"; content: string }[];
+    userMessage: string;
+  }): Promise<{
+    content: string;
+    inputTokens: number;
+    outputTokens: number;
+    model: string;
+  }>;
 }
 ```
-*(Interface shown for design clarity only — no implementation in this phase.)*
 
-- **Isolation:** the AI Service is the *only* module allowed to construct prompts or call `AIProvider`. No controller ever talks to an LLM SDK directly — this is what makes the provider swappable and the usage auditable/rate-limitable in one place.
-- **Provider adapters:** one adapter per vendor (e.g., an Anthropic Claude adapter) implementing the same `AIProvider` interface. Model/vendor selection is an environment variable, not a code branch.
+- **Isolation:** model calls use the shared `AiProvider` seam; tutor prompt/context policy lives in
+  the AI module, while lesson-quiz and dashboard services own their distinct feature prompts.
+  Controllers never import vendor SDKs.
+- **Provider adapters:** OpenAI and Anthropic implementations are active and selected by
+  `AI_PROVIDER`; the selected key/model are environment configuration.
 - **Capabilities and how each maps to context:**
-  | Capability | Context assembled by AIService |
-  |---|---|
-  | Lesson-aware chat | lesson content (markdown/transcript), trainee's recent Q&A on that lesson, conversation history |
-  | Lesson summarization | full lesson resource text/transcript |
-  | Interview question generation | course/module topic tags + difficulty target |
-  | Quiz generation | lesson content + existing Question Bank (to avoid duplicates) → writes drafts into `QuestionBank` for trainer review, never auto-publishes |
-  | Practice questions | trainee's weak-topic profile (from Analytics) |
-  | Weak-topic detection | aggregated `AttemptAnswer` correctness grouped by `Question.tags` — this is a deterministic analytics computation, not an LLM call, feeding *into* the AI layer as context |
-  | Personalized recommendations | weak-topic profile + course catalog + progress state |
-- **Safety/cost controls:** per-user and per-org rate limiting on AI endpoints (separate, stricter limiter than general API), token-usage logging per `AiMessage` for cost accounting, and a system-prompt layer that constrains the assistant to the supplied lesson context (reducing hallucination and off-topic use on a corporate platform).
+  | Capability                                            | Context assembled by AIService                                                                                                                                             |
+  | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Lesson-aware chat                                     | source-labelled lesson description, Markdown/code and extracted PDF/DOCX/PPTX text, bounded conversation history                                                           |
+  | Lesson summarization                                  | full lesson resource text/transcript                                                                                                                                       |
+  | Topic explanation (Beginner/Detailed/Interview depth) | current lesson evidence or permitted learning scope                                                                                                                        |
+  | Completion quiz                                       | current-version lesson evidence → private 4–5 question attempt; 70% pass; retries retained                                                                                 |
+  | Practice questions/examples                           | the same grounded lesson or permitted course scope used by tutor chat                                                                                                      |
+  | Weak-topic detection                                  | aggregated `AttemptAnswer` correctness grouped by `Question.tags` — this is a deterministic analytics computation, not an LLM call, feeding _into_ the AI layer as context |
+  | Dashboard recommendations                             | aggregate completion/score/activity plus deterministic weak question category; heuristic fallback                                                                          |
+- **Safety/cost controls:** per-user AI limits (shared PostgreSQL store in production), token usage
+  on `AiMessage`, strict lesson/main-tutor scope prompts, an `ANSWER`/`REFUSE` parser that validates
+  evidence ids, deterministic refusal for irrelevant or malformed responses, and high-confidence
+  personal-data/credential redaction before provider calls.
 - **Future RAG path:** Neon Postgres supports the `pgvector` extension — course/lesson content can be chunked and embedded into a `ContentEmbedding` table for semantic retrieval as the content library grows beyond what fits in a single prompt. Not required at launch; the `AIService.ContextBuilder` is the seam where this gets inserted later without touching controllers.
 
 ---
 
 ## 15. Notification Architecture
 
-```ts
-interface NotificationChannel {
-  send(notification: { userId: string; type: string; title: string; body: string; data?: object }): Promise<void>
-}
-```
-*(Interface shown for design clarity only.)*
-
-- **`InAppChannel`** (launch): writes to the `Notification` table; delivered to the client via polling (TanStack Query `refetchInterval`) at launch, upgradeable to WebSocket/SSE push later without changing the write path.
-- **`EmailChannel`** (launch, for critical events only — password reset, assessment deadline reminders): nodemailer-based, templated.
-- **`NotificationService.notify(userId, type, payload)`** fans out to whichever channels are enabled for that notification type per user/org preference (`SystemSetting`/per-user preference row) — a user can mute in-app "Q&A reply" notifications while keeping email for "assessment deadline," for example.
-- **Producers:** Assessment (new assignment, deadline approaching, result published), Q&A (answer received, verified), Calendar (event starting soon), Classroom (new course assigned), User Management (password reset by admin).
+- **In-app delivery (implemented):** `NotificationsService.notify`/`notifyMany` is the shared write
+  path into `Notification`. Per-user `NotificationPreference.mutedTypes` is checked before rows are
+  created; bulk sends batch preference reads/writes.
+- **Producers:** course/assessment assignment, assessment deadline/result release, Q&A answer and
+  verification, calendar create/update, and trainer announcements.
+- **Scheduling:** a separate worker runs deadline reminders daily and once at startup; listing
+  notifications performs the same idempotent check as a safety net. Scheduled tasks use
+  `noOverlap`.
+- **Email boundary:** general notifications are in-app only. Password-reset delivery is a separate
+  HTTPS webhook service with optional bearer auth, not a nodemailer channel in this module.
+- **Future:** WebSocket/SSE delivery or additional channels can be layered onto the shared write
+  path, but are not currently implemented.
 
 ---
 
 ## 16. Analytics Architecture
 
 - **Write path:** domain events (lesson completed, attempt submitted, login) are the source of truth (derivable from `Progress`, `Result`, `AuditLog` tables — no separate event log needed at this scale).
-- **Read path:** two tiers—
-  1. **Real-time/on-demand:** simple counts/percentages computed directly via indexed Prisma queries for small scopes (a single trainee's dashboard, a single group).
-  2. **Pre-aggregated (`AnalyticsSnapshot`):** a background job (nightly + on-demand trigger) rolls up expensive cross-entity aggregates — department-wide performance, org-wide learning trends — so trainer/admin dashboards never run heavy `GROUP BY` queries synchronously on request. Job runner is a simple `node-cron` scheduler at launch, structured so it can be lifted into BullMQ/Redis-backed queue workers later (see §18) without changing the job function bodies.
+- **Read path:** role-scoped Prisma aggregations compute dashboards/reports on demand. Missing
+  snapshot rows are computed synchronously; stale rows are served immediately and refreshed in
+  the background with in-flight deduplication. Dashboard AI insights return a cached or immediate
+  heuristic result while optional provider enrichment runs in the background. There is no
+  nightly analytics-rollup worker today.
 - **Trainee metrics:** learning hours (sum of `Progress.timeSpentSeconds`), weekly progress delta, completion % (`completed lessons / assigned lessons`), scores (`Result` history), streaks (consecutive days with `Progress` activity), AI recommendations (from AI Service).
-- **Trainer metrics:** group/department performance (aggregated `Result`+`Progress` by `Group`/`Department`), assessment reports (score distribution, pass rate, per-question difficulty from `AttemptAnswer`), engagement (login frequency, Q&A participation), learning trends (rolling averages over `AnalyticsSnapshot`).
+- **Trainer metrics:** active-group performance from `LessonProgress` and `AssessmentAttempt`,
+  assessment score/pass/question statistics from snapshotted `AssessmentAnswer` rows, login and
+  Q&A engagement, and UTC-bucketed learning trends.
 - **Export:** Reports module reuses the exact same aggregation functions as the dashboards (single source of truth for numbers) and renders to CSV/PDF as a presentation-layer concern only.
 
 ---
@@ -536,62 +660,90 @@ interface NotificationChannel {
 
 - **JWT/Refresh:** covered in §9.
 - **Authorization:** covered in §10 (RBAC + scope guards).
-- **Password hashing:** bcrypt, cost 12; minimum password policy enforced via Zod (`SystemSetting`-configurable length/complexity).
-- **File validation:** MIME allowlist + size caps + server-generated filenames (§13); uploaded files served with `Content-Disposition: attachment` for non-inline types to prevent stored-content XSS via HTML/SVG uploads.
-- **Rate limiting:** tiered — global (per-IP) baseline via `express-rate-limit`, stricter limits on `/auth/*` (brute-force protection) and `/ai/*` (cost protection), keyed by user ID where authenticated.
+- **Password hashing:** bcrypt; password complexity is enforced by route validation. Forced first
+  change and single-use reset flows are server-side invariants.
+- **File validation:** disk-temporary upload, size/type allowlists, magic-byte checks, generated
+  filenames, and storage-root boundary enforcement (§13). Malware scanning is not yet integrated.
+- **Rate limiting:** tiered global, login, and AI limits. Production uses a shared PostgreSQL
+  bucket store; local development may use memory. Authenticated AI limits key by user.
 - **Helmet:** standard secure headers (CSP, HSTS, X-Frame-Options, etc.); CSP configured to allow only the app's own origin plus the AI provider's API host for any client-side calls (though AI calls are proxied server-side by default, keeping API keys off the client entirely).
 - **CORS:** allowlist of known frontend origins per environment; credentials enabled only for those origins (needed for the httpOnly refresh cookie).
-- **Input validation:** Zod at every route boundary; Prisma parameterizes all queries (no raw SQL string concatenation — the "no raw SQL except where absolutely required" rule from the stack spec is satisfied by Prisma by default; any exception must go through a reviewed, parameterized `$queryRaw` with a documented justification).
-- **Audit logging:** every security-relevant mutation (login, logout, password reset, role change, user disable/enable, permission change, file delete, assessment publish) writes an immutable `AuditLog` row: actor, action, target, timestamp, IP, before/after diff where relevant. Audit logs are append-only at the application layer (no update/delete endpoints exist for this table).
+- **Input validation:** `express-validator` at backend route boundaries and Zod/form validation in
+  the frontend. Prisma handles normal data access. The readiness probe, rate-limit store, and
+  invariant checker use tagged, parameterized Prisma raw SQL where the database operation is
+  intentionally lower-level.
+- **Audit logging:** security-relevant actions such as login/logout, password changes/resets, role
+  and active-state changes, content/resource mutations, and assessment publishing/grading write
+  immutable `AuditLog` rows. Audit logs are append-only at the application layer and have only a
+  paginated Super Admin read endpoint.
 - **Secure error responses:** production error middleware maps all unexpected exceptions to a generic `INTERNAL_ERROR` response; stack traces and DB error details are logged server-side (Morgan/structured logger) only, never returned to the client.
 - **Secrets:** all credentials via `.env`/environment, never committed; `.env.example` documents required keys with placeholder values.
+- **Request traceability:** every response carries a request id; structured request/error logs and
+  safe error envelopes allow correlation without exposing internal details.
 
 ---
 
 ## 18. Performance Architecture
 
 - **Lazy loading:** route-level code splitting via `React.lazy` + `React Router`'s data APIs; heavy feature bundles (Course Builder, Analytics charts) load only when navigated to.
-- **Pagination:** enforced server-side on every list endpoint (no "return all rows" endpoints); default + max page size capped in the validation schema.
-- **Database indexing:** foreign keys indexed by default via Prisma relations; additional composite indexes on hot query paths — `(userId, lessonId)` on `Progress`, `(assessmentId, userId)` on `Attempt`, `(groupId, userId)` on `GroupMember`, `(departmentId)` on `User`/`Group`. Indexing strategy reviewed per-query during implementation using `EXPLAIN ANALYZE`.
-- **Query optimization:** repositories select only needed columns/relations (no default `include: { everything: true }`); N+1 risks addressed via Prisma's relation-loading (`include`) planned per use case, not per-item loops.
+- **Pagination:** enforced on high-volume lists; bounded relationship lists are scoped by parent.
+- **Database indexing:** the Prisma schema declares explicit single/composite indexes on foreign
+  keys and hot paths, including lesson progress, assessment attempts, group membership, and
+  organization lookups. Production query plans should still be reviewed as real volume grows.
+- **Query optimization:** repositories select only the columns/relations needed by each response;
+  bulk relationship reads and Prisma relation loading are preferred over per-row query loops.
 - **Code splitting:** Vite's default chunking plus manual `vendor` chunk separation for large libs (Recharts, Framer Motion) so they don't bloat the initial bundle for pages that don't use them.
-- **File streaming:** covered in §13 — large files (video) never fully buffered in server memory.
-- **Caching strategy:** TanStack Query provides client-side cache/staleness control out of the box. Server-side: `AnalyticsSnapshot` pre-aggregation (§16) is the primary caching mechanism at launch; an HTTP-layer cache (e.g., Redis) is deferred until real load data justifies it, but the Repository layer's clean separation means adding a cache-aside layer later touches only repositories, not services/controllers.
-- **Background jobs (future-ready):** job functions are written as pure, queue-agnostic units (`(payload) => Promise<void>`) invoked by a thin `node-cron` scheduler at launch. Swapping the scheduler for BullMQ/Redis later means changing the job *runner*, not the job *logic*.
+- **File streaming:** covered in §13 — accepted uploads use temporary disk and downloads use read
+  streams, avoiding full-file application-memory residency.
+- **Caching strategy:** TanStack Query provides two-minute client-side staleness control.
+  Server-side analytics snapshots use stale-while-refresh, `AnalyticsInsight` caches
+  AI/heuristic recommendations, and the final role-scoped dashboard payload has a 60-second
+  in-process cache with request deduplication. A five-second authenticated-user cache collapses
+  each page's parallel security lookups. A Super Admin can force analytics refresh through
+  `POST /analytics/refresh`. There is no nightly analytics worker or shared Redis cache today.
+- **Database connections:** the long-lived API uses a bounded, pre-warmed PostgreSQL pool and a
+  Neon pooled runtime endpoint. The scheduler worker has an independent single-connection pool,
+  preventing API/worker startup from producing a remote authentication storm.
+- **Background jobs:** a dedicated worker runs deadline reminders and expired-attempt finalization;
+  optional security-token retention is opt-in. Critical jobs catch up on startup and cron tasks use
+  `noOverlap`. A durable distributed queue remains future work.
 
 ---
 
 ## 19. Coding Standards
 
-| Category | Standard |
-|---|---|
-| Folders | `kebab-case` (`question-bank/`, `ai-tutor/`) |
-| React components | `PascalCase.tsx` (`CourseCard.tsx`); one primary component per file |
-| Hooks | `useCamelCase.ts` (`useCourseProgress.ts`), always prefixed `use` |
-| Backend services/controllers | `<name>.service.ts`, `<name>.controller.ts`, `<name>.repository.ts`, `<name>.routes.ts`, `<name>.validation.ts` |
-| Database models (Prisma) | `PascalCase` singular model names (`User`, `CourseAssignment`); `camelCase` fields; Prisma maps to `snake_case` table/column names via `@@map`/`@map` for SQL-side convention |
-| Environment variables | `SCREAMING_SNAKE_CASE`, grouped by prefix (`DB_*`, `JWT_*`, `AI_*`, `STORAGE_*`) |
-| Git commits | Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`), scoped where useful (`feat(assessments): add randomization`) |
-| Branches | `type/short-description` (`feat/qna-upvotes`, `fix/refresh-token-reuse`) |
-| Documentation | Each module folder has a short `README.md` stating purpose, key entities, and non-obvious decisions; no docstring bloat on self-explanatory code |
-| Comments | Only for non-obvious *why* (a workaround, an invariant, a security-relevant constraint) — never restating *what* well-named code already shows |
-| API types | Shared TypeScript types for request/response DTOs live in a `types/` folder per module, imported by both the Zod schema and the frontend feature (via a shared package if a monorepo is adopted — see §22) |
+| Category                     | Standard                                                                                                                                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Folders                      | `kebab-case` (`question-bank/`, `ai-tutor/`)                                                                                                                                                               |
+| React components             | `PascalCase.tsx` (`CourseCard.tsx`); one primary component per file                                                                                                                                        |
+| Hooks                        | `useCamelCase.ts` (`useCourseProgress.ts`), always prefixed `use`                                                                                                                                          |
+| Backend services/controllers | `<name>.service.ts`, `<name>.controller.ts`, `<name>.repository.ts`, `<name>.routes.ts`, `<name>.validation.ts`                                                                                            |
+| Database models (Prisma)     | `PascalCase` singular model names (`User`, `CourseAssignment`); `camelCase` fields; Prisma maps to `snake_case` table/column names via `@@map`/`@map` for SQL-side convention                              |
+| Environment variables        | `SCREAMING_SNAKE_CASE`, grouped by prefix (`DB_*`, `JWT_*`, `AI_*`, `STORAGE_*`)                                                                                                                           |
+| Git commits                  | Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`), scoped where useful (`feat(assessments): add randomization`)                                                                       |
+| Branches                     | `type/short-description` (`feat/qna-upvotes`, `fix/refresh-token-reuse`)                                                                                                                                   |
+| Documentation                | Each module folder has a short `README.md` stating purpose, key entities, and non-obvious decisions; no docstring bloat on self-explanatory code                                                           |
+| Comments                     | Only for non-obvious _why_ (a workaround, an invariant, a security-relevant constraint) — never restating _what_ well-named code already shows                                                             |
+| API types                    | Shared TypeScript types for request/response DTOs live in a `types/` folder per module, imported by both the Zod schema and the frontend feature (via a shared package if a monorepo is adopted — see §22) |
 
 ---
 
-## 20. Development Milestones
+## 20. Historical Development Milestones
 
-| Milestone | Scope |
-|---|---|
-| **M0 — Foundation** | Repo scaffolding, Prisma schema (all core entities), auth (login/JWT/refresh), RBAC middleware, base layout (Sidebar/Header/Theme), CI pipeline (lint/typecheck/test) |
-| **M1 — Identity & Org Structure** | User management (CRUD, disable, reset password), Departments, Groups, Group membership, Audit Logging wired to all of the above |
-| **M2 — Classroom Core** | Course/Module/Lesson CRUD, File upload + Storage Service (local provider), Progress tracking, learner-facing lesson viewer |
-| **M3 — Assessment Engine** | Question Bank, Assessment builder, Attempt flow (timer, randomization, snapshotting), Auto-evaluation for objective types, Results |
-| **M4 — Engagement** | Calendar (events, group assignment), Q&A Forum (questions/answers/comments/upvotes/tags/verification) |
-| **M5 — AI Layer** | AI Service + provider adapter, lesson-aware chat, summarization, quiz/interview-question generation (draft-to-QuestionBank flow) |
-| **M6 — Analytics & Reporting** | Trainee/Trainer dashboards, `AnalyticsSnapshot` background jobs, Reports export (CSV/PDF), Notification Service (in-app + email) |
-| **M7 — Hardening** | Rate limiting tuning, security review pass, performance pass (indexing/query audit), accessibility audit, mobile responsiveness pass, Settings module, manual-evaluation flows for subjective/coding/SQL questions |
-| **M8 — Launch Readiness** | Load testing, backup/restore runbook, deployment pipeline, seed/demo data, admin onboarding docs |
+This table records the original delivery sequence. It is not a list of missing features; current
+behavior and operational boundaries are documented in the preceding sections and module READMEs.
+
+| Milestone                         | Scope                                                                                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **M0 — Foundation**               | Repo scaffolding, Prisma schema (all core entities), auth (login/JWT/refresh), RBAC middleware, base layout (Sidebar/Header/Theme), CI pipeline (lint/typecheck/test)                                              |
+| **M1 — Identity & Org Structure** | User management (CRUD, disable, reset password), Departments, Groups, Group membership, Audit Logging wired to all of the above                                                                                    |
+| **M2 — Classroom Core**           | Course/Module/Lesson CRUD, File upload + Storage Service (local provider), Progress tracking, learner-facing lesson viewer                                                                                         |
+| **M3 — Assessment Engine**        | Question Bank, Assessment builder, Attempt flow (timer, randomization, snapshotting), Auto-evaluation for objective types, Results                                                                                 |
+| **M4 — Engagement**               | Calendar (events, group assignment), Q&A Forum (questions/answers/comments/upvotes/tags/verification)                                                                                                              |
+| **M5 — AI Layer**                 | AI Service + provider adapter, lesson-aware chat, summarization, quiz/interview-question generation (draft-to-QuestionBank flow)                                                                                   |
+| **M6 — Analytics & Reporting**    | Trainee/Trainer dashboards, lazy TTL analytics snapshots, Reports export (CSV/PDF), in-app Notification Service                                                                                                    |
+| **M7 — Hardening**                | Rate limiting tuning, security review pass, performance pass (indexing/query audit), accessibility audit, mobile responsiveness pass, Settings module, manual-evaluation flows for subjective/coding/SQL questions |
+| **M8 — Launch Readiness**         | Load testing, backup/restore runbook, deployment pipeline, seed/demo data, admin onboarding docs                                                                                                                   |
 
 This ordering is dependency-driven: Assessments need Question Bank and Classroom; AI needs Classroom content and Analytics' weak-topic data; Analytics needs real Progress/Attempt data flowing from M2/M3 to have anything meaningful to aggregate.
 
@@ -599,16 +751,16 @@ This ordering is dependency-driven: Assessments need Question Bank and Classroom
 
 ## 21. Risks and Mitigation
 
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Local file storage doesn't scale past a single server / no redundancy | Data loss, can't horizontally scale API servers | Storage abstraction (§13) makes S3/R2 migration a config change, not a rewrite; document this as a pre-scale-out prerequisite, not an afterthought |
-| AI vendor pricing/availability/policy changes | Feature outage or cost spike | Provider-adapter pattern (§14); keep at least a second adapter designed (even if not implemented) as a documented fallback path |
-| Question Bank edits silently invalidate historical results | Compliance/trust issue (graded results should be immutable) | `Attempt` snapshotting (§6) — solved structurally, not procedurally |
-| Role/permission sprawl as features grow | RBAC becomes as unmaintainable as hardcoded checks | Permission strings namespaced by module (`module:action`) from day one; periodic audit of `RolePermission` as part of each milestone's review |
-| Refresh token theft (XSS or device compromise) | Account takeover | httpOnly cookie + rotation + reuse detection (§9); short access-token TTL limits stolen-access-token window |
-| Analytics queries degrade dashboard performance as data grows | Poor trainer/admin UX at scale | Pre-aggregation via `AnalyticsSnapshot` background jobs designed in from M6, not retrofitted |
-| Single Node.js process becomes a bottleneck | Downtime under load | Stateless API design (JWT auth, no in-memory session) means horizontal scaling behind a load balancer is possible without architectural change — only the local storage risk above needs resolving first |
-| Scope creep inside the monolith erodes module boundaries | Future service extraction becomes impossible | Import-boundary lint rule (§8) enforced in CI from M0 |
+| Risk                                                                  | Impact                                                      | Mitigation                                                                                                                                                 |
+| --------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local file storage doesn't scale past a single server / no redundancy | Data loss, can't horizontally scale API servers             | Storage abstraction (§13) makes S3/R2 migration a config change, not a rewrite; document this as a pre-scale-out prerequisite, not an afterthought         |
+| AI vendor pricing/availability/policy changes                         | Feature outage or cost spike                                | Provider-adapter pattern (§14); keep at least a second adapter designed (even if not implemented) as a documented fallback path                            |
+| Question Bank edits silently invalidate historical results            | Compliance/trust issue (graded results should be immutable) | `Attempt` snapshotting (§6) — solved structurally, not procedurally                                                                                        |
+| Role/scope sprawl as features grow                                    | RBAC and ownership rules become inconsistent                | Central active-group/trainer policy helpers, route-role review, and regression tests for every new role/resource path                                      |
+| Refresh token theft (XSS or device compromise)                        | Account takeover                                            | httpOnly cookie + rotation + reuse detection (§9); short access-token TTL limits stolen-access-token window                                                |
+| Analytics queries degrade dashboard performance as data grows         | Poor trainer/admin UX at scale                              | TTL snapshot tables and explicit refresh already separate derived data from sources of truth; move refresh work to a durable queue when volume requires it |
+| A single API instance becomes a bottleneck                            | Downtime under load                                         | The API is stateless and shared rate limits live in PostgreSQL, but local uploads must move to shared object storage before horizontal API scaling         |
+| Scope creep inside the monolith erodes module boundaries              | Future service extraction becomes impossible                | Import-boundary lint rule (§8) enforced in CI from M0                                                                                                      |
 
 ---
 
@@ -619,16 +771,18 @@ This ordering is dependency-driven: Assessments need Question Bank and Classroom
 3. **Caching:** Introduce Redis cache-aside at the Repository layer for hot, rarely-changing reads (Question Bank, Course catalog) once real traffic data justifies it.
 4. **Search:** Postgres full-text search initially (Q&A, Course catalog); upgrade path to a dedicated search engine (e.g., Meilisearch/OpenSearch) if content volume/search UX demands it — isolated behind a `SearchProvider` interface analogous to Storage/AI.
 5. **AI/RAG:** Add `pgvector`-backed embeddings for semantic lesson search and more accurate AI context retrieval as content library grows beyond prompt-window-friendly sizes.
-6. **Multi-tenancy:** `organizationId` already present on all org-scoped tables (§3.3); full SaaS multi-tenant rollout requires only tenant-resolution middleware (subdomain/header-based) and RLS or query-scoping enforcement — no schema redesign.
+6. **Multi-tenancy:** future schema/project work (§3.3), including tenant ids, uniqueness,
+   resolution middleware, query enforcement/RLS, migration, and isolation tests.
 7. **Service extraction:** AI Service and Notification Service are the two most likely first candidates for extraction into standalone deployables (independent scaling for LLM-bound latency and for email/push fan-out), enabled by the module-boundary discipline established from M0.
 8. **Real-time:** Notifications and Q&A currently poll; upgrade path to WebSocket/SSE for live updates (live session attendance, real-time Q&A) without changing the write-side domain logic.
 9. **Mobile:** Responsive web at launch; the feature-based frontend architecture and typed API layer are structured so a React Native client could reuse the same API contracts and most of the `features/*/api` hook logic later.
 
 ---
 
-## Prioritized Implementation Roadmap (Guides Remaining Prompts)
+## Historical Implementation Roadmap
 
-This is the sequence subsequent implementation-phase prompts should follow — each step assumes the prior step's contracts (schema, interfaces) are fixed:
+This was the implementation sequence used to build the current modular monolith. It is retained
+for history, not as a statement that the listed modules are still missing:
 
 1. **Prisma schema** for all entities in §6 + initial migration + seed script (roles/permissions/one Super Admin).
 2. **Backend foundation:** Express app assembly, error/validation middleware, Auth module (login, refresh, logout), RBAC middleware, Audit Log service.

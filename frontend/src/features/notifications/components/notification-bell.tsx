@@ -50,7 +50,9 @@ function resolveNotificationLink(basePath: string, notification: Notification): 
     case 'calendar_event':
       return `${basePath}/calendar`;
     case 'qna_question':
-      return notification.relatedEntityId ? `${basePath}/qna/${notification.relatedEntityId}` : `${basePath}/qna`;
+      return notification.relatedEntityId
+        ? `${basePath}/qna/${notification.relatedEntityId}`
+        : `${basePath}/qna`;
     case 'course':
       return notification.relatedEntityId
         ? `${basePath}/classroom/${notification.relatedEntityId}`
@@ -71,6 +73,7 @@ function resolveNotificationLink(basePath: string, notification: Notification): 
  */
 function NotificationBell() {
   const navigate = useNavigate();
+  const [isOpen, setIsOpen] = useState(false);
   const pathname = useLocation().pathname;
   const basePath = pathname.startsWith('/admin')
     ? '/admin'
@@ -79,7 +82,9 @@ function NotificationBell() {
       : '/trainer';
 
   const { data: unreadCount } = useUnreadNotificationCountQuery();
-  const { data: page, isLoading } = useNotificationsQuery(RECENT_NOTIFICATIONS_PARAMS);
+  // The badge is cheap and always current; the full preview is fetched only when opened instead
+  // of adding a paginated notification query to every portal page load.
+  const { data: page, isLoading } = useNotificationsQuery(RECENT_NOTIFICATIONS_PARAMS, isOpen);
   const markRead = useMarkNotificationReadMutation();
   const markAllRead = useMarkAllNotificationsReadMutation();
   const shouldReduceMotion = useReducedMotion();
@@ -115,7 +120,7 @@ function NotificationBell() {
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"

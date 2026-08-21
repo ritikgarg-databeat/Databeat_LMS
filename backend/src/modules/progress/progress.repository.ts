@@ -1,5 +1,7 @@
 import type { LessonProgressStatus, Prisma } from '@prisma/client';
 
+import { activeGroupScope } from '@/policies/group-access.policy';
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const lessonHierarchyInclude = {
@@ -13,6 +15,8 @@ const continueLearningInclude = {
     select: {
       id: true,
       title: true,
+      contentVersion: true,
+      resources: { orderBy: { createdAt: 'desc' as const }, take: 1, select: { createdAt: true } },
       module: {
         select: {
           id: true,
@@ -29,6 +33,7 @@ export interface UpsertLessonProgressData {
   timeSpentSeconds: number;
   lastViewedAt: Date;
   completedAt: Date | null;
+  completedContentVersion: number | null;
 }
 
 // Data-access layer for the progress module. Only this class may query Prisma directly
@@ -39,6 +44,14 @@ export interface UpsertLessonProgressData {
 export class ProgressRepository extends BaseRepository {
   findProgress(userId: string, lessonId: string) {
     return this.db.lessonProgress.findUnique({ where: { userId_lessonId: { userId, lessonId } } });
+  }
+
+  findLatestResourceCreatedAt(lessonId: string) {
+    return this.db.lessonResource.findFirst({
+      where: { lessonId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
   }
 
   upsertProgress(userId: string, lessonId: string, data: UpsertLessonProgressData) {
@@ -60,8 +73,18 @@ export class ProgressRepository extends BaseRepository {
         id: courseId,
         status: 'PUBLISHED',
         deletedAt: null,
-        groupAssignments: { some: { group: { members: { some: { userId } } } } },
+        groupAssignments: {
+          some: { group: activeGroupScope({ members: { some: { userId } } }) },
+        },
       },
+      select: { id: true },
+    });
+    return course !== null;
+  }
+
+  async isCourseInTrainerScope(trainerId: string, courseId: string): Promise<boolean> {
+    const course = await this.db.course.findFirst({
+      where: { id: courseId, deletedAt: null, ...trainerCourseScope(trainerId) },
       select: { id: true },
     });
     return course !== null;
@@ -73,7 +96,9 @@ export class ProgressRepository extends BaseRepository {
       where: {
         status: 'PUBLISHED',
         deletedAt: null,
-        groupAssignments: { some: { group: { members: { some: { userId } } } } },
+        groupAssignments: {
+          some: { group: activeGroupScope({ members: { some: { userId } } }) },
+        },
       },
       select: { id: true },
     });
@@ -99,7 +124,10 @@ export class ProgressRepository extends BaseRepository {
   }
 
   async sumTimeSpentForUser(userId: string): Promise<number> {
-    const result = await this.db.lessonProgress.aggregate({ where: { userId }, _sum: { timeSpentSeconds: true } });
+    const result = await this.db.lessonProgress.aggregate({
+      where: { userId },
+      _sum: { timeSpentSeconds: true },
+    });
     return result._sum.timeSpentSeconds ?? 0;
   }
 
@@ -115,7 +143,9 @@ export class ProgressRepository extends BaseRepository {
             course: {
               status: 'PUBLISHED',
               deletedAt: null,
-              groupAssignments: { some: { group: { members: { some: { userId } } } } },
+              groupAssignments: {
+                some: { group: activeGroupScope({ members: { some: { userId } } }) },
+              },
             },
           },
         },
@@ -140,7 +170,12 @@ export class ProgressRepository extends BaseRepository {
         lessons: {
           where: { isPublished: true },
           orderBy: { order: 'asc' },
-          select: { id: true, title: true },
+          select: {
+            id: true,
+            title: true,
+            contentVersion: true,
+            resources: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+          },
         },
       },
     });

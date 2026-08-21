@@ -16,7 +16,7 @@ module (qna, analytics, dashboard, reports, ai) already follows of not carrying 
 model — but the endpoints that read/write them live here, not in the users or notifications
 modules:
 
-- **Theme and avatar** are user *preferences*, conceptually distinct from the users module's
+- **Theme and avatar** are user _preferences_, conceptually distinct from the users module's
   identity/profile-admin surface (name, email, department, role, active/inactive) and from the
   auth module's credentials surface (password, tokens). A trainee changing their own theme or
   avatar is a "settings" action, not a "manage my profile" or "manage my account security" one —
@@ -52,7 +52,7 @@ live in `@/constants/settings.ts`, following this codebase's convention of modul
 upload limits living in top-level `constants/`, not inside the module folder.
 
 On a successful upload, the service (`settings.service.ts#uploadAvatar`) deletes the previous
-avatar file from storage *before* saving the new one, best-effort (`.catch()` + `logger.error`,
+avatar file from storage _before_ saving the new one, best-effort (`.catch()` + `logger.error`,
 mirroring `resources.service.ts#remove`'s identical pattern for lesson resource files) — a file
 already missing on disk must never block the avatar change. That delete only fires if the old
 `User.avatar` value looks like something this module actually stored (its relative path starts
@@ -67,7 +67,7 @@ sets `User.avatar` to `null`.
 `PlatformSettings` has no natural key to look up by — it's a single row of platform-wide config
 (name, support email, maintenance mode). Rather than a DB constraint, the model uses a fixed,
 known primary key (`PLATFORM_SETTINGS_SINGLETON_ID`, `constants/settings.ts`), and every
-repository method that touches the table reads/creates/updates *that exact row* — see
+repository method that touches the table reads/creates/updates _that exact row_ — see
 schema.prisma's doc comment on the model for why a DB-level "at most one row" constraint would be
 overkill here. `GET /settings/platform` lazily creates the row (with schema column defaults) on
 first access if it doesn't exist yet, so there's no separate seed/migration step required before
@@ -77,15 +77,24 @@ admin's id via the same `upsert`. Both endpoints are gated by `requireRole(SUPER
 per-route in `settings.routes.ts` rather than on the whole router, since every other route in this
 module operates on the caller's own settings and only needs `authenticate`.
 
+### Maintenance-mode read performance
+
+Maintenance mode is checked for effectively every authenticated request, so it cannot be a remote
+database round trip for every dashboard widget. API startup preloads the singleton setting. The
+service then keeps a 30-second in-process value: fresh reads return it directly, stale reads return
+the last known value immediately and launch one deduplicated background refresh. A Super Admin
+update publishes its authoritative new value to the current process immediately. This keeps the
+cross-cutting security gate fast without weakening server-side enforcement.
+
 ## Routes
 
-| Method | Path                                | Access                | Body / Notes                                                        |
-| ------ | ------------------------------------ | ---------------------- | --------------------------------------------------------------------- |
-| GET    | `/settings`                          | Any authenticated user | —                                                                     |
-| PATCH  | `/settings/theme`                    | Any authenticated user | `{ theme: 'LIGHT' \| 'DARK' \| 'SYSTEM' }`                            |
-| GET    | `/settings/notification-preferences` | Any authenticated user | —                                                                     |
+| Method | Path                                 | Access                 | Body / Notes                                                            |
+| ------ | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------- |
+| GET    | `/settings`                          | Any authenticated user | —                                                                       |
+| PATCH  | `/settings/theme`                    | Any authenticated user | `{ theme: 'LIGHT' \| 'DARK' \| 'SYSTEM' }`                              |
+| GET    | `/settings/notification-preferences` | Any authenticated user | —                                                                       |
 | PATCH  | `/settings/notification-preferences` | Any authenticated user | `{ mutedTypes?: NotificationType[] }` — full replace, `[]` = unmute all |
-| POST   | `/settings/avatar`                   | Any authenticated user | multipart/form-data, field `file` (image, ≤ 2 MB)                    |
-| DELETE | `/settings/avatar`                   | Any authenticated user | —                                                                     |
-| GET    | `/settings/platform`                 | SUPER_ADMIN only        | —                                                                     |
-| PATCH  | `/settings/platform`                 | SUPER_ADMIN only        | `{ platformName?, supportEmail?, maintenanceMode? }` — partial update |
+| POST   | `/settings/avatar`                   | Any authenticated user | multipart/form-data, field `file` (image, ≤ 2 MB)                       |
+| DELETE | `/settings/avatar`                   | Any authenticated user | —                                                                       |
+| GET    | `/settings/platform`                 | SUPER_ADMIN only       | —                                                                       |
+| PATCH  | `/settings/platform`                 | SUPER_ADMIN only       | `{ platformName?, supportEmail?, maintenanceMode? }` — partial update   |

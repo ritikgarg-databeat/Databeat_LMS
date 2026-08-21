@@ -39,13 +39,39 @@ export class UsersRepository extends BaseRepository {
     take: number,
     sortBy: UserSortField = 'createdAt',
     sortOrder: SortOrder = 'desc',
+    trainerScopeId?: string,
   ) {
     const where = buildWhere(filters);
+    if (trainerScopeId) {
+      if (filters.role === 'TRAINER') {
+        where.id = trainerScopeId;
+      } else {
+        where.groupMemberships = {
+          some: { group: { trainerId: trainerScopeId, deletedAt: null } },
+        };
+      }
+    }
     const [items, total] = await Promise.all([
       this.db.user.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder } }),
       this.db.user.count({ where }),
     ]);
     return { items, total };
+  }
+
+  async isTraineeManagedByTrainer(traineeId: string, trainerId: string): Promise<boolean> {
+    const membership = await this.db.groupMember.findFirst({
+      where: { userId: traineeId, group: { trainerId, deletedAt: null } },
+      select: { id: true },
+    });
+    return membership !== null;
+  }
+
+  async isDepartmentInTrainerScope(departmentId: string, trainerId: string): Promise<boolean> {
+    const [trainer, group] = await Promise.all([
+      this.db.user.findFirst({ where: { id: trainerId, role: 'TRAINER', departmentId }, select: { id: true } }),
+      this.db.group.findFirst({ where: { trainerId, departmentId, deletedAt: null }, select: { id: true } }),
+    ]);
+    return trainer !== null || group !== null;
   }
 
   create(data: Prisma.UserCreateInput) {

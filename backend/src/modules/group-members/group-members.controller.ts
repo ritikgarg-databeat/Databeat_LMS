@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { BaseController } from '@/controllers/base.controller';
 import { BadRequestError, UnauthorizedError } from '@/utils/app-error';
 import { parsePaginationParams } from '@/utils/pagination.util';
+import { assertUploadMatchesDeclaredType } from '@/utils/upload-safety.util';
 import { assertValidRequest } from '@/utils/validation.util';
 
 import type { AddGroupMemberDto, AddGroupMembersDto, ListGroupMembersQueryDto, TransferGroupMemberDto } from './group-members.dto';
@@ -40,7 +41,7 @@ export class GroupMembersController extends BaseController {
     const member = await this.service.add(
       req.params.groupId as string,
       req.body as AddGroupMemberDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, member, 'Member added successfully.');
@@ -52,7 +53,7 @@ export class GroupMembersController extends BaseController {
     const result = await this.service.addMany(
       req.params.groupId as string,
       req.body as AddGroupMembersDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, result, 'Members added successfully.');
@@ -61,7 +62,7 @@ export class GroupMembersController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.remove(req.params.groupId as string, req.params.userId as string, req.user.id, req.ip);
+    await this.service.remove(req.params.groupId as string, req.params.userId as string, req.user, req.ip);
     this.noContent(res);
   };
 
@@ -72,7 +73,7 @@ export class GroupMembersController extends BaseController {
       req.params.groupId as string,
       req.params.userId as string,
       req.body as TransferGroupMemberDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, member, 'Member transferred successfully.');
@@ -81,7 +82,8 @@ export class GroupMembersController extends BaseController {
   bulkImport = async (req: Request, res: Response): Promise<void> => {
     if (!req.user) throw new UnauthorizedError();
     if (!req.file) throw new BadRequestError('A CSV file is required.');
-    const summary = await this.service.bulkImport(req.params.groupId as string, req.file.buffer, req.user.id, req.ip);
+    await assertUploadMatchesDeclaredType(req.file);
+    const summary = await this.service.bulkImport(req.params.groupId as string, req.file.buffer, req.user, req.ip);
     this.ok(res, summary, 'Bulk import complete.');
   };
 }

@@ -8,10 +8,12 @@ full system design doc:
   fallback behavior, and rate limiting.
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — production deployment steps for the database, backend,
   and frontend, plus a post-deploy checklist and a troubleshooting table.
+- [`OPERATIONS.md`](OPERATIONS.md) — the API/worker process model, health endpoints, persistent
+  uploads, backups, retention cleanup, and operational checks.
 - [`GIT_WORKFLOW.md`](GIT_WORKFLOW.md) — branch strategy, commit convention, PR expectations,
   and versioning strategy.
-- [`TESTING_CHECKLIST.md`](TESTING_CHECKLIST.md) — the manual QA checklist, organized by
-  feature area, re-run before any release.
+- [`TESTING_CHECKLIST.md`](TESTING_CHECKLIST.md) — automated checks plus the manual QA checklist,
+  organized by feature area and re-run before any release.
 
 Backend-specific error-handling conventions live in
 [`../backend/docs/ERROR_HANDLING.md`](../backend/docs/ERROR_HANDLING.md) instead of here, since

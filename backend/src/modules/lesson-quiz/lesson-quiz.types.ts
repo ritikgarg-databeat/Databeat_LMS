@@ -20,12 +20,23 @@ export interface LessonContentForQuiz {
   lessonTitle: string;
   lessonDescription: string | null;
   content: string;
+  contentVersion: number;
+  /** True when a file exists but cannot provide reliable text (scan, image, video, or failure). */
+  hasOpaqueFileContent: boolean;
 }
 
 export type LessonQuizView =
   | { required: false }
-  | { required: true; status: 'GENERATED'; questions: SanitizedQuizQuestion[] }
-  | { required: true; status: 'SUBMITTED'; score: number; totalQuestions: number; percentage: number };
+  | { required: true; status: 'GENERATED'; passingPercentage: number; questions: SanitizedQuizQuestion[] }
+  | {
+      required: true;
+      status: 'SUBMITTED';
+      score: number;
+      totalQuestions: number;
+      percentage: number;
+      passingPercentage: number;
+      passed: boolean;
+    };
 
 export interface LessonQuizResultQuestion {
   questionId: string;
@@ -38,5 +49,7 @@ export interface LessonQuizResult {
   score: number;
   totalQuestions: number;
   percentage: number;
+  passingPercentage: number;
+  passed: boolean;
   results: LessonQuizResultQuestion[];
 }

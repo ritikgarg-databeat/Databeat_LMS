@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { ErrorScreen } from '@/components/shared';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -65,8 +66,16 @@ function ModuleSection({ courseId, module }: ModuleSectionProps) {
                 to={`/trainee/classroom/${courseId}/lessons/${lesson.lessonId}`}
                 className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
               >
-                <StatusIcon className={cn('size-4 shrink-0', LESSON_STATUS_CLASS[lesson.status])} aria-hidden />
-                <span className="flex-1 truncate">{lesson.title}</span>
+                <StatusIcon
+                  className={cn('size-4 shrink-0', LESSON_STATUS_CLASS[lesson.status])}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate">{lesson.title}</span>
+                {lesson.hasNewContent ? (
+                  <Badge variant="default" dot className="shrink-0">
+                    New resource added
+                  </Badge>
+                ) : null}
               </Link>
             );
           })}

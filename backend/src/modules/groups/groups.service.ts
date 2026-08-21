@@ -28,13 +28,15 @@ export class GroupsService extends BaseService {
   }
 
   async list(
+    actor: Actor,
     filters: GroupListFilters,
     page: number,
     pageSize: number,
     sortBy: GroupSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const scopedFilters = actor.role === 'TRAINER' ? { ...filters, trainerId: actor.id } : filters;
+    const { items, total } = await this.repository.findMany(scopedFilters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
@@ -45,23 +47,27 @@ export class GroupsService extends BaseService {
       const isMember = await this.repository.isMember(id, actor.id);
       if (!isMember) throw new ForbiddenError("You don't have permission to view this group.");
     }
+    if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to view this group.");
+    }
 
     return group;
   }
 
-  async getStats(): Promise<GroupStats> {
+  async getStats(actor: Actor): Promise<GroupStats> {
+    const trainerId = actor.role === 'TRAINER' ? actor.id : undefined;
     const [activeGroups, archivedGroups, totalGroups, totalDepartments, totalTrainees] = await Promise.all([
-      this.repository.countByStatus('ACTIVE'),
-      this.repository.countByStatus('ARCHIVED'),
-      this.repository.countAll(),
-      this.repository.countDepartments(),
-      this.repository.countTrainees(),
+      this.repository.countByStatus('ACTIVE', trainerId),
+      this.repository.countByStatus('ARCHIVED', trainerId),
+      this.repository.countAll(trainerId),
+      this.repository.countDepartments(trainerId),
+      this.repository.countTrainees(trainerId),
     ]);
     return { totalGroups, activeGroups, archivedGroups, totalDepartments, totalTrainees };
   }
 
-  async recent(take: number) {
-    return this.repository.recent(take);
+  async recent(take: number, actor: Actor) {
+    return this.repository.recent(take, actor.role === 'TRAINER' ? actor.id : undefined);
   }
 
   /** Any authenticated user's own group memberships — see `GroupsRepository#findMyGroups`. */
@@ -69,11 +75,18 @@ export class GroupsService extends BaseService {
     return this.repository.findMyGroups(userId);
   }
 
-  async create(dto: CreateGroupDto, actorId: string, ipAddress?: string | null): Promise<Group> {
+  async create(dto: CreateGroupDto, actor: Actor, ipAddress?: string | null): Promise<Group> {
     await this.assertCodeAvailable(dto.code);
     await this.assertDepartmentExists(dto.departmentId);
     if (dto.experienceLevelId) await this.assertExperienceLevelExists(dto.experienceLevelId);
-    if (dto.trainerId) await this.assertTrainerExists(dto.trainerId);
+    if (actor.role === 'TRAINER') {
+      if (!(await this.repository.isDepartmentInTrainerScope(actor.id, dto.departmentId))) {
+        throw new ForbiddenError("You don't have permission to create a group in this department.");
+      }
+      if (dto.trainerId && dto.trainerId !== actor.id) {
+        throw new ForbiddenError('A trainer can only assign a new group to themselves.');
+      }
+    } else if (dto.trainerId) await this.assertTrainerExists(dto.trainerId);
     this.assertDateRangeValid(dto.startDate, dto.endDate);
 
     const created = await this.repository.create({
@@ -81,17 +94,21 @@ export class GroupsService extends BaseService {
       code: dto.code,
       department: { connect: { id: dto.departmentId } },
       ...(dto.experienceLevelId ? { experienceLevel: { connect: { id: dto.experienceLevelId } } } : {}),
-      ...(dto.trainerId ? { trainer: { connect: { id: dto.trainerId } } } : {}),
+      ...(actor.role === 'TRAINER'
+        ? { trainer: { connect: { id: actor.id } } }
+        : dto.trainerId
+          ? { trainer: { connect: { id: dto.trainerId } } }
+          : {}),
       description: dto.description,
       startDate: dto.startDate ? new Date(dto.startDate) : undefined,
       endDate: dto.endDate ? new Date(dto.endDate) : undefined,
       capacity: dto.capacity,
-      createdBy: { connect: { id: actorId } },
+      createdBy: { connect: { id: actor.id } },
     });
 
     await auditLogService.record({
       action: 'GROUP_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: created.id, name: created.name, code: created.code },
     });
@@ -99,10 +116,19 @@ export class GroupsService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateGroupDto, actorId: string, ipAddress?: string | null): Promise<Group> {
+  async update(id: string, dto: UpdateGroupDto, actor: Actor, ipAddress?: string | null): Promise<Group> {
     const existing = await this.findOrThrow(id);
+    this.assertGroupInScope(existing, actor);
     if (dto.code) await this.assertCodeAvailable(dto.code, id);
-    if (dto.departmentId) await this.assertDepartmentExists(dto.departmentId);
+    if (dto.departmentId) {
+      await this.assertDepartmentExists(dto.departmentId);
+      if (
+        actor.role === 'TRAINER' &&
+        !(await this.repository.isDepartmentInTrainerScope(actor.id, dto.departmentId))
+      ) {
+        throw new ForbiddenError("You don't have permission to move a group to this department.");
+      }
+    }
     if (dto.experienceLevelId) await this.assertExperienceLevelExists(dto.experienceLevelId);
     this.assertDateRangeValid(
       dto.startDate === undefined ? existing.startDate?.toISOString() : (dto.startDate ?? undefined),
@@ -128,7 +154,7 @@ export class GroupsService extends BaseService {
 
     await auditLogService.record({
       action: 'GROUP_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: existing.id, changes: { ...dto } },
     });
@@ -136,8 +162,9 @@ export class GroupsService extends BaseService {
     return updated;
   }
 
-  async archive(id: string, actorId: string, ipAddress?: string | null): Promise<Group> {
+  async archive(id: string, actor: Actor, ipAddress?: string | null): Promise<Group> {
     const existing = await this.findOrThrow(id);
+    this.assertGroupInScope(existing, actor);
     if (existing.status === 'ARCHIVED') {
       throw new ConflictError('Group is already archived.');
     }
@@ -146,7 +173,7 @@ export class GroupsService extends BaseService {
 
     await auditLogService.record({
       action: 'GROUP_ARCHIVED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: existing.id },
     });
@@ -154,8 +181,9 @@ export class GroupsService extends BaseService {
     return updated;
   }
 
-  async restore(id: string, actorId: string, ipAddress?: string | null): Promise<Group> {
+  async restore(id: string, actor: Actor, ipAddress?: string | null): Promise<Group> {
     const existing = await this.findOrThrow(id);
+    this.assertGroupInScope(existing, actor);
     if (existing.status === 'ACTIVE') {
       throw new ConflictError('Group is already active.');
     }
@@ -164,7 +192,7 @@ export class GroupsService extends BaseService {
 
     await auditLogService.record({
       action: 'GROUP_RESTORED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: existing.id },
     });
@@ -172,20 +200,22 @@ export class GroupsService extends BaseService {
     return updated;
   }
 
-  async softDelete(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async softDelete(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
     const existing = await this.findOrThrow(id);
+    this.assertGroupInScope(existing, actor);
     await this.repository.softDelete(id);
 
     await auditLogService.record({
       action: 'GROUP_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: existing.id, name: existing.name, code: existing.code },
     });
   }
 
-  async duplicate(id: string, dto: DuplicateGroupDto, actorId: string, ipAddress?: string | null): Promise<Group> {
+  async duplicate(id: string, dto: DuplicateGroupDto, actor: Actor, ipAddress?: string | null): Promise<Group> {
     const source = await this.findOrThrow(id);
+    this.assertGroupInScope(source, actor);
     await this.assertCodeAvailable(dto.code);
 
     const created = await this.repository.create({
@@ -193,15 +223,19 @@ export class GroupsService extends BaseService {
       code: dto.code,
       department: { connect: { id: source.departmentId } },
       ...(source.experienceLevelId ? { experienceLevel: { connect: { id: source.experienceLevelId } } } : {}),
-      ...(source.trainerId ? { trainer: { connect: { id: source.trainerId } } } : {}),
+      ...(actor.role === 'TRAINER'
+        ? { trainer: { connect: { id: actor.id } } }
+        : source.trainerId
+          ? { trainer: { connect: { id: source.trainerId } } }
+          : {}),
       description: source.description,
       capacity: source.capacity,
-      createdBy: { connect: { id: actorId } },
+      createdBy: { connect: { id: actor.id } },
     });
 
     await auditLogService.record({
       action: 'GROUP_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: created.id, name: created.name, code: created.code, duplicatedFromId: source.id },
     });
@@ -209,7 +243,10 @@ export class GroupsService extends BaseService {
     return created;
   }
 
-  async assignTrainer(id: string, dto: AssignTrainerDto, actorId: string, ipAddress?: string | null): Promise<Group> {
+  async assignTrainer(id: string, dto: AssignTrainerDto, actor: Actor, ipAddress?: string | null): Promise<Group> {
+    if (actor.role !== 'SUPER_ADMIN') {
+      throw new ForbiddenError('Only a Super Admin can reassign group ownership.');
+    }
     const existing = await this.findOrThrow(id);
     if (dto.trainerId) await this.assertTrainerExists(dto.trainerId);
 
@@ -219,7 +256,7 @@ export class GroupsService extends BaseService {
 
     await auditLogService.record({
       action: 'GROUP_TRAINER_ASSIGNED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { groupId: existing.id, fromTrainerId: existing.trainerId, toTrainerId: dto.trainerId },
     });
@@ -231,6 +268,12 @@ export class GroupsService extends BaseService {
     const group = await this.repository.findById(id);
     if (!group) throw new NotFoundError('Group not found.');
     return group;
+  }
+
+  private assertGroupInScope(group: { trainerId: string | null }, actor: Actor): void {
+    if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to manage this group.");
+    }
   }
 
   private async assertCodeAvailable(code: string, excludeId?: string): Promise<void> {

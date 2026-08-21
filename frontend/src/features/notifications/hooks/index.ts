@@ -11,28 +11,19 @@ const UNREAD_NOTIFICATION_COUNT_QUERY_KEY = 'notifications-unread-count';
 /* Queries                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Every call to `GET /notifications` also lazily generates any newly-due
- * `ASSESSMENT_DEADLINE_APPROACHING` reminders server-side (see services/index.ts and backend
- * notifications/README.md) — so simply rendering a "recent notifications" list or a full
- * notifications page is itself part of how reminders get created, not just displayed.
- */
-export function useNotificationsQuery(params: NotificationListParams) {
+/** Lists the user's existing notifications; reminder generation belongs to the worker. */
+export function useNotificationsQuery(params: NotificationListParams, enabled = true) {
   return useQuery({
     queryKey: [NOTIFICATIONS_LIST_QUERY_KEY, params],
     queryFn: () => notificationsApi.list(params),
+    enabled,
     placeholderData: (previous) => previous,
   });
 }
 
 /**
- * Polls every 60s and refetches on window focus. This isn't ordinary "keep it fresh" polling:
- * per notifications/README.md there is no background scheduler in this project, so periodically
- * re-checking notification state is the deliberate, intended stand-in for real-time delivery
- * (Prompt 6 — "real-time delivery can be added later"). A bell badge that updates within about a
- * minute of a new notification/reminder being created (e.g. by a trainer creating a calendar
- * event, or by this app's own `useNotificationsQuery` list call generating a deadline reminder
- * elsewhere in the app) is the reasonable, intended behavior here, not something to avoid.
+ * Polls every 60s and refetches on window focus so the badge stays reasonably current without a
+ * WebSocket connection. Deadline generation itself belongs to the background worker.
  */
 export function useUnreadNotificationCountQuery() {
   return useQuery({

@@ -1,5 +1,7 @@
 import { Prisma, type AssessmentAttemptStatus } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { trainerAssessmentScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 export interface AttemptListFilters {
@@ -76,9 +78,23 @@ export class AssessmentAttemptsRepository extends BaseRepository {
     if (!assessment) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { assessmentGroupAssignments: { some: { assessmentId } } } },
+      where: activeGroupMembershipWhere(userId, {
+        assessmentGroupAssignments: { some: { assessmentId } },
+      }),
     });
     return membership !== null;
+  }
+
+  async isAssessmentInTrainerScope(assessmentId: string, trainerId: string): Promise<boolean> {
+    const assessment = await this.db.assessment.findFirst({
+      where: {
+        id: assessmentId,
+        deletedAt: null,
+        ...trainerAssessmentScope(trainerId),
+      },
+      select: { id: true },
+    });
+    return assessment !== null;
   }
 
   findAssessmentQuestions(assessmentId: string) {
@@ -95,6 +111,16 @@ export class AssessmentAttemptsRepository extends BaseRepository {
 
   findAttemptById(attemptId: string) {
     return this.db.assessmentAttempt.findUnique({ where: { id: attemptId } });
+  }
+
+  /** Bounded work queue for the scheduler; oldest expiries are finalized first. */
+  findExpiredInProgressAttempts(expiresAtOrBefore: Date, take: number) {
+    return this.db.assessmentAttempt.findMany({
+      where: { status: 'IN_PROGRESS', expiresAt: { lte: expiresAtOrBefore } },
+      orderBy: { expiresAt: 'asc' },
+      take,
+      include: { assessment: true },
+    });
   }
 
   createAttempt(data: Prisma.AssessmentAttemptCreateInput) {

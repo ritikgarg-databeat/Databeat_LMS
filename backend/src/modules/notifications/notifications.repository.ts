@@ -1,6 +1,7 @@
 import type { NotificationType, Prisma } from '@prisma/client';
 
 import { ASSESSMENT_DEADLINE_REMINDER_WINDOW_HOURS } from '@/constants/assessment';
+import { activeGroupScope } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { NotificationListFilters } from './notifications.types';
@@ -82,7 +83,7 @@ export class NotificationsRepository extends BaseRepository {
   /** TRAINEE userIds of every member of `groupId` — used to fan out TRAINER_ANNOUNCEMENT notifications. */
   async findGroupTraineeUserIds(groupId: string): Promise<string[]> {
     const members = await this.db.groupMember.findMany({
-      where: { groupId, user: { role: 'TRAINEE' } },
+      where: { groupId, group: activeGroupScope(), user: { role: 'TRAINEE', isActive: true } },
       select: { userId: true },
     });
     return members.map((member) => member.userId);
@@ -117,7 +118,9 @@ export class NotificationsRepository extends BaseRepository {
         status: 'PUBLISHED',
         deletedAt: null,
         dueDate: { gte: now, lte: windowEnd },
-        groupAssignments: { some: { group: { members: { some: { userId } } } } },
+        groupAssignments: {
+          some: { group: activeGroupScope({ members: { some: { userId } } }) },
+        },
         attempts: { none: { userId, status: { in: ['SUBMITTED', 'PENDING_REVIEW', 'GRADED'] } } },
       },
       select: { id: true, title: true, dueDate: true },
@@ -142,7 +145,19 @@ export class NotificationsRepository extends BaseRepository {
         id: true,
         title: true,
         dueDate: true,
-        groupAssignments: { select: { group: { select: { members: { select: { userId: true } } } } } },
+        groupAssignments: {
+          where: { group: activeGroupScope() },
+          select: {
+            group: {
+              select: {
+                members: {
+                  where: { user: { role: 'TRAINEE', isActive: true } },
+                  select: { userId: true },
+                },
+              },
+            },
+          },
+        },
         attempts: {
           where: { status: { in: ['SUBMITTED', 'PENDING_REVIEW', 'GRADED'] } },
           select: { userId: true },

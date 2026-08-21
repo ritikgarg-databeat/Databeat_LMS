@@ -12,4 +12,5 @@ Landing dashboard shown after login; aggregates widgets from other features per 
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented role dashboards aggregate live platform, trainer-scope, and trainee progress data with
+recent activity, alerts, recommendations, and navigation to the underlying records.

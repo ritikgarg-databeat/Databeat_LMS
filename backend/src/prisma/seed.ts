@@ -1,7 +1,7 @@
 import { DepartmentStatus, Role } from '@prisma/client';
 
 import { env } from '@/config/env';
-import { prisma } from '@/config/prisma';
+import { disconnectDatabase, prisma, warmDatabasePool } from '@/config/prisma';
 import { logger } from '@/utils/logger';
 import { hashPassword } from '@/utils/password.util';
 
@@ -14,7 +14,10 @@ const DEFAULT_EXPERIENCE_LEVELS = [
 
 /** Mirrors the backfill convention used by the `organization_management` migration. */
 function codeFromName(name: string): string {
-  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  return name
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_');
 }
 
 /**
@@ -25,6 +28,7 @@ function codeFromName(name: string): string {
  * Idempotent — safe to run multiple times.
  */
 async function main(): Promise<void> {
+  await warmDatabasePool();
   const departments = await Promise.all(
     DEFAULT_DEPARTMENTS.map((name) =>
       prisma.department.upsert({
@@ -57,7 +61,9 @@ async function main(): Promise<void> {
       isEmailVerified: true,
     },
   });
-  logger.info(`Seeded Super Admin account: ${env.ADMIN_EMAIL} / ${env.ADMIN_PASSWORD} (change on first login)`);
+  logger.info(
+    `Seeded Super Admin account: ${env.ADMIN_EMAIL} / ${env.ADMIN_PASSWORD} (change on first login)`,
+  );
 }
 
 main()
@@ -66,5 +72,5 @@ main()
     process.exitCode = 1;
   })
   .finally(() => {
-    void prisma.$disconnect();
+    void disconnectDatabase();
   });

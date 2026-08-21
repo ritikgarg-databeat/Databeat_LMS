@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { ROLES } from '@/constants/roles';
+import { ROUTES } from '@/constants/routes';
 import { useAuth } from '@/hooks/use-auth';
 
 export interface LessonAiButtonProps {
@@ -22,10 +23,9 @@ function LessonAiButton({ lessonId }: LessonAiButtonProps) {
     <Button
       type="button"
       variant="outline"
-      // TODO(orchestrator): promote '/trainee/ai-tutor' to ROUTES.TRAINEE.AI_TUTOR if useful.
-      onClick={() => navigate(`/trainee/ai-tutor?lessonId=${lessonId}`)}
+      onClick={() => navigate(`${ROUTES.TRAINEE.AI_TUTOR}?lessonId=${lessonId}`)}
     >
-      <Sparkles /> Ask AI
+      <Sparkles /> Ask AI about this lesson
     </Button>
   );
 }

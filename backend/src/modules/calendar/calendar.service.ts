@@ -29,8 +29,8 @@ export class CalendarService extends BaseService {
     super();
   }
 
-  async list(filters: CalendarEventListFilters) {
-    const events = await this.repository.findMany(filters);
+  async list(filters: CalendarEventListFilters, actor: Actor) {
+    const events = await this.repository.findMany(filters, actor.role === 'TRAINER' ? actor.id : undefined);
     return events.map((event) => this.toListItem(event));
   }
 
@@ -50,20 +50,22 @@ export class CalendarService extends BaseService {
     }
 
     if (!event) throw new NotFoundError('Calendar event not found.');
+    if (actor.role === 'TRAINER' && !(await this.repository.isInTrainerViewScope(id, actor.id))) {
+      throw new ForbiddenError("You don't have permission to view this event.");
+    }
     return this.toListItem(event);
   }
 
   async listMine(userId: string, filters: CalendarEventListFilters) {
-    const user = await this.usersRepository.findById(userId);
-    const groupIds = await this.repository.findUserGroupIds(userId);
-    return this.repository.findMine(user?.departmentId ?? null, groupIds, filters);
+    return this.repository.findMine(userId, filters);
   }
 
-  async create(dto: CreateCalendarEventDto, actorId: string, ipAddress?: string | null) {
+  async create(dto: CreateCalendarEventDto, actor: Actor, ipAddress?: string | null) {
     const departmentIds = dto.departmentIds ?? [];
     const groupIds = dto.groupIds ?? [];
     if (departmentIds.length > 0) await this.assertDepartmentsExist(departmentIds);
     if (groupIds.length > 0) await this.assertGroupsExist(groupIds);
+    await this.assertAssignmentsInScope(departmentIds, groupIds, actor);
     this.assertEndAtNotBeforeStartAt(dto.startAt, dto.endAt);
 
     const created = await this.repository.createWithAssignments(
@@ -75,7 +77,7 @@ export class CalendarService extends BaseService {
         endAt: dto.endAt ? new Date(dto.endAt) : undefined,
         allDay: dto.allDay ?? false,
         location: dto.location,
-        createdBy: { connect: { id: actorId } },
+        createdBy: { connect: { id: actor.id } },
       },
       departmentIds,
       groupIds,
@@ -83,7 +85,7 @@ export class CalendarService extends BaseService {
 
     await auditLogService.record({
       action: 'CALENDAR_EVENT_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { eventId: created.id, title: created.title, departmentIds, groupIds },
     });
@@ -98,8 +100,9 @@ export class CalendarService extends BaseService {
     return this.toListItem(created);
   }
 
-  async update(id: string, dto: UpdateCalendarEventDto, actorId: string, ipAddress?: string | null) {
+  async update(id: string, dto: UpdateCalendarEventDto, actor: Actor, ipAddress?: string | null) {
     const existing = await this.findOrThrow(id);
+    await this.assertEventManageable(id, actor);
 
     const nextStartAt = dto.startAt !== undefined ? new Date(dto.startAt) : existing.startAt;
     const nextEndAt =
@@ -116,6 +119,7 @@ export class CalendarService extends BaseService {
     if (hasAssignmentUpdate) {
       if (departmentIds.length > 0) await this.assertDepartmentsExist(departmentIds);
       if (groupIds.length > 0) await this.assertGroupsExist(groupIds);
+      await this.assertAssignmentsInScope(departmentIds, groupIds, actor);
     }
 
     const updated = await this.repository.updateWithAssignments(
@@ -134,7 +138,7 @@ export class CalendarService extends BaseService {
 
     await auditLogService.record({
       action: 'CALENDAR_EVENT_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { eventId: existing.id, changes: { ...dto } },
     });
@@ -158,13 +162,14 @@ export class CalendarService extends BaseService {
     return this.toListItem(updated);
   }
 
-  async softDelete(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async softDelete(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
     const existing = await this.findOrThrow(id);
+    await this.assertEventManageable(id, actor);
     await this.repository.softDelete(id);
 
     await auditLogService.record({
       action: 'CALENDAR_EVENT_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { eventId: existing.id, title: existing.title },
     });
@@ -196,7 +201,11 @@ export class CalendarService extends BaseService {
         relatedEntityId: input.eventId,
       })
       .catch((error: unknown) => {
-        logger.error('Failed to send calendar event notifications', { error, eventId: input.eventId, type: input.type });
+        logger.error('Failed to send calendar event notifications', {
+          error,
+          eventId: input.eventId,
+          type: input.type,
+        });
       });
   }
 
@@ -249,5 +258,31 @@ export class CalendarService extends BaseService {
     const results = await Promise.all(groupIds.map((groupId) => this.groupsRepository.findById(groupId)));
     const missingIndex = results.findIndex((group) => !group);
     if (missingIndex !== -1) throw new BadRequestError(`Group not found: ${groupIds[missingIndex]}`);
+  }
+
+  private async assertEventManageable(eventId: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isOwnedBy(eventId, actor.id))) {
+      throw new ForbiddenError('A trainer can only modify calendar events they created.');
+    }
+  }
+
+  private async assertAssignmentsInScope(
+    departmentIds: string[],
+    groupIds: string[],
+    actor: Actor,
+  ): Promise<void> {
+    if (actor.role !== 'TRAINER') return;
+
+    for (const groupId of groupIds) {
+      const group = await this.groupsRepository.findById(groupId);
+      if (group?.trainerId !== actor.id) {
+        throw new ForbiddenError("You don't have permission to assign events to this group.");
+      }
+    }
+    for (const departmentId of departmentIds) {
+      if (!(await this.groupsRepository.isDepartmentInTrainerScope(actor.id, departmentId))) {
+        throw new ForbiddenError("You don't have permission to assign events to this department.");
+      }
+    }
   }
 }

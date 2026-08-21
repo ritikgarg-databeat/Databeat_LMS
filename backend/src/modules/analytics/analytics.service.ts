@@ -78,8 +78,7 @@ export class AnalyticsService extends BaseService {
     });
 
     const memberIds = [...new Set(groups.flatMap((group) => group.members.map((member) => member.userId)))];
-    await this.aggregation.ensureUserSnapshots(memberIds);
-    const snapshots = await this.repository.findUserSnapshots(memberIds);
+    const snapshots = await this.aggregation.ensureUserSnapshots(memberIds);
     const snapshotByUser = new Map(snapshots.map((snapshot) => [snapshot.userId, snapshot]));
 
     return groups.map((group) => {
@@ -108,8 +107,7 @@ export class AnalyticsService extends BaseService {
 
     const members = group.members.map((member) => member.user);
     const memberIds = members.map((member) => member.id);
-    await this.aggregation.ensureUserSnapshots(memberIds);
-    const snapshots = await this.repository.findUserSnapshots(memberIds);
+    const snapshots = await this.aggregation.ensureUserSnapshots(memberIds);
     const snapshotByUser = new Map(snapshots.map((snapshot) => [snapshot.userId, snapshot]));
 
     const aggregate = this.aggregateMemberSnapshots(snapshots);
@@ -133,7 +131,10 @@ export class AnalyticsService extends BaseService {
       .sort((a, b) => b.performanceScore - a.performanceScore);
 
     const timelineStart = addUtcDays(toUtcDayString(new Date()), -(ANALYTICS_TIMELINE_DAYS - 1));
-    const activityRows = await this.repository.findDailyActivityForUsers(memberIds, utcDayToDate(timelineStart));
+    const activityRows = await this.repository.findDailyActivityForUsers(
+      memberIds,
+      utcDayToDate(timelineStart),
+    );
 
     return {
       group: { groupId: group.id, name: group.name, code: group.code, departmentName: group.department.name },
@@ -155,37 +156,34 @@ export class AnalyticsService extends BaseService {
    * is a 403 (mirrors the Q&A module's deliberate 404-vs-403 distinction).
    */
   async getUserAnalytics(userId: string, actor: Actor): Promise<UserAnalytics> {
+    const isSelf = actor.id === userId;
+    const selfSnapshotPromise = isSelf ? this.aggregation.ensureUserSnapshots([userId]) : null;
     const user = await this.repository.findUserWithGroups(userId);
     if (!user) throw new NotFoundError('User not found.');
 
-    const isSelf = actor.id === userId;
     if (!isSelf && actor.role !== 'SUPER_ADMIN') {
       const visible =
         actor.role === 'TRAINER' && (await this.repository.isTraineeVisibleToTrainer(userId, actor.id));
       if (!visible) throw new ForbiddenError("You don't have permission to view this user's analytics.");
     }
 
-    await this.aggregation.ensureUserDailyActivity(userId);
-    await this.aggregation.ensureUserSnapshots([userId]);
-    const snapshot = await this.repository.findUserSnapshot(userId);
+    const [snapshot] = selfSnapshotPromise
+      ? await selfSnapshotPromise
+      : await this.aggregation.ensureUserSnapshots([userId]);
     // ensureUserSnapshots upserts a row for every existing user, so this only guards races.
     if (!snapshot) throw new NotFoundError('User analytics are not available.');
 
     const today = toUtcDayString(new Date());
     // One fetch covers both needs: the streak lookback window is a superset of the 90-day view.
     const streakStart = utcDayToDate(addUtcDays(today, -(ANALYTICS_STREAK_LOOKBACK_DAYS - 1)));
-    const activityRows = await this.repository.findDailyActivityForUsers([userId], streakStart);
-    const streakDays = computeStreakDays(
-      new Set(activityRows.map((row) => toUtcDayString(row.date))),
-      today,
-    );
-
-    const [courseRows, recentAttempts, aiUsage, qnaActivity] = await Promise.all([
+    const [activityRows, courseRows, recentAttempts, aiUsage, qnaActivity] = await Promise.all([
+      this.repository.findDailyActivityForUsers([userId], streakStart),
       this.buildUserCourseRows(userId),
       this.buildRecentAttemptRows(userId),
       this.repository.countAiUsage(userId),
       this.repository.countQnaActivity(userId),
     ]);
+    const streakDays = computeStreakDays(new Set(activityRows.map((row) => toUtcDayString(row.date))), today);
 
     return {
       user: {
@@ -231,12 +229,16 @@ export class AnalyticsService extends BaseService {
    * their groups (403 when filtering by a group that isn't theirs); SUPER_ADMIN → all active
    * trainees. Optional group/department/course filters intersect the population.
    */
-  async getLeaderboard(filters: LeaderboardFilters, actor: Actor): Promise<LeaderboardEntry[]> {
+  async getLeaderboard(
+    filters: LeaderboardFilters,
+    actor: Actor,
+    knownTrainerGroupIds?: string[],
+  ): Promise<LeaderboardEntry[]> {
     const limit = Math.min(Math.max(filters.limit ?? LEADERBOARD_DEFAULT_LIMIT, 1), LEADERBOARD_MAX_LIMIT);
 
     let trainerGroupIds: string[] | undefined;
     if (actor.role !== 'SUPER_ADMIN') {
-      trainerGroupIds = await this.repository.findTrainerGroupIds(actor.id);
+      trainerGroupIds = knownTrainerGroupIds ?? (await this.repository.findTrainerGroupIds(actor.id));
       if (filters.groupId && !trainerGroupIds.includes(filters.groupId)) {
         throw new ForbiddenError("You don't have permission to view this group's leaderboard.");
       }
@@ -251,8 +253,7 @@ export class AnalyticsService extends BaseService {
     });
 
     const userIds = population.map((user) => user.id);
-    await this.aggregation.ensureUserSnapshots(userIds);
-    const snapshots = await this.repository.findUserSnapshots(userIds);
+    const snapshots = await this.aggregation.ensureUserSnapshots(userIds);
     const snapshotByUser = new Map(snapshots.map((snapshot) => [snapshot.userId, snapshot]));
 
     return population
@@ -344,7 +345,9 @@ export class AnalyticsService extends BaseService {
     activeUsers7d: number;
     lastActivityAt: Date | null;
   } {
-    const completionPercentage = round1(mean(snapshots.map((snapshot) => snapshot.completionPercentage)) ?? 0);
+    const completionPercentage = round1(
+      mean(snapshots.map((snapshot) => snapshot.completionPercentage)) ?? 0,
+    );
 
     const scores = snapshots
       .map((snapshot) => snapshot.averageScore)
@@ -375,9 +378,14 @@ export class AnalyticsService extends BaseService {
     const byDate = new Map<string, DailyActivityPoint>();
     for (const row of rows) {
       const date = toUtcDayString(row.date);
-      const point =
-        byDate.get(date) ??
-        ({ date, logins: 0, lessonsCompleted: 0, assessmentsSubmitted: 0, aiMessages: 0, qnaPosts: 0 });
+      const point = byDate.get(date) ?? {
+        date,
+        logins: 0,
+        lessonsCompleted: 0,
+        assessmentsSubmitted: 0,
+        aiMessages: 0,
+        qnaPosts: 0,
+      };
       point.logins += row.logins;
       point.lessonsCompleted += row.lessonsCompleted;
       point.assessmentsSubmitted += row.assessmentsSubmitted;
@@ -391,8 +399,14 @@ export class AnalyticsService extends BaseService {
     for (let offset = days - 1; offset >= 0; offset -= 1) {
       const date = addUtcDays(today, -offset);
       points.push(
-        byDate.get(date) ??
-          ({ date, logins: 0, lessonsCompleted: 0, assessmentsSubmitted: 0, aiMessages: 0, qnaPosts: 0 }),
+        byDate.get(date) ?? {
+          date,
+          logins: 0,
+          lessonsCompleted: 0,
+          assessmentsSubmitted: 0,
+          aiMessages: 0,
+          qnaPosts: 0,
+        },
       );
     }
     return points;
@@ -400,29 +414,22 @@ export class AnalyticsService extends BaseService {
 
   /** The user's accessible courses with per-course completion/status/time-spent. */
   private async buildUserCourseRows(userId: string): Promise<UserCourseAnalyticsRow[]> {
-    const courses = await this.repository.findAccessibleCourses(userId);
-    const lessons = await this.repository.findPublishedLessonRefsForCourses(courses.map((course) => course.id));
-    const progressRows = await this.repository.findLessonProgressRows(
-      userId,
-      lessons.map((lesson) => lesson.id),
-    );
-    const progressByLesson = new Map(progressRows.map((row) => [row.lessonId, row]));
-
-    const perCourse = new Map<string, { total: number; completed: number; started: number; timeSpentSeconds: number }>();
-    for (const lesson of lessons) {
-      const tally = perCourse.get(lesson.courseId) ?? { total: 0, completed: 0, started: 0, timeSpentSeconds: 0 };
-      tally.total += 1;
-      const progress = progressByLesson.get(lesson.id);
-      if (progress) {
-        tally.started += 1;
-        tally.timeSpentSeconds += progress.timeSpentSeconds;
-        if (progress.status === 'COMPLETED') tally.completed += 1;
-      }
-      perCourse.set(lesson.courseId, tally);
-    }
-
+    const courses = await this.repository.findAccessibleCoursesWithProgress(userId);
     return courses.map((course) => {
-      const tally = perCourse.get(course.id) ?? { total: 0, completed: 0, started: 0, timeSpentSeconds: 0 };
+      const lessons = course.modules.flatMap((module) => module.lessons);
+      const tally = lessons.reduce(
+        (result, lesson) => {
+          result.total += 1;
+          const progress = lesson.progress[0];
+          if (progress) {
+            result.started += 1;
+            result.timeSpentSeconds += progress.timeSpentSeconds;
+            if (progress.status === 'COMPLETED') result.completed += 1;
+          }
+          return result;
+        },
+        { total: 0, completed: 0, started: 0, timeSpentSeconds: 0 },
+      );
       const status: UserCourseAnalyticsRow['status'] =
         tally.total > 0 && tally.completed === tally.total
           ? 'COMPLETED'

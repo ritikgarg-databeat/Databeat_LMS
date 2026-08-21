@@ -40,6 +40,25 @@ the correct endpoint.
 New resources are appended: `order` is set to the current max `order` for the lesson + 1 (or 0 if
 none exist yet). There is no reorder endpoint for resources.
 
+## Learning invalidation
+
+Adding or deleting a file/text resource changes the lesson's completion contract. The same
+versioning semantics apply to meaningful lesson edits. The resource transaction therefore:
+
+- increments `Lesson.contentVersion`;
+- moves every `COMPLETED` `LessonProgress` row for that lesson back to `IN_PROGRESS` and clears
+  `completedAt`;
+- preserves historical quiz attempts under their old `contentVersion`; the next completion uses a
+  new attempt for the current version.
+
+The progress API compares the newest resource's `createdAt` with each learner's `lastViewedAt` and
+returns `hasNewContent`. Trainee course and continue-learning views render this as a **New resource
+added** dot. Opening the lesson acknowledges the notification by updating `lastViewedAt`, but the
+lesson remains `IN_PROGRESS` until the learner completes the new quiz and marks it complete again.
+
+Resource creation, progress reopening, and quiz invalidation are atomic. For file uploads, a saved
+file is also removed if that database transaction fails, preventing an orphan upload.
+
 ## Mounting
 
 This module is meant to be mounted **nested** inside the lessons module's router, exactly like
@@ -57,24 +76,29 @@ router.use('/:id/resources', resourcesRoutes);
 
 Resulting routes:
 
-| Method | Path                                           | Access                                                             |
-| ------ | ----------------------------------------------- | ------------------------------------------------------------------- |
-| GET    | `/lessons/:id/resources`                        | Trainer/Super-Admin always; others via lesson-accessibility check   |
-| POST   | `/lessons/:id/resources/upload`                 | Trainer/Super-Admin only                                           |
-| POST   | `/lessons/:id/resources/text`                   | Trainer/Super-Admin only                                           |
-| DELETE | `/lessons/:id/resources/:resourceId`            | Trainer/Super-Admin only                                           |
-| GET    | `/lessons/:id/resources/:resourceId/download`   | Trainer/Super-Admin always; others via lesson-accessibility check   |
+| Method | Path                                          | Access                                                            |
+| ------ | --------------------------------------------- | ----------------------------------------------------------------- |
+| GET    | `/lessons/:id/resources`                      | Trainer/Super-Admin always; others via lesson-accessibility check |
+| POST   | `/lessons/:id/resources/upload`               | Trainer/Super-Admin only                                          |
+| POST   | `/lessons/:id/resources/text`                 | Trainer/Super-Admin only                                          |
+| DELETE | `/lessons/:id/resources/:resourceId`          | Trainer/Super-Admin only                                          |
+| GET    | `/lessons/:id/resources/:resourceId/download` | Trainer/Super-Admin always; others via lesson-accessibility check |
 
 ## File storage
 
 Uploads go through the shared `storageProvider` singleton (`@/storage`, `entityType:
 "lesson-resources"`), never `fs` directly — see `storage-provider.interface.ts`. The shared
-`upload` multer instance (`@/middleware/upload.middleware.ts`, memory storage, already sized to
-`MAX_LESSON_FILE_SIZE_BYTES`) buffers the file; this module additionally validates the buffer's
-mimetype against `ACCEPTED_LESSON_MIME_TYPES` and size against `MAX_LESSON_FILE_SIZE_BYTES` before
-handing it to the storage provider. Deleting a resource deletes the on-disk file *before* the
+`upload` multer instance (`@/middleware/upload.middleware.ts`) writes to an OS temporary
+directory, avoiding full in-process buffering. This module validates size, declared MIME type,
+and file signature before handing the temporary file to the storage provider; temporary files are
+removed on success and failure. Deleting a resource deletes the on-disk file _before_ the
 database row, best-effort — a file that's already missing on disk is logged and the row deletion
 proceeds anyway, rather than blocking on a storage error.
+
+Deleting a parent lesson or course collects descendant file pointers before the database
+delete/soft-delete and removes those physical files afterward. Cleanup failures are logged for
+manual retry. `LocalStorageProvider` rejects resolved pointers outside `UPLOAD_PATH` and exposes
+`checkHealth()` to the readiness endpoint.
 
 Downloading streams the file back with `storageProvider.getReadStream(...)`, piped straight to the
 response with `Content-Disposition: attachment; filename="<originalFilename>"` and

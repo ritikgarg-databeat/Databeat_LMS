@@ -12,4 +12,5 @@ Super Admin / Trainer user management: create, edit, disable, and reset password
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented user management includes search/filter/pagination, create/edit, activate/deactivate,
+role/department/experience assignment, password reset, and trainer-scoped trainee visibility.

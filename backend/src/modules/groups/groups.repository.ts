@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { GroupListFilters, GroupSortField, SortOrder } from './groups.types';
@@ -65,7 +66,9 @@ export class GroupsRepository extends BaseRepository {
   }
 
   async isMember(groupId: string, userId: string): Promise<boolean> {
-    const membership = await this.db.groupMember.findUnique({ where: { userId_groupId: { userId, groupId } } });
+    const membership = await this.db.groupMember.findFirst({
+      where: activeGroupMembershipWhere(userId, { id: groupId }),
+    });
     return membership !== null;
   }
 
@@ -81,29 +84,50 @@ export class GroupsRepository extends BaseRepository {
     return this.db.group.update({ where: { id }, data: { deletedAt: new Date() } });
   }
 
-  countByStatus(status: 'ACTIVE' | 'ARCHIVED') {
-    return this.db.group.count({ where: { deletedAt: null, status } });
+  countByStatus(status: 'ACTIVE' | 'ARCHIVED', trainerId?: string) {
+    return this.db.group.count({ where: { deletedAt: null, status, ...(trainerId ? { trainerId } : {}) } });
   }
 
-  countAll() {
-    return this.db.group.count({ where: { deletedAt: null } });
+  countAll(trainerId?: string) {
+    return this.db.group.count({ where: { deletedAt: null, ...(trainerId ? { trainerId } : {}) } });
   }
 
-  countDepartments() {
-    return this.db.department.count();
+  async countDepartments(trainerId?: string) {
+    if (!trainerId) return this.db.department.count();
+    const groups = await this.db.group.findMany({
+      where: { trainerId, deletedAt: null },
+      distinct: ['departmentId'],
+      select: { departmentId: true },
+    });
+    return groups.length;
   }
 
-  countTrainees() {
-    return this.db.user.count({ where: { role: 'TRAINEE' } });
+  countTrainees(trainerId?: string) {
+    return this.db.user.count({
+      where: {
+        role: 'TRAINEE',
+        ...(trainerId
+          ? { groupMemberships: { some: { group: { trainerId, deletedAt: null } } } }
+          : {}),
+      },
+    });
   }
 
-  recent(take: number) {
+  recent(take: number, trainerId?: string) {
     return this.db.group.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(trainerId ? { trainerId } : {}) },
       orderBy: { createdAt: 'desc' },
       take,
       include: summaryInclude,
     });
+  }
+
+  async isDepartmentInTrainerScope(trainerId: string, departmentId: string): Promise<boolean> {
+    const [trainer, managedGroup] = await Promise.all([
+      this.db.user.findFirst({ where: { id: trainerId, role: 'TRAINER', departmentId }, select: { id: true } }),
+      this.db.group.findFirst({ where: { trainerId, departmentId, deletedAt: null }, select: { id: true } }),
+    ]);
+    return trainer !== null || managedGroup !== null;
   }
 
   /**

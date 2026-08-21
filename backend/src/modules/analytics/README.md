@@ -17,9 +17,9 @@ analytics.routes.ts → analytics.controller.ts → analytics.service.ts ─┬�
   `computeStreakDays`, `computePerformanceScore`, `computeDropOff`, plus the UTC-day helpers.
   No Prisma, no clock reads ("today" is always passed in).
 - **`aggregation.service.ts`** (`aggregationService`) — the "Aggregation Jobs" layer and the
-  ONLY writer of the analytics cache tables. `ensureUserDailyActivity` / `ensureUserSnapshots` /
-  `ensureCourseSnapshot` / `ensureAssessmentSnapshot` are lazy recompute-when-stale guards;
-  `refreshAll` force-recomputes everything.
+  ONLY writer of the analytics cache tables. The `ensure*` methods compute a missing cache row
+  synchronously, serve an existing stale row immediately while refreshing it in the background,
+  and deduplicate concurrent refreshes. `refreshAll` force-recomputes everything.
 - **`analytics.service.ts`** (`analyticsService`) — read side: authorization, shaping, live
   group aggregates over member snapshots, zero-filled timelines.
 - **`analytics.repository.ts`** — every Prisma query for both services (ARCHITECTURE.md §3.1).
@@ -34,14 +34,16 @@ analytics.routes.ts → analytics.controller.ts → analytics.service.ts ─┬�
 `UserDailyActivity`, `UserPerformanceSnapshot`, `CourseAnalyticsSnapshot`, and
 `AssessmentAnalyticsSnapshot` are **caches, not sources of truth** — every row is derived from
 immutable transactional timestamps/values and can be truncated and recomputed at any time.
-On access, a snapshot older than `ANALYTICS_SNAPSHOT_TTL_MS` (10 min) is recomputed
-synchronously; fresh snapshots are served as-is, keeping dashboards fast without a scheduler.
-Recomputes are idempotent window-rewrites (daily activity: delete range + re-insert, in one
-transaction) or upserts, so concurrent duplicate work is harmless — no locking.
+On access, a missing snapshot is computed synchronously. A row older than
+`ANALYTICS_SNAPSHOT_TTL_MS` (10 min) is served immediately and refreshed in the background;
+fresh snapshots are served as-is. In-process refresh maps ensure simultaneous requests share one
+recompute. Recomputes are idempotent window-rewrites (daily activity: delete range + re-insert,
+in one transaction) or upserts. An all-zero daily marker prevents inactive users from repeatedly
+running the same empty source queries.
 
 `AggregationService#refreshAll` (exposed as `POST /analytics/refresh`, SUPER_ADMIN only) is the
-"background processing ready" seam: a future scheduler/queue calls exactly this entry point off
-the request path, at which point the lazy TTL guards simply stop firing.
+"background processing ready" seam: a future scheduler/queue can call exactly this entry point
+off the request path; the stale-while-refresh guards remain a request-path safety net.
 
 ## Security model (stricter than earlier modules — deliberate)
 
@@ -52,11 +54,9 @@ the request path, at which point the lazy TTL guards simply stop firing.
 - **TRAINEE** sees only their own data via `GET /analytics/me` (or `/users/:id` with their own
   id — `/users/:id` has no route-level role gate; the service enforces self-or-visible).
 
-Earlier modules grant staff-wide reads (any trainer can read any group). Analytics is
-*personal-performance* data — rankings, scores, activity patterns — so a trainer inspecting
-trainees they don't train would be a privacy leak, hence the tighter rule here. Exception:
-`GET /courses/:id` and `GET /assessments/:id` analytics are content-level and staff-wide,
-because courses/assessments aren't per-trainer entities in this schema.
+The same trainer ownership policy is now shared across content, dashboards, reports, progress,
+and assessment grading. Course/assessment analytics also require creator or active assigned-group
+scope; personal-performance data never becomes staff-wide merely because the actor is a trainer.
 
 ## performanceScore
 
@@ -71,28 +71,28 @@ leaderboard's primary sort key (ties: completionPercentage desc, then name asc).
 
 ## Endpoints (`/api/v1/analytics`)
 
-| Route | Access |
-| --- | --- |
-| `GET /groups?departmentId=` | staff (trainer-scoped) |
-| `GET /groups/:id` | staff (403 if not the group's trainer) |
-| `GET /users/:id` | self, SUPER_ADMIN, or the trainee's trainer |
-| `GET /me` | any authenticated user |
-| `GET /leaderboard?groupId=&departmentId=&courseId=&limit=` | staff (trainer-scoped population) |
-| `GET /courses/:id` | staff (content-level) |
-| `GET /assessments/:id` | staff (content-level) |
-| `POST /refresh` | SUPER_ADMIN |
+| Route                                                      | Access                                      |
+| ---------------------------------------------------------- | ------------------------------------------- |
+| `GET /groups?departmentId=`                                | staff (trainer-scoped)                      |
+| `GET /groups/:id`                                          | staff (403 if not the group's trainer)      |
+| `GET /users/:id`                                           | self, SUPER_ADMIN, or the trainee's trainer |
+| `GET /me`                                                  | any authenticated user                      |
+| `GET /leaderboard?groupId=&departmentId=&courseId=&limit=` | staff (trainer-scoped population)           |
+| `GET /courses/:id`                                         | staff (content-level)                       |
+| `GET /assessments/:id`                                     | staff (content-level)                       |
+| `POST /refresh`                                            | SUPER_ADMIN                                 |
 
 ## Known simplifications
 
 - **Course `averageScore` is a population proxy** — assessments have no course linkage in this
   schema (standalone, group-assigned; Prompt 6), so it is the mean attempt percentage across
-  the course's *assigned trainees*, not "scores on this course's assessments" (see
+  the course's _assigned trainees_, not "scores on this course's assessments" (see
   `CourseAnalyticsSnapshot`'s schema doc comment).
 - **Sequential per-user recompute loops** in `ensureUserSnapshots`/`refreshAll` — fine at this
   scale and flagged in-code as the background-job upgrade point (move the same per-user
   recompute onto a queue; no API change needed).
 - **UTC day bucketing** — all daily activity, streaks, and timelines bucket by UTC calendar
   date (`toISOString().slice(0, 10)`); users in other timezones may see a day boundary offset.
-- Per-day lesson *views*/time-spent aren't reconstructible (LessonProgress keeps only running
+- Per-day lesson _views_/time-spent aren't reconstructible (LessonProgress keeps only running
   totals), so daily activity tracks completions and time-spent lives on the snapshot — see
   `UserDailyActivity`'s schema doc comment.

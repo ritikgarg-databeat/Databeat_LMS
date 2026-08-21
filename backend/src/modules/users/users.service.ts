@@ -65,6 +65,7 @@ export class UsersService extends BaseService {
       pageSize,
       sortBy,
       sortOrder,
+      actor.role === Role.TRAINER ? actor.id : undefined,
     );
 
     return { items: items.map(toSafeUser), meta: buildPaginationMeta(page, pageSize, total) };
@@ -74,7 +75,10 @@ export class UsersService extends BaseService {
     const target = await this.findOrThrow(targetId);
 
     const canView =
-      actor.role === Role.SUPER_ADMIN || (actor.role === Role.TRAINER && target.role === Role.TRAINEE);
+      actor.role === Role.SUPER_ADMIN ||
+      (actor.role === Role.TRAINER &&
+        target.role === Role.TRAINEE &&
+        (await this.repository.isTraineeManagedByTrainer(target.id, actor.id)));
     if (!canView) {
       throw new ForbiddenError("You don't have permission to view this user.");
     }
@@ -86,6 +90,13 @@ export class UsersService extends BaseService {
     const allowedRole = managedRoleFor(actor.role);
     if (dto.role !== allowedRole) {
       throw new ForbiddenError(`You can only create users with the ${allowedRole} role.`);
+    }
+    if (
+      actor.role === Role.TRAINER &&
+      dto.departmentId &&
+      !(await this.repository.isDepartmentInTrainerScope(dto.departmentId, actor.id))
+    ) {
+      throw new ForbiddenError("You don't have permission to create users in this department.");
     }
 
     const existing = await this.repository.findByEmail(dto.email);
@@ -122,6 +133,13 @@ export class UsersService extends BaseService {
     ipAddress?: string | null,
   ): Promise<SafeUser> {
     const target = await this.assertCanManage(actor, targetId);
+    if (
+      actor.role === Role.TRAINER &&
+      dto.departmentId &&
+      !(await this.repository.isDepartmentInTrainerScope(dto.departmentId, actor.id))
+    ) {
+      throw new ForbiddenError("You don't have permission to move this user to that department.");
+    }
 
     const updated = await this.repository.update(target.id, {
       firstName: dto.firstName,
@@ -253,6 +271,12 @@ export class UsersService extends BaseService {
     const target = await this.findOrThrow(targetId);
 
     if (target.role !== allowedRole) {
+      throw new ForbiddenError("You don't have permission to manage this user.");
+    }
+    if (
+      actor.role === Role.TRAINER &&
+      !(await this.repository.isTraineeManagedByTrainer(target.id, actor.id))
+    ) {
       throw new ForbiddenError("You don't have permission to manage this user.");
     }
 

@@ -94,6 +94,9 @@ export const ChangePasswordPage = lazy(() =>
 export const ForgotPasswordPage = lazy(() =>
   import('@/features/auth/pages/forgot-password-page').then((m) => ({ default: m.ForgotPasswordPage })),
 );
+export const ResetPasswordPage = lazy(() =>
+  import('@/features/auth/pages/reset-password-page').then((m) => ({ default: m.ResetPasswordPage })),
+);
 export const LoginPage = lazy(() =>
   import('@/features/auth/pages/login-page').then((m) => ({ default: m.LoginPage })),
 );

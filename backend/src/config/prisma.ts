@@ -6,27 +6,36 @@ import { env, isDevelopment } from '@/config/env';
 import { logger } from '@/utils/logger';
 
 /**
- * Single shared Prisma client, guarded against creating a new instance (and a new
- * connection pool) on every nodemon/hot-reload cycle in development. Prisma 7 requires a
- * driver adapter at runtime instead of a schema-level `datasource.url`.
- *
- * Uses the standard `pg`-based adapter rather than `@prisma/adapter-neon`'s WebSocket
- * driver: that adapter is built for short-lived edge/serverless invocations (one
- * connection per request), and its pooled WS connection was observed going stale after
- * an idle period in this long-running Express process. `pg.Pool` is the right fit for a
- * persistent server, but on its own it isn't sufficient — see the two mitigations below.
- * Only `src/repositories` and `src/modules/<name>/<name>.repository.ts` files should
- * import this.
+ * One shared Prisma client backed by a deliberately small pg pool. Prisma CLI commands keep
+ * using DATABASE_URL directly through prisma.config.ts; only application traffic is routed to
+ * Neon's PgBouncer endpoint below.
  */
-
-// SSL is configured explicitly rather than left to be inferred from the connection
-// string's `?sslmode=require` query param — `pg-connection-string` deprecated treating
-// that as an alias for `verify-full` (full certificate-chain verification) and emits a
-// warning on every connection purely from parsing the URL, even when an explicit `ssl`
-// option is also given. Stripping the query param and passing `rejectUnauthorized: true`
-// directly reproduces that same secure behavior without the ambiguity or the warning.
 const connectionUrl = new URL(env.DATABASE_URL);
+
+// Neon documents runtime pooling by adding `-pooler` to the endpoint id. Doing this here lets a
+// development .env keep the direct URL required by migrations without maintaining a secret
+// second connection string. Production may already supply a pooled URL, in which case this is a
+// no-op.
+if (connectionUrl.hostname.endsWith('.neon.tech') && !connectionUrl.hostname.includes('-pooler.')) {
+  const [endpointId, ...hostnameParts] = connectionUrl.hostname.split('.');
+  if (endpointId?.startsWith('ep-') && hostnameParts.length > 0) {
+    connectionUrl.hostname = `${endpointId}-pooler.${hostnameParts.join('.')}`;
+  }
+}
 connectionUrl.searchParams.delete('sslmode');
+
+const isWorkerProcess = /(?:^|[\\/])worker\.(?:ts|js)$/.test(process.argv[1] ?? '');
+const configuredPoolMax = isWorkerProcess ? env.DATABASE_WORKER_POOL_MAX : env.DATABASE_POOL_MAX;
+const configuredWarmConnections = isWorkerProcess
+  ? env.DATABASE_WORKER_POOL_WARM_CONNECTIONS
+  : env.DATABASE_POOL_WARM_CONNECTIONS;
+const poolMax = Number.isFinite(configuredPoolMax) && configuredPoolMax > 0 ? configuredPoolMax : 4;
+const warmConnectionCount = Math.min(
+  poolMax,
+  Number.isFinite(configuredWarmConnections) && configuredWarmConnections > 0
+    ? configuredWarmConnections
+    : poolMax,
+);
 
 const TRANSIENT_CONNECTION_ERROR_PATTERNS = [
   "Can't reach database server",
@@ -34,39 +43,40 @@ const TRANSIENT_CONNECTION_ERROR_PATTERNS = [
   'Connection refused',
   'ECONNRESET',
   'ETIMEDOUT',
+  'Authentication timed out',
+  'Unable to start a transaction in the given time',
 ];
 
 function isTransientConnectionError(error: unknown): boolean {
-  return error instanceof Error && TRANSIENT_CONNECTION_ERROR_PATTERNS.some((p) => error.message.includes(p));
+  return (
+    error instanceof Error &&
+    TRANSIENT_CONNECTION_ERROR_PATTERNS.some((pattern) => error.message.includes(pattern))
+  );
 }
 
+const pool = new Pool({
+  connectionString: connectionUrl.toString(),
+  ssl: { rejectUnauthorized: true },
+  // Opening many remote connections at once was the direct cause of 5-15 second portal calls.
+  // Keep the small pre-warmed pool alive across normal demo/training pauses so the next login
+  // does not pay a fresh remote authentication handshake.
+  max: poolMax,
+  idleTimeoutMillis: 15 * 60_000,
+  connectionTimeoutMillis: 20_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
+});
+
+pool.on('error', (error) => {
+  logger.error('Postgres pool error', { error: error.message });
+});
+
 function createPrismaClient() {
-  const pool = new Pool({
-    connectionString: connectionUrl.toString(),
-    ssl: { rejectUnauthorized: true },
-    // Mitigation 1: proactively close idle connections well before Neon's own proxy would
-    // silently drop them server-side. A `pg.Pool` never health-checks an idle client before
-    // handing it out — if the *server* killed the connection first, the pool doesn't find
-    // out until a query actually fails on it. Cycling connections faster than Neon does
-    // makes that race far less likely to matter in practice.
-    idleTimeoutMillis: 10_000,
-  });
-
-  // An idle pooled client can still be dropped server-side between our own idle-timeout
-  // checks (Neon's proxy, a network blip); without this handler that surfaces as an
-  // unhandled 'error' event and crashes the process. Logging and letting `pg.Pool`
-  // evict/replace the connection is correct.
-  pool.on('error', (error) => {
-    logger.error('Postgres pool error', { error: error.message });
-  });
-
   const adapter = new PrismaPg(pool);
   const client = new PrismaClient({ adapter, log: isDevelopment ? ['warn', 'error'] : ['error'] });
 
-  // Mitigation 2: defense-in-depth backstop. Even with a short idle timeout, a connection
-  // can still die in the split second between being handed out and being used (server
-  // restart, network blip). Retrying exactly once, transparently, means that class of
-  // failure is self-healing instead of surfacing as a 500 to whoever made the request.
+  // A pooled connection can still be interrupted by a network or database restart. Retry one
+  // transient operation once; validation/constraint/application errors are never retried.
   return client.$extends({
     query: {
       async $allOperations({ args, query }) {
@@ -77,7 +87,7 @@ function createPrismaClient() {
           logger.warn('Transient database connection error — retrying query once', {
             error: error instanceof Error ? error.message : error,
           });
-          return await query(args);
+          return query(args);
         }
       },
     },
@@ -90,6 +100,25 @@ declare global {
 
 export const prisma = global.__prisma ?? createPrismaClient();
 
-if (isDevelopment) {
-  global.__prisma = prisma;
+if (isDevelopment) global.__prisma = prisma;
+
+/** Open the bounded pool before the API accepts traffic, avoiding cold-request latency. */
+export async function warmDatabasePool(): Promise<void> {
+  const results = await Promise.allSettled(Array.from({ length: warmConnectionCount }, () => pool.connect()));
+  for (const result of results) {
+    if (result.status === 'fulfilled') result.value.release();
+  }
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failed) throw failed.reason;
+}
+
+let disconnectPromise: Promise<void> | null = null;
+
+/** Prisma does not own an externally supplied pg.Pool, so close both explicitly. */
+export function disconnectDatabase(): Promise<void> {
+  disconnectPromise ??= prisma
+    .$disconnect()
+    .then(() => pool.end())
+    .then(() => undefined);
+  return disconnectPromise;
 }

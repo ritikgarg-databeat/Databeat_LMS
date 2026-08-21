@@ -3,6 +3,7 @@ import { LessonProgressStatus, type Role } from '@prisma/client';
 import { LessonQuizService } from '@/modules/lesson-quiz';
 import { BaseService } from '@/services/base.service';
 import { ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { hasNewLessonContent } from '@/utils/lesson-content-status.util';
 
 import type { UpsertLessonProgressDto } from './progress.dto';
 import { ProgressRepository } from './progress.repository';
@@ -20,6 +21,7 @@ interface Actor {
 }
 
 type LessonWithHierarchy = NonNullable<Awaited<ReturnType<ProgressRepository['findLessonWithHierarchy']>>>;
+const MAX_TIME_SPENT_DELTA_SECONDS = 60;
 
 // Business logic for the progress module. Controllers call into this layer only.
 //
@@ -35,11 +37,22 @@ export class ProgressService extends BaseService {
   }
 
   async getLessonProgress(lessonId: string, actor: Actor): Promise<LessonProgressView> {
-    await this.assertLessonAccessible(lessonId, actor);
+    const lesson = await this.assertLessonAccessible(lessonId, actor);
 
-    const progress = await this.repository.findProgress(actor.id, lessonId);
+    const [progress, latestResource] = await Promise.all([
+      this.repository.findProgress(actor.id, lessonId),
+      this.repository.findLatestResourceCreatedAt(lessonId),
+    ]);
     if (!progress) {
-      return { status: LessonProgressStatus.NOT_STARTED, timeSpentSeconds: 0, lastViewedAt: null, completedAt: null };
+      return {
+        status: LessonProgressStatus.NOT_STARTED,
+        timeSpentSeconds: 0,
+        lastViewedAt: null,
+        completedAt: null,
+        completedContentVersion: null,
+        currentContentVersion: lesson.contentVersion,
+        hasNewContent: false,
+      };
     }
 
     return {
@@ -47,6 +60,11 @@ export class ProgressService extends BaseService {
       timeSpentSeconds: progress.timeSpentSeconds,
       lastViewedAt: progress.lastViewedAt,
       completedAt: progress.completedAt,
+      completedContentVersion: progress.completedContentVersion,
+      currentContentVersion: lesson.contentVersion,
+      hasNewContent:
+        (progress.completedContentVersion !== null && progress.completedContentVersion < lesson.contentVersion) ||
+        hasNewLessonContent(latestResource?.createdAt, progress.lastViewedAt),
     };
   }
 
@@ -55,20 +73,26 @@ export class ProgressService extends BaseService {
     actor: Actor,
     dto: UpsertLessonProgressDto,
   ): Promise<LessonProgressView> {
-    await this.assertLessonAccessible(lessonId, actor);
+    const lesson = await this.assertLessonAccessible(lessonId, actor);
 
     const existing = await this.repository.findProgress(actor.id, lessonId);
     const now = new Date();
 
     const status = dto.status ?? existing?.status ?? LessonProgressStatus.IN_PROGRESS;
-    const timeSpentSeconds = (existing?.timeSpentSeconds ?? 0) + (dto.timeSpentSecondsDelta ?? 0);
+    const acceptedTimeDelta = Math.min(dto.timeSpentSecondsDelta ?? 0, MAX_TIME_SPENT_DELTA_SECONDS);
+    const timeSpentSeconds = (existing?.timeSpentSeconds ?? 0) + acceptedTimeDelta;
     let completedAt = existing?.completedAt ?? null;
-    if (status === LessonProgressStatus.COMPLETED && !completedAt) {
+    let completedContentVersion = existing?.completedContentVersion ?? null;
+    if (
+      status === LessonProgressStatus.COMPLETED &&
+      (!completedAt || completedContentVersion !== lesson.contentVersion)
+    ) {
       // Throws (403) if this lesson has quiz-worthy content and the trainee hasn't submitted
       // it yet — generates the quiz on first ask, closing the "never open the quiz UI" bypass.
       // See modules/lesson-quiz/README.md § The completion gate.
       await this.lessonQuiz.checkCompletionGate(lessonId, actor);
       completedAt = now;
+      completedContentVersion = lesson.contentVersion;
     }
 
     const updated = await this.repository.upsertProgress(actor.id, lessonId, {
@@ -76,6 +100,7 @@ export class ProgressService extends BaseService {
       timeSpentSeconds,
       lastViewedAt: now,
       completedAt,
+      completedContentVersion,
     });
 
     return {
@@ -83,6 +108,9 @@ export class ProgressService extends BaseService {
       timeSpentSeconds: updated.timeSpentSeconds,
       lastViewedAt: updated.lastViewedAt,
       completedAt: updated.completedAt,
+      completedContentVersion: updated.completedContentVersion,
+      currentContentVersion: lesson.contentVersion,
+      hasNewContent: false,
     };
   }
 
@@ -99,6 +127,9 @@ export class ProgressService extends BaseService {
       status: row.status,
       timeSpentSeconds: row.timeSpentSeconds,
       lastViewedAt: row.lastViewedAt,
+      hasNewContent:
+        (row.completedContentVersion !== null && row.completedContentVersion < row.lesson.contentVersion) ||
+        hasNewLessonContent(row.lesson.resources[0]?.createdAt, row.lastViewedAt),
     }));
   }
 
@@ -130,6 +161,12 @@ export class ProgressService extends BaseService {
     if (isStaff) {
       const course = await this.repository.findCourseById(courseId);
       if (!course) throw new NotFoundError('Course not found.');
+      if (
+        actor.role === 'TRAINER' &&
+        !(await this.repository.isCourseInTrainerScope(actor.id, courseId))
+      ) {
+        throw new ForbiddenError("You don't have permission to view this course's progress.");
+      }
     } else {
       const accessible = await this.repository.isCourseAccessibleToUser(actor.id, courseId);
       if (!accessible) throw new ForbiddenError("You don't have permission to view this course's progress.");
@@ -151,9 +188,16 @@ export class ProgressService extends BaseService {
           title: lesson.title,
           status: progress?.status ?? LessonProgressStatus.NOT_STARTED,
           timeSpentSeconds: progress?.timeSpentSeconds ?? 0,
+          hasNewContent: progress
+            ? (progress.completedContentVersion !== null &&
+                progress.completedContentVersion < lesson.contentVersion) ||
+              hasNewLessonContent(lesson.resources[0]?.createdAt, progress.lastViewedAt)
+            : false,
         };
       });
-      const completedCount = lessons.filter((lesson) => lesson.status === LessonProgressStatus.COMPLETED).length;
+      const completedCount = lessons.filter(
+        (lesson) => lesson.status === LessonProgressStatus.COMPLETED,
+      ).length;
       const percentage = lessons.length === 0 ? 0 : Math.round((completedCount / lessons.length) * 100);
 
       return { moduleId: courseModule.id, title: courseModule.title, percentage, lessons };
@@ -161,7 +205,9 @@ export class ProgressService extends BaseService {
 
     const totalLessons = moduleBreakdowns.reduce((sum, courseModule) => sum + courseModule.lessons.length, 0);
     const totalCompleted = moduleBreakdowns.reduce(
-      (sum, courseModule) => sum + courseModule.lessons.filter((lesson) => lesson.status === LessonProgressStatus.COMPLETED).length,
+      (sum, courseModule) =>
+        sum +
+        courseModule.lessons.filter((lesson) => lesson.status === LessonProgressStatus.COMPLETED).length,
       0,
     );
     const overallPercentage = totalLessons === 0 ? 0 : Math.round((totalCompleted / totalLessons) * 100);
@@ -181,6 +227,12 @@ export class ProgressService extends BaseService {
 
     if (actor.role !== 'TRAINEE') {
       if (!lesson) throw new NotFoundError('Lesson not found.');
+      if (
+        actor.role === 'TRAINER' &&
+        !(await this.repository.isCourseInTrainerScope(actor.id, lesson.module.courseId))
+      ) {
+        throw new ForbiddenError("You don't have permission to access this lesson.");
+      }
       return lesson;
     }
 

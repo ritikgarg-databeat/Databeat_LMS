@@ -6,9 +6,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AiTutorWidget } from '@/features/ai/components';
 import { formatPercent } from '@/features/analytics/components';
 import { useTraineeDashboardQuery } from '@/features/analytics/hooks';
-import type { ContinueLearningItem, RecentAssessmentResult, TraineeDashboard } from '@/features/analytics/types';
+import type {
+  ContinueLearningItem,
+  RecentAssessmentResult,
+  TraineeDashboard,
+} from '@/features/analytics/types';
 import { MyQuestionsWidget, RecentVerifiedAnswersWidget } from '@/features/qna/components';
 
+import { DeferredDashboardSection } from '../components/deferred-dashboard-section';
 import type { RecentActivityItem } from '../components/recent-activity-widget';
 import { RecentActivityWidget } from '../components/recent-activity-widget';
 import { TraineeAssessmentOverview } from '../components/trainee-assessment-overview';
@@ -47,7 +52,9 @@ function buildTraineeActivityItems(data: TraineeDashboard): RecentActivityItem[]
     }));
 
   const resultEvents: RecentActivityItem[] = data.assessments.recentResults
-    .filter((result): result is RecentAssessmentResult & { submittedAt: string } => Boolean(result.submittedAt))
+    .filter((result): result is RecentAssessmentResult & { submittedAt: string } =>
+      Boolean(result.submittedAt),
+    )
     .map((result) => ({
       id: `result-${result.assessmentId}`,
       icon: result.passed === true ? CheckCircle2 : result.passed === false ? XCircle : ClipboardList,
@@ -148,11 +155,17 @@ function TraineeDashboardPage() {
       </motion.div>
 
       <motion.div {...itemMotionProps}>
-        <AiTutorWidget />
+        <DeferredDashboardSection>
+          <AiTutorWidget />
+        </DeferredDashboardSection>
       </motion.div>
       <motion.div {...itemMotionProps} className="grid gap-4 lg:grid-cols-2">
-        <MyQuestionsWidget />
-        <RecentVerifiedAnswersWidget />
+        <DeferredDashboardSection>
+          <MyQuestionsWidget />
+        </DeferredDashboardSection>
+        <DeferredDashboardSection>
+          <RecentVerifiedAnswersWidget />
+        </DeferredDashboardSection>
       </motion.div>
 
       {/* New sections (Prompt 9 § Part A) — appended below existing sections, not reordered. */}

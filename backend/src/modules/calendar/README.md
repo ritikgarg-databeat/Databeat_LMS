@@ -7,4 +7,7 @@ Layering: `calendar.routes.ts` → `calendar.controller.ts` → `calendar.servic
 defines internal domain shapes, `calendar.interfaces.ts` defines the contracts controllers/services
 depend on, and `calendar.validation.ts` holds the express-validator chains for this module's routes.
 
-Foundation scaffolding only — no business logic or endpoints registered yet.
+Implemented CRUD supports department, active-group, and individual-user targeting. Read queries
+resolve the current user's applicable events and synthesized assessment deadlines; trainer
+mutations are restricted to their authorized scope. Create/update notifications are fanned out to
+affected users, and database constraints enforce a valid target shape.

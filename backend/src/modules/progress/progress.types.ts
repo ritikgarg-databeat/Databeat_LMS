@@ -7,6 +7,9 @@ export interface LessonProgressView {
   timeSpentSeconds: number;
   lastViewedAt: Date | null;
   completedAt: Date | null;
+  completedContentVersion: number | null;
+  currentContentVersion: number;
+  hasNewContent: boolean;
 }
 
 export interface ContinueLearningItem {
@@ -19,6 +22,7 @@ export interface ContinueLearningItem {
   status: LessonProgressStatus;
   timeSpentSeconds: number;
   lastViewedAt: Date | null;
+  hasNewContent: boolean;
 }
 
 export interface ProgressSummary {
@@ -34,6 +38,7 @@ export interface CourseLessonProgress {
   title: string;
   status: LessonProgressStatus;
   timeSpentSeconds: number;
+  hasNewContent: boolean;
 }
 
 export interface CourseModuleProgress {

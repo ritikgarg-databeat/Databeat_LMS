@@ -1,5 +1,7 @@
 import type { AssessmentStatus, Prisma } from '@prisma/client';
 
+import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
+import { trainerAssessmentScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { AssessmentListFilters, AssessmentSortField, SortOrder } from './assessments.types';
@@ -47,8 +49,10 @@ export class AssessmentsRepository extends BaseRepository {
     take: number,
     sortBy: AssessmentSortField = 'createdAt',
     sortOrder: SortOrder = 'desc',
+    trainerId?: string,
   ) {
     const where = buildWhere(filters);
+    if (trainerId) Object.assign(where, trainerAssessmentScope(trainerId));
     const [items, total] = await Promise.all([
       this.db.assessment.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: listInclude }),
       this.db.assessment.count({ where }),
@@ -130,24 +134,48 @@ export class AssessmentsRepository extends BaseRepository {
     });
   }
 
-  countAll() {
-    return this.db.assessment.count({ where: { deletedAt: null } });
+  countAll(trainerId?: string) {
+    return this.db.assessment.count({
+      where: { deletedAt: null, ...(trainerId ? trainerAssessmentScope(trainerId) : {}) },
+    });
   }
 
-  countByStatus(status: AssessmentStatus) {
-    return this.db.assessment.count({ where: { deletedAt: null, status } });
+  countByStatus(status: AssessmentStatus, trainerId?: string) {
+    return this.db.assessment.count({
+      where: { deletedAt: null, status, ...(trainerId ? trainerAssessmentScope(trainerId) : {}) },
+    });
   }
 
-  countPendingGrading() {
-    return this.db.assessmentAttempt.count({ where: { status: 'PENDING_REVIEW' } });
+  countPendingGrading(trainerId?: string) {
+    return this.db.assessmentAttempt.count({
+      where: {
+        status: 'PENDING_REVIEW',
+        ...(trainerId ? { assessment: trainerAssessmentScope(trainerId) } : {}),
+      },
+    });
   }
 
   /** PUBLISHED, non-deleted assessments whose due-date window is still open (or has none). */
-  countUpcoming() {
+  countUpcoming(trainerId?: string) {
     const now = new Date();
     return this.db.assessment.count({
-      where: { status: 'PUBLISHED', deletedAt: null, OR: [{ dueDate: null }, { dueDate: { gt: now } }] },
+      where: {
+        status: 'PUBLISHED',
+        deletedAt: null,
+        AND: [
+          { OR: [{ dueDate: null }, { dueDate: { gt: now } }] },
+          ...(trainerId ? [trainerAssessmentScope(trainerId)] : []),
+        ],
+      },
     });
+  }
+
+  async isInTrainerScope(assessmentId: string, trainerId: string): Promise<boolean> {
+    const assessment = await this.db.assessment.findFirst({
+      where: { id: assessmentId, deletedAt: null, ...trainerAssessmentScope(trainerId) },
+      select: { id: true },
+    });
+    return assessment !== null;
   }
 
   listAssignments(assessmentId: string) {
@@ -172,13 +200,19 @@ export class AssessmentsRepository extends BaseRepository {
 
   /** userIds of every member of `groupId` — used to fan out the ASSESSMENT_ASSIGNED notification. */
   async findGroupMemberUserIds(groupId: string): Promise<string[]> {
-    const members = await this.db.groupMember.findMany({ where: { groupId }, select: { userId: true } });
+    const members = await this.db.groupMember.findMany({
+      where: { groupId, group: activeGroupScope(), user: { isActive: true, role: 'TRAINEE' } },
+      select: { userId: true },
+    });
     return members.map((member) => member.userId);
   }
 
   /** Distinct assessment ids assigned (via group membership) to `userId` that are currently published. */
   async findAssignedAssessmentIds(userId: string): Promise<string[]> {
-    const memberships = await this.db.groupMember.findMany({ where: { userId }, select: { groupId: true } });
+    const memberships = await this.db.groupMember.findMany({
+      where: activeGroupMembershipWhere(userId),
+      select: { groupId: true },
+    });
     if (memberships.length === 0) return [];
 
     const groupIds = memberships.map((membership) => membership.groupId);
@@ -217,6 +251,21 @@ export class AssessmentsRepository extends BaseRepository {
   /** Used to block deleting a question once real attempts exist (see removeQuestion's guard). */
   countAttempts(assessmentId: string) {
     return this.db.assessmentAttempt.count({ where: { assessmentId } });
+  }
+
+  countSubmittedAttempts(assessmentId: string) {
+    return this.db.assessmentAttempt.count({
+      where: { assessmentId, status: { in: ['SUBMITTED', 'PENDING_REVIEW', 'GRADED'] } },
+    });
+  }
+
+  async findSubmittedAttemptUserIds(assessmentId: string): Promise<string[]> {
+    const attempts = await this.db.assessmentAttempt.findMany({
+      where: { assessmentId, status: { in: ['SUBMITTED', 'PENDING_REVIEW', 'GRADED'] } },
+      distinct: ['userId'],
+      select: { userId: true },
+    });
+    return attempts.map((attempt) => attempt.userId);
   }
 
   async findNextOrder(assessmentId: string): Promise<number> {
@@ -281,7 +330,9 @@ export class AssessmentsRepository extends BaseRepository {
     if (!assessment) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { assessmentGroupAssignments: { some: { assessmentId } } } },
+      where: activeGroupMembershipWhere(userId, {
+        assessmentGroupAssignments: { some: { assessmentId } },
+      }),
     });
     return membership !== null;
   }

@@ -72,15 +72,27 @@ export class AssessmentAttemptsController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListAttemptsQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
-    const result = await this.service.listAttempts(req.params.id as string, { status: query.status }, page, pageSize);
+    const result = await this.service.listAttempts(
+      req.params.id as string,
+      req.user,
+      { status: query.status },
+      page,
+      pageSize,
+    );
     this.ok(res, result);
   };
 
   getDetail = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const result = await this.service.getAttemptDetail(req.params.id as string, req.params.attemptId as string);
+    if (!req.user) throw new UnauthorizedError();
+    const result = await this.service.getAttemptDetail(
+      req.params.id as string,
+      req.params.attemptId as string,
+      req.user,
+    );
     this.ok(res, result);
   };
 
@@ -92,7 +104,7 @@ export class AssessmentAttemptsController extends BaseController {
       req.params.attemptId as string,
       req.params.answerId as string,
       req.body as GradeAnswerDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, result, 'Answer graded.');

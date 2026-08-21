@@ -12,4 +12,5 @@ Exportable reports built on top of analytics aggregates.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented reporting offers role-scoped progress, assessment, group, and course-completion CSV
+exports backed by the same data contracts used by analytics.

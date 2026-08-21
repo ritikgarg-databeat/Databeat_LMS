@@ -12,15 +12,15 @@ Defined in [`src/utils/app-error.ts`](../src/utils/app-error.ts). `AppError` is 
 every expected ("operational") failure — as opposed to a programmer error/bug. Throw a subclass;
 never construct `AppError` directly outside this file.
 
-| Class | HTTP status | Error code | Typical use case |
-|---|---|---|---|
-| `BadRequestError` | 400 | `VALIDATION_ERROR` | Failed input validation (`assertValidRequest`), or a business-rule input problem (e.g. `endAt` before `startAt`) |
-| `UnauthorizedError` | 401 | `UNAUTHORIZED` | Missing/invalid/expired auth token, or `req.user` unexpectedly absent |
-| `ForbiddenError` | 403 | `FORBIDDEN` | Authenticated, but not allowed to perform this action (RBAC / ownership checks) |
-| `NotFoundError` | 404 | `NOT_FOUND` | The requested resource doesn't exist (a repository lookup returned `null`) |
-| `ConflictError` | 409 | `CONFLICT` | Would violate a uniqueness rule (duplicate email/name/code) |
-| `TooManyRequestsError` | 429 | `RATE_LIMITED` | Rate limit exceeded (rarely thrown directly — most rate limiting is middleware-level) |
-| `ServiceUnavailableError` | 503 | `SERVICE_UNAVAILABLE` | A dependent feature is temporarily down (e.g. AI provider outage) |
+| Class                     | HTTP status | Error code            | Typical use case                                                                                                 |
+| ------------------------- | ----------- | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `BadRequestError`         | 400         | `VALIDATION_ERROR`    | Failed input validation (`assertValidRequest`), or a business-rule input problem (e.g. `endAt` before `startAt`) |
+| `UnauthorizedError`       | 401         | `UNAUTHORIZED`        | Missing/invalid/expired auth token, or `req.user` unexpectedly absent                                            |
+| `ForbiddenError`          | 403         | `FORBIDDEN`           | Authenticated, but not allowed to perform this action (RBAC / ownership checks)                                  |
+| `NotFoundError`           | 404         | `NOT_FOUND`           | The requested resource doesn't exist (a repository lookup returned `null`)                                       |
+| `ConflictError`           | 409         | `CONFLICT`            | Would violate a uniqueness rule (duplicate email/name/code)                                                      |
+| `TooManyRequestsError`    | 429         | `RATE_LIMITED`        | Rate limit exceeded (rarely thrown directly — most rate limiting is middleware-level)                            |
+| `ServiceUnavailableError` | 503         | `SERVICE_UNAVAILABLE` | A dependent feature is temporarily down (e.g. AI provider outage)                                                |
 
 Every subclass takes an optional `message` (falls back to a sensible default in
 [`src/constants/error-messages.ts`](../src/constants/error-messages.ts)); `BadRequestError` also
@@ -48,13 +48,13 @@ Every endpoint returns one of exactly two shapes, defined in
 data)` (never `res.json()` directly) for success; thrown `AppError`s are turned into the error
 shape automatically by `error.middleware.ts`.
 
-**Success** (`GET /health`, live example):
+**Success** (`GET /health/live` example):
 
 ```json
 {
   "success": true,
-  "message": "Service is healthy",
-  "data": { "status": "ok", "timestamp": "2026-07-13T14:20:41.888Z" }
+  "message": "Service is alive",
+  "data": { "status": "alive", "timestamp": "2026-08-21T14:20:41.888Z" }
 }
 ```
 
@@ -72,6 +72,9 @@ shape automatically by `error.middleware.ts`.
 mixed. List endpoints nest pagination metadata inside `data` (`{ items, meta: { page, pageSize,
 total } }`) rather than adding new top-level envelope fields.
 
+Every response also carries `x-request-id`. A valid incoming id is preserved; otherwise the
+backend generates a UUID. Access and unexpected-error logs include the same id for correlation.
+
 ---
 
 ## 3. Operational vs. unexpected errors — the never-leak-internals rule
@@ -86,11 +89,12 @@ middleware in the chain and the single place every thrown error ends up:
 3. **Anything else** — an unexpected exception (a bug, a Prisma error, a third-party failure,
    etc.). This is:
    - **Logged in full server-side** via `logger.error('Unhandled error', { error: err.stack, path:
-     req.path })` — Winston writes this to `src/logs/error.log` (error-level only) and
+req.path, requestId: req.requestId, userId: req.user?.id })` — Winston writes this to
+     `src/logs/error.log` (error-level only) and
      `src/logs/combined.log` (every level), plus the console outside production
      ([`src/utils/logger.ts`](../src/utils/logger.ts)).
    - **Returned to the client as a generic 500** — `{ success: false, message: "Something went
-     wrong on our end. Please try again shortly.", errors: [] }`. No stack trace, no error
+wrong on our end. Please try again shortly.", errors: [] }`. No stack trace, no error
      message, no internal detail of any kind reaches the response body.
 
 **This is a hard production security requirement, not a style preference.** Stack traces and

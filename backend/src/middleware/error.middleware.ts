@@ -28,7 +28,13 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
     return;
   }
 
-  logger.error('Unhandled error', { error: err instanceof Error ? err.stack : err, path: req.path });
+  logger.error('Unhandled error', {
+    error: err instanceof Error ? err.stack : err,
+    path: req.path,
+    method: req.method,
+    requestId: req.requestId,
+    userId: req.user?.id,
+  });
 
   res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,

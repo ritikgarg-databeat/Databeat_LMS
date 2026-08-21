@@ -27,10 +27,12 @@ export class AssessmentsController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListAssessmentsQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
 
     const result = await this.service.list(
+      req.user,
       { status: query.status, search: query.search },
       page,
       pageSize,
@@ -41,8 +43,9 @@ export class AssessmentsController extends BaseController {
     this.ok(res, result);
   };
 
-  stats = async (_req: Request, res: Response): Promise<void> => {
-    const stats = await this.service.getStats();
+  stats = async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw new UnauthorizedError();
+    const stats = await this.service.getStats(req.user);
     this.ok(res, stats);
   };
 
@@ -62,14 +65,14 @@ export class AssessmentsController extends BaseController {
   create = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const assessment = await this.service.create(req.body as CreateAssessmentDto, req.user.id, req.ip);
+    const assessment = await this.service.create(req.body as CreateAssessmentDto, req.user, req.ip);
     this.created(res, assessment, 'Assessment created successfully.');
   };
 
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const assessment = await this.service.update(req.params.id as string, req.body as UpdateAssessmentDto, req.user.id, req.ip);
+    const assessment = await this.service.update(req.params.id as string, req.body as UpdateAssessmentDto, req.user, req.ip);
     this.ok(res, assessment, 'Assessment updated successfully.');
   };
 
@@ -79,16 +82,23 @@ export class AssessmentsController extends BaseController {
     const assessment = await this.service.updateStatus(
       req.params.id as string,
       req.body as UpdateAssessmentStatusDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, assessment, 'Assessment status updated successfully.');
   };
 
+  releaseResults = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
+    const assessment = await this.service.releaseResults(req.params.id as string, req.user, req.ip);
+    this.ok(res, assessment, 'Assessment results released successfully.');
+  };
+
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.softDelete(req.params.id as string, req.user.id, req.ip);
+    await this.service.softDelete(req.params.id as string, req.user, req.ip);
     this.noContent(res);
   };
 
@@ -98,7 +108,7 @@ export class AssessmentsController extends BaseController {
     const assessment = await this.service.duplicate(
       req.params.id as string,
       req.body as DuplicateAssessmentDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, assessment, 'Assessment duplicated successfully.');
@@ -106,27 +116,29 @@ export class AssessmentsController extends BaseController {
 
   listAssignments = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const groups = await this.service.listAssignments(req.params.id as string);
+    if (!req.user) throw new UnauthorizedError();
+    const groups = await this.service.listAssignments(req.params.id as string, req.user);
     this.ok(res, groups);
   };
 
   assignGroup = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const assignment = await this.service.assignGroup(req.params.id as string, req.body as AssignGroupDto, req.user.id, req.ip);
+    const assignment = await this.service.assignGroup(req.params.id as string, req.body as AssignGroupDto, req.user, req.ip);
     this.created(res, assignment, 'Group assigned successfully.');
   };
 
   unassignGroup = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.unassignGroup(req.params.id as string, req.params.groupId as string, req.user.id, req.ip);
+    await this.service.unassignGroup(req.params.id as string, req.params.groupId as string, req.user, req.ip);
     this.noContent(res);
   };
 
   listQuestions = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const questions = await this.service.listQuestions(req.params.id as string);
+    if (!req.user) throw new UnauthorizedError();
+    const questions = await this.service.listQuestions(req.params.id as string, req.user);
     this.ok(res, questions);
   };
 
@@ -136,7 +148,7 @@ export class AssessmentsController extends BaseController {
     const question = await this.service.addQuestion(
       req.params.id as string,
       req.body as AddAssessmentQuestionDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, question, 'Question added successfully.');
@@ -149,7 +161,7 @@ export class AssessmentsController extends BaseController {
       req.params.id as string,
       req.params.aqId as string,
       req.body as UpdateAssessmentQuestionDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, question, 'Question updated successfully.');
@@ -158,7 +170,7 @@ export class AssessmentsController extends BaseController {
   removeQuestion = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.removeQuestion(req.params.id as string, req.params.aqId as string, req.user.id, req.ip);
+    await this.service.removeQuestion(req.params.id as string, req.params.aqId as string, req.user, req.ip);
     this.noContent(res);
   };
 
@@ -168,7 +180,7 @@ export class AssessmentsController extends BaseController {
     await this.service.reorderQuestions(
       req.params.id as string,
       req.body as ReorderAssessmentQuestionsDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.noContent(res);

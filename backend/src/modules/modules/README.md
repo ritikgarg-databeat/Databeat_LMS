@@ -7,4 +7,6 @@ Layering: `modules.routes.ts` → `modules.controller.ts` → `modules.service.t
 defines internal domain shapes, `modules.interfaces.ts` defines the contracts controllers/services
 depend on, and `modules.validation.ts` holds the express-validator chains for this module's routes.
 
-Foundation scaffolding only — no business logic or endpoints registered yet.
+Implemented nested course-module CRUD, publish state, and collision-safe reordering. Trainer
+mutations inherit course ownership/active-group scope, while trainee responses expose only
+published modules inside an accessible published course.

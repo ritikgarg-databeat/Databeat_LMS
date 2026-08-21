@@ -24,10 +24,12 @@ export class CoursesController extends BaseController {
 
   list = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListCoursesQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
 
     const result = await this.service.list(
+      req.user,
       {
         status: query.status,
         difficulty: query.difficulty,
@@ -44,8 +46,9 @@ export class CoursesController extends BaseController {
     this.ok(res, result);
   };
 
-  stats = async (_req: Request, res: Response): Promise<void> => {
-    const stats = await this.service.getStats();
+  stats = async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw new UnauthorizedError();
+    const stats = await this.service.getStats(req.user);
     this.ok(res, stats);
   };
 
@@ -65,14 +68,19 @@ export class CoursesController extends BaseController {
   create = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const course = await this.service.create(req.body as CreateCourseDto, req.user.id, req.ip);
+    const course = await this.service.create(req.body as CreateCourseDto, req.user, req.ip);
     this.created(res, course, 'Course created successfully.');
   };
 
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const course = await this.service.update(req.params.id as string, req.body as UpdateCourseDto, req.user.id, req.ip);
+    const course = await this.service.update(
+      req.params.id as string,
+      req.body as UpdateCourseDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, course, 'Course updated successfully.');
   };
 
@@ -82,7 +90,7 @@ export class CoursesController extends BaseController {
     const course = await this.service.updateStatus(
       req.params.id as string,
       req.body as UpdateCourseStatusDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.ok(res, course, 'Course status updated successfully.');
@@ -91,7 +99,7 @@ export class CoursesController extends BaseController {
   remove = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.softDelete(req.params.id as string, req.user.id, req.ip);
+    await this.service.remove(req.params.id as string, req.user, req.ip);
     this.noContent(res);
   };
 
@@ -101,7 +109,7 @@ export class CoursesController extends BaseController {
     const course = await this.service.duplicate(
       req.params.id as string,
       req.body as DuplicateCourseDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, course, 'Course duplicated successfully.');
@@ -109,7 +117,8 @@ export class CoursesController extends BaseController {
 
   listAssignments = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
-    const groups = await this.service.listAssignments(req.params.id as string);
+    if (!req.user) throw new UnauthorizedError();
+    const groups = await this.service.listAssignments(req.params.id as string, req.user);
     this.ok(res, groups);
   };
 
@@ -119,7 +128,7 @@ export class CoursesController extends BaseController {
     const assignment = await this.service.assignGroup(
       req.params.id as string,
       req.body as AssignGroupDto,
-      req.user.id,
+      req.user,
       req.ip,
     );
     this.created(res, assignment, 'Group assigned successfully.');
@@ -128,7 +137,12 @@ export class CoursesController extends BaseController {
   unassignGroup = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.unassignGroup(req.params.id as string, req.params.groupId as string, req.user.id, req.ip);
+    await this.service.unassignGroup(
+      req.params.id as string,
+      req.params.groupId as string,
+      req.user,
+      req.ip,
+    );
     this.noContent(res);
   };
 }

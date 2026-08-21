@@ -1,4 +1,12 @@
 import { QueryClient } from '@tanstack/react-query';
+import axios from 'axios';
+
+function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (failureCount >= 1) return false;
+  if (!axios.isAxiosError(error)) return true;
+  const status = error.response?.status;
+  return status === undefined || status === 429 || status >= 500;
+}
 
 /**
  * Single shared TanStack Query client. Defaults favor an admin/LMS dashboard workload:
@@ -8,9 +16,10 @@ import { QueryClient } from '@tanstack/react-query';
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
+      staleTime: 2 * 60_000,
       refetchOnWindowFocus: false,
-      retry: 1,
+      retry: shouldRetryQuery,
+      retryDelay: 500,
     },
     mutations: {
       retry: 0,

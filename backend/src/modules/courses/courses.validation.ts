@@ -54,7 +54,7 @@ export const coursesValidation = {
 
   updateStatus: [body('status').isIn(Object.values(CourseStatus)).withMessage('status must be valid.')],
 
-  duplicate: [titleChain()],
+  duplicate: [titleChain(), body('includeResources').optional().isBoolean().toBoolean()],
 
   assignGroup: [body('groupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'))],
 

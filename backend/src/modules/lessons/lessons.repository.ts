@@ -1,5 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { ReorderItem } from './lessons.types';
@@ -21,6 +23,14 @@ export class LessonsRepository extends BaseRepository {
 
   findById(id: string) {
     return this.db.lesson.findUnique({ where: { id } });
+  }
+
+  /** File pointers must be captured before the lesson delete cascades its resource rows. */
+  findFileResourcesByLessonId(lessonId: string) {
+    return this.db.lessonResource.findMany({
+      where: { lessonId, relativePath: { not: null } },
+      select: { id: true, relativePath: true },
+    });
   }
 
   /**
@@ -59,6 +69,25 @@ export class LessonsRepository extends BaseRepository {
     return this.db.courseModule.findUnique({ where: { id: moduleId } });
   }
 
+  async isModuleInTrainerScope(moduleId: string, trainerId: string): Promise<boolean> {
+    const courseModule = await this.db.courseModule.findFirst({
+      where: { id: moduleId, course: { deletedAt: null, ...trainerCourseScope(trainerId) } },
+      select: { id: true },
+    });
+    return courseModule !== null;
+  }
+
+  async isLessonInTrainerScope(lessonId: string, trainerId: string): Promise<boolean> {
+    const lesson = await this.db.lesson.findFirst({
+      where: {
+        id: lessonId,
+        module: { course: { deletedAt: null, ...trainerCourseScope(trainerId) } },
+      },
+      select: { id: true },
+    });
+    return lesson !== null;
+  }
+
   async findNextOrder(moduleId: string): Promise<number> {
     const top = await this.db.lesson.findFirst({
       where: { moduleId },
@@ -76,12 +105,33 @@ export class LessonsRepository extends BaseRepository {
     return this.db.lesson.update({ where: { id }, data });
   }
 
+  updateAndInvalidateLearning(id: string, data: Prisma.LessonUpdateInput) {
+    return this.db.$transaction(async (tx) => {
+      const lesson = await tx.lesson.update({
+        where: { id },
+        data: { ...data, contentVersion: { increment: 1 } },
+      });
+      const reopenedProgress = await tx.lessonProgress.updateMany({
+        where: { lessonId: id, status: 'COMPLETED' },
+        data: { status: 'IN_PROGRESS', completedAt: null },
+      });
+      const invalidatedQuizCount = await tx.lessonQuizAttempt.count({ where: { lessonId: id } });
+      return {
+        lesson,
+        reopenedLearnerCount: reopenedProgress.count,
+        invalidatedQuizCount,
+      };
+    });
+  }
+
   delete(id: string) {
     return this.db.lesson.delete({ where: { id } });
   }
 
   reorder(updates: ReorderItem[]) {
-    return this.db.$transaction(updates.map(({ id, order }) => this.db.lesson.update({ where: { id }, data: { order } })));
+    return this.db.$transaction(
+      updates.map(({ id, order }) => this.db.lesson.update({ where: { id }, data: { order } })),
+    );
   }
 
   /**
@@ -105,7 +155,9 @@ export class LessonsRepository extends BaseRepository {
     if (course.status !== 'PUBLISHED' || course.deletedAt !== null) return false;
 
     const membership = await this.db.groupMember.findFirst({
-      where: { userId, group: { courseAssignments: { some: { courseId: course.id } } } },
+      where: activeGroupMembershipWhere(userId, {
+        courseAssignments: { some: { courseId: course.id } },
+      }),
     });
     return membership !== null;
   }

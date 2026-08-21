@@ -1,5 +1,6 @@
 import type { Prisma, Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { QnaQuestionListFilters, QnaQuestionSortField } from './qna-questions.types';
@@ -124,7 +125,10 @@ export class QnaQuestionsRepository extends BaseRepository {
 
     const [user, memberships] = await Promise.all([
       this.db.user.findUnique({ where: { id: actor.id }, select: { departmentId: true } }),
-      this.db.groupMember.findMany({ where: { userId: actor.id }, select: { groupId: true } }),
+      this.db.groupMember.findMany({
+        where: activeGroupMembershipWhere(actor.id),
+        select: { groupId: true },
+      }),
     ]);
     const groupIds = memberships.map((membership) => membership.groupId);
 
@@ -251,7 +255,7 @@ export class QnaQuestionsRepository extends BaseRepository {
   }
 
   isGroupMember(groupId: string, userId: string) {
-    return this.db.groupMember.findFirst({ where: { groupId, userId } });
+    return this.db.groupMember.findFirst({ where: activeGroupMembershipWhere(userId, { id: groupId }) });
   }
 
   findUserDepartmentId(userId: string) {
@@ -293,7 +297,9 @@ export class QnaQuestionsRepository extends BaseRepository {
 
     // GROUP
     if (!question.groupId) return false;
-    const membership = await this.db.groupMember.findFirst({ where: { userId, groupId: question.groupId } });
+    const membership = await this.db.groupMember.findFirst({
+      where: activeGroupMembershipWhere(userId, { id: question.groupId }),
+    });
     return membership !== null;
   }
 }

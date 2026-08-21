@@ -120,6 +120,11 @@ export const assessmentsApi = {
     return data.data;
   },
 
+  async releaseResults(id: string): Promise<Assessment> {
+    const { data } = await apiClient.post<ApiSuccessResponse<Assessment>>(`/assessments/${id}/results/release`);
+    return data.data;
+  },
+
   async duplicate(id: string, payload: DuplicateAssessmentPayload): Promise<Assessment> {
     const { data } = await apiClient.post<ApiSuccessResponse<Assessment>>(`/assessments/${id}/duplicate`, payload);
     return data.data;

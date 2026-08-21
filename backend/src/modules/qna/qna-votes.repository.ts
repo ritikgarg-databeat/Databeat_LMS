@@ -1,5 +1,6 @@
 import { Prisma, type Role } from '@prisma/client';
 
+import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { VoteTarget, VoteToggleOutcome } from './qna-votes.types';
@@ -49,7 +50,9 @@ export class QnaVotesRepository extends BaseRepository {
 
     if (question.visibility === 'GROUP') {
       if (!question.groupId) return false;
-      const membership = await this.db.groupMember.findFirst({ where: { userId, groupId: question.groupId } });
+      const membership = await this.db.groupMember.findFirst({
+        where: activeGroupMembershipWhere(userId, { id: question.groupId }),
+      });
       return membership !== null;
     }
 

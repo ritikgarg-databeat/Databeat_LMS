@@ -44,23 +44,32 @@ export class AssessmentsService extends BaseService {
   }
 
   async list(
+    actor: Actor,
     filters: AssessmentListFilters,
     page: number,
     pageSize: number,
     sortBy: AssessmentSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(
+      filters,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+      sortOrder,
+      actor.role === 'TRAINER' ? actor.id : undefined,
+    );
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async getStats(): Promise<AssessmentStats> {
+  async getStats(actor: Actor): Promise<AssessmentStats> {
+    const trainerId = actor.role === 'TRAINER' ? actor.id : undefined;
     const [totalAssessments, publishedAssessments, draftAssessments, pendingGradingCount, upcomingCount] = await Promise.all([
-      this.repository.countAll(),
-      this.repository.countByStatus('PUBLISHED'),
-      this.repository.countByStatus('DRAFT'),
-      this.repository.countPendingGrading(),
-      this.repository.countUpcoming(),
+      this.repository.countAll(trainerId),
+      this.repository.countByStatus('PUBLISHED', trainerId),
+      this.repository.countByStatus('DRAFT', trainerId),
+      this.repository.countPendingGrading(trainerId),
+      this.repository.countUpcoming(trainerId),
     ]);
     return { totalAssessments, publishedAssessments, draftAssessments, pendingGradingCount, upcomingCount };
   }
@@ -112,10 +121,11 @@ export class AssessmentsService extends BaseService {
     }
 
     if (!assessment) throw new NotFoundError('Assessment not found.');
+    await this.assertAssessmentInScope(id, actor);
     return this.toDetailDto(assessment, true);
   }
 
-  async create(dto: CreateAssessmentDto, actorId: string, ipAddress?: string | null): Promise<Assessment> {
+  async create(dto: CreateAssessmentDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
     const negativeMarkingEnabled = dto.negativeMarkingEnabled ?? false;
     this.assertNegativeMarkingRule(negativeMarkingEnabled, dto.negativeMarksPerWrongAnswer);
     this.assertDateRange(dto.availableFrom, dto.dueDate);
@@ -133,12 +143,12 @@ export class AssessmentsService extends BaseService {
       randomizeQuestions: dto.randomizeQuestions ?? false,
       showResultImmediately: dto.showResultImmediately ?? true,
       status: 'DRAFT',
-      createdBy: { connect: { id: actorId } },
+      createdBy: { connect: { id: actor.id } },
     });
 
     await auditLogService.record({
       action: 'ASSESSMENT_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId: created.id, title: created.title },
     });
@@ -146,8 +156,23 @@ export class AssessmentsService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateAssessmentDto, actorId: string, ipAddress?: string | null): Promise<Assessment> {
+  async update(id: string, dto: UpdateAssessmentDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
     const existing = await this.findOrThrow(id);
+    await this.assertAssessmentInScope(id, actor);
+
+    const definitionFields: Array<keyof UpdateAssessmentDto> = [
+      'durationMinutes',
+      'passingPercentage',
+      'availableFrom',
+      'dueDate',
+      'negativeMarkingEnabled',
+      'negativeMarksPerWrongAnswer',
+      'randomizeQuestions',
+      'showResultImmediately',
+    ];
+    if (definitionFields.some((field) => dto[field] !== undefined)) {
+      await this.assertDefinitionIsEditable(id);
+    }
 
     const negativeMarkingEnabled = dto.negativeMarkingEnabled ?? existing.negativeMarkingEnabled;
     const negativeMarksPerWrongAnswer =
@@ -174,7 +199,7 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId: existing.id, changes: { ...dto } },
     });
@@ -182,8 +207,9 @@ export class AssessmentsService extends BaseService {
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateAssessmentStatusDto, actorId: string, ipAddress?: string | null): Promise<Assessment> {
+  async updateStatus(id: string, dto: UpdateAssessmentStatusDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
     const existing = await this.findOrThrow(id);
+    await this.assertAssessmentInScope(id, actor);
     if (existing.status === dto.status) {
       throw new ConflictError(`Assessment is already ${dto.status.toLowerCase()}.`);
     }
@@ -199,7 +225,7 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_STATUS_CHANGED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId: existing.id, from: existing.status, to: dto.status },
     });
@@ -207,26 +233,67 @@ export class AssessmentsService extends BaseService {
     return updated;
   }
 
-  async softDelete(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async releaseResults(id: string, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
     const existing = await this.findOrThrow(id);
+    await this.assertAssessmentInScope(id, actor);
+    if (existing.showResultImmediately) {
+      throw new ConflictError('Results are already configured to be shown immediately.');
+    }
+    if (existing.resultsReleasedAt) {
+      throw new ConflictError('Results have already been released.');
+    }
+    if ((await this.repository.countSubmittedAttempts(id)) === 0) {
+      throw new ConflictError('There are no submitted attempts to release yet.');
+    }
+
+    const releasedAt = new Date();
+    const updated = await this.repository.update(id, { resultsReleasedAt: releasedAt });
+
+    await auditLogService.record({
+      action: 'ASSESSMENT_RESULTS_RELEASED',
+      actorId: actor.id,
+      ipAddress,
+      metadata: { assessmentId: id, releasedAt: releasedAt.toISOString() },
+    });
+
+    const learnerIds = await this.repository.findSubmittedAttemptUserIds(id);
+    await notificationsService
+      .notifyMany(learnerIds, {
+        type: 'ASSESSMENT_RESULTS_RELEASED',
+        title: 'Assessment results released',
+        message: `Results for "${existing.title}" are now available.`,
+        relatedEntityType: 'assessment',
+        relatedEntityId: id,
+      })
+      .catch((error: unknown) => {
+        logger.error('Failed to send assessment-results-released notifications', { error, assessmentId: id });
+      });
+
+    return updated;
+  }
+
+  async softDelete(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+    const existing = await this.findOrThrow(id);
+    await this.assertAssessmentInScope(id, actor);
     await this.repository.softDelete(id);
 
     await auditLogService.record({
       action: 'ASSESSMENT_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId: existing.id, title: existing.title },
     });
   }
 
-  async duplicate(id: string, dto: DuplicateAssessmentDto, actorId: string, ipAddress?: string | null): Promise<Assessment> {
+  async duplicate(id: string, dto: DuplicateAssessmentDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
     await this.findOrThrow(id);
+    await this.assertAssessmentInScope(id, actor);
 
-    const created = await this.repository.duplicate(id, dto.title, actorId);
+    const created = await this.repository.duplicate(id, dto.title, actor.id);
 
     await auditLogService.record({
       action: 'ASSESSMENT_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId: created.id, title: created.title, duplicatedFromId: id },
     });
@@ -234,8 +301,9 @@ export class AssessmentsService extends BaseService {
     return created;
   }
 
-  async listAssignments(assessmentId: string) {
+  async listAssignments(assessmentId: string, actor: Actor) {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
     const assignments = await this.repository.listAssignments(assessmentId);
     return assignments.map((assignment) => ({
       id: assignment.group.id,
@@ -245,15 +313,19 @@ export class AssessmentsService extends BaseService {
     }));
   }
 
-  async assignGroup(assessmentId: string, dto: AssignGroupDto, actorId: string, ipAddress?: string | null) {
+  async assignGroup(assessmentId: string, dto: AssignGroupDto, actor: Actor, ipAddress?: string | null) {
     const assessment = await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
     const group = await this.groupsRepository.findById(dto.groupId);
     if (!group) throw new BadRequestError('Group not found.');
+    if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to assign this group.");
+    }
 
     const existing = await this.repository.findAssignment(assessmentId, dto.groupId);
     if (existing) throw new ConflictError('This group is already assigned to the assessment.');
 
-    const created = await this.repository.createAssignment(assessmentId, dto.groupId, actorId);
+    const created = await this.repository.createAssignment(assessmentId, dto.groupId, actor.id);
 
     const memberUserIds = await this.repository.findGroupMemberUserIds(dto.groupId);
     if (memberUserIds.length > 0) {
@@ -276,7 +348,7 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_ASSIGNED_TO_GROUP',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId, groupId: dto.groupId },
     });
@@ -284,8 +356,13 @@ export class AssessmentsService extends BaseService {
     return created;
   }
 
-  async unassignGroup(assessmentId: string, groupId: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async unassignGroup(assessmentId: string, groupId: string, actor: Actor, ipAddress?: string | null): Promise<void> {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
+    const group = await this.groupsRepository.findById(groupId);
+    if (actor.role === 'TRAINER' && group?.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to unassign this group.");
+    }
     const existing = await this.repository.findAssignment(assessmentId, groupId);
     if (!existing) throw new NotFoundError('This group is not assigned to the assessment.');
 
@@ -293,22 +370,27 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_UNASSIGNED_FROM_GROUP',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId, groupId },
     });
   }
 
-  async listQuestions(assessmentId: string): Promise<AssessmentQuestion[]> {
+  async listQuestions(assessmentId: string, actor: Actor): Promise<AssessmentQuestion[]> {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
     return this.repository.listQuestions(assessmentId);
   }
 
-  async addQuestion(assessmentId: string, dto: AddAssessmentQuestionDto, actorId: string, ipAddress?: string | null) {
+  async addQuestion(assessmentId: string, dto: AddAssessmentQuestionDto, actor: Actor, ipAddress?: string | null) {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
+    await this.assertDefinitionIsEditable(assessmentId);
 
     const bankQuestion = await this.questionsRepository.findByIdWithOptions(dto.questionId);
-    if (!bankQuestion) throw new BadRequestError('Question not found.');
+    if (!bankQuestion || bankQuestion.deletedAt !== null || (actor.role === 'TRAINER' && bankQuestion.createdById !== actor.id)) {
+      throw new BadRequestError('Question not found.');
+    }
 
     const nextOrder = await this.repository.findNextOrder(assessmentId);
 
@@ -333,7 +415,7 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_QUESTION_ADDED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId, assessmentQuestionId: created.id, questionId: dto.questionId, marks: dto.marks },
     });
@@ -351,10 +433,12 @@ export class AssessmentsService extends BaseService {
     assessmentId: string,
     assessmentQuestionId: string,
     dto: UpdateAssessmentQuestionDto,
-    actorId: string,
+    actor: Actor,
     ipAddress?: string | null,
   ) {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
+    await this.assertDefinitionIsEditable(assessmentId);
     const existing = await this.repository.findQuestion(assessmentId, assessmentQuestionId);
     if (!existing) throw new NotFoundError('Question not found on this assessment.');
 
@@ -362,7 +446,7 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId, assessmentQuestionId, marksChangedFrom: existing.marks, marksChangedTo: dto.marks },
     });
@@ -370,8 +454,9 @@ export class AssessmentsService extends BaseService {
     return updated;
   }
 
-  async removeQuestion(assessmentId: string, assessmentQuestionId: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async removeQuestion(assessmentId: string, assessmentQuestionId: string, actor: Actor, ipAddress?: string | null): Promise<void> {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
     const existing = await this.repository.findQuestion(assessmentId, assessmentQuestionId);
     if (!existing) throw new NotFoundError('Question not found on this assessment.');
 
@@ -392,7 +477,7 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_QUESTION_REMOVED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId, assessmentQuestionId, questionId: existing.questionId },
     });
@@ -401,10 +486,12 @@ export class AssessmentsService extends BaseService {
   async reorderQuestions(
     assessmentId: string,
     dto: ReorderAssessmentQuestionsDto,
-    actorId: string,
+    actor: Actor,
     ipAddress?: string | null,
   ): Promise<void> {
     await this.findOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
+    await this.assertDefinitionIsEditable(assessmentId);
 
     if (new Set(dto.orderedIds).size !== dto.orderedIds.length) {
       throw new BadRequestError('orderedIds must not contain duplicate ids.');
@@ -430,10 +517,25 @@ export class AssessmentsService extends BaseService {
 
     await auditLogService.record({
       action: 'ASSESSMENT_QUESTIONS_REORDERED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { assessmentId, orderedIds: dto.orderedIds },
     });
+  }
+
+  /** Freeze scoring, timing, and structure once the first trainee starts an attempt. */
+  private async assertDefinitionIsEditable(assessmentId: string): Promise<void> {
+    if ((await this.repository.countAttempts(assessmentId)) > 0) {
+      throw new ConflictError(
+        'This assessment definition is locked because a trainee has already started it. Duplicate the assessment to create a new revision.',
+      );
+    }
+  }
+
+  private async assertAssessmentInScope(id: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isInTrainerScope(id, actor.id))) {
+      throw new ForbiddenError("You don't have permission to manage this assessment.");
+    }
   }
 
   private async toDetailDto(assessment: AssessmentDetail, revealAssignedGroups: boolean) {

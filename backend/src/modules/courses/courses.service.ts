@@ -6,12 +6,20 @@ import { GroupsRepository } from '@/modules/groups/groups.repository';
 import { notificationsService } from '@/modules/notifications';
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
+import { storageProvider } from '@/storage';
 import type { PaginatedData } from '@/types/common';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { deleteLessonResourceFiles } from '@/utils/lesson-resource-cleanup.util';
 import { logger } from '@/utils/logger';
 import { buildPaginationMeta } from '@/utils/pagination.util';
 
-import type { AssignGroupDto, CreateCourseDto, DuplicateCourseDto, UpdateCourseDto, UpdateCourseStatusDto } from './courses.dto';
+import type {
+  AssignGroupDto,
+  CreateCourseDto,
+  DuplicateCourseDto,
+  UpdateCourseDto,
+  UpdateCourseStatusDto,
+} from './courses.dto';
 import { CoursesRepository, type CourseDetail } from './courses.repository';
 import type { CourseListFilters, CourseSortField, CourseStats, SortOrder } from './courses.types';
 
@@ -32,13 +40,21 @@ export class CoursesService extends BaseService {
   }
 
   async list(
+    actor: Actor,
     filters: CourseListFilters,
     page: number,
     pageSize: number,
     sortBy: CourseSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(
+      filters,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+      sortOrder,
+      actor.role === 'TRAINER' ? actor.id : undefined,
+    );
 
     const mapped = items.map((course) => {
       const { modules, _count, ...rest } = course;
@@ -54,16 +70,31 @@ export class CoursesService extends BaseService {
     return { items: mapped, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async getStats(): Promise<CourseStats> {
-    const [totalCourses, publishedCourses, draftCourses, archivedCourses, assignedGroupsCount, activeLearners] = await Promise.all([
-      this.repository.countAll(),
-      this.repository.countByStatus('PUBLISHED'),
-      this.repository.countByStatus('DRAFT'),
-      this.repository.countByStatus('ARCHIVED'),
-      this.repository.countAssignedGroups(),
-      this.repository.countActiveLearners(),
+  async getStats(actor: Actor): Promise<CourseStats> {
+    const trainerId = actor.role === 'TRAINER' ? actor.id : undefined;
+    const [
+      totalCourses,
+      publishedCourses,
+      draftCourses,
+      archivedCourses,
+      assignedGroupsCount,
+      activeLearners,
+    ] = await Promise.all([
+      this.repository.countAll(trainerId),
+      this.repository.countByStatus('PUBLISHED', trainerId),
+      this.repository.countByStatus('DRAFT', trainerId),
+      this.repository.countByStatus('ARCHIVED', trainerId),
+      this.repository.countAssignedGroups(trainerId),
+      this.repository.countActiveLearners(trainerId),
     ]);
-    return { totalCourses, publishedCourses, draftCourses, archivedCourses, assignedGroupsCount, activeLearners };
+    return {
+      totalCourses,
+      publishedCourses,
+      draftCourses,
+      archivedCourses,
+      assignedGroupsCount,
+      activeLearners,
+    };
   }
 
   /**
@@ -106,11 +137,19 @@ export class CoursesService extends BaseService {
     }
 
     if (!course) throw new NotFoundError('Course not found.');
+    await this.assertCourseInScope(id, actor);
     return this.toDetailDto(course, false);
   }
 
-  async create(dto: CreateCourseDto, actorId: string, ipAddress?: string | null): Promise<Course> {
+  async create(dto: CreateCourseDto, actor: Actor, ipAddress?: string | null): Promise<Course> {
     if (dto.departmentId) await this.assertDepartmentExists(dto.departmentId);
+    if (
+      actor.role === 'TRAINER' &&
+      dto.departmentId &&
+      !(await this.groupsRepository.isDepartmentInTrainerScope(actor.id, dto.departmentId))
+    ) {
+      throw new ForbiddenError("You don't have permission to create a course in this department.");
+    }
     if (dto.experienceLevelId) await this.assertExperienceLevelExists(dto.experienceLevelId);
 
     const created = await this.repository.create({
@@ -122,12 +161,12 @@ export class CoursesService extends BaseService {
       estimatedDurationMinutes: dto.estimatedDurationMinutes,
       difficulty: dto.difficulty ?? 'BEGINNER',
       status: 'DRAFT',
-      createdBy: { connect: { id: actorId } },
+      createdBy: { connect: { id: actor.id } },
     });
 
     await auditLogService.record({
       action: 'COURSE_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId: created.id, title: created.title },
     });
@@ -135,9 +174,22 @@ export class CoursesService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateCourseDto, actorId: string, ipAddress?: string | null): Promise<Course> {
+  async update(
+    id: string,
+    dto: UpdateCourseDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Course> {
     const existing = await this.findOrThrow(id);
+    await this.assertCourseInScope(id, actor);
     if (dto.departmentId) await this.assertDepartmentExists(dto.departmentId);
+    if (
+      actor.role === 'TRAINER' &&
+      dto.departmentId &&
+      !(await this.groupsRepository.isDepartmentInTrainerScope(actor.id, dto.departmentId))
+    ) {
+      throw new ForbiddenError("You don't have permission to move this course to that department.");
+    }
     if (dto.experienceLevelId) await this.assertExperienceLevelExists(dto.experienceLevelId);
 
     const updated = await this.repository.update(id, {
@@ -148,15 +200,21 @@ export class CoursesService extends BaseService {
         ? { department: dto.departmentId ? { connect: { id: dto.departmentId } } : { disconnect: true } }
         : {}),
       ...(dto.experienceLevelId !== undefined
-        ? { experienceLevel: dto.experienceLevelId ? { connect: { id: dto.experienceLevelId } } : { disconnect: true } }
+        ? {
+            experienceLevel: dto.experienceLevelId
+              ? { connect: { id: dto.experienceLevelId } }
+              : { disconnect: true },
+          }
         : {}),
-      ...(dto.estimatedDurationMinutes !== undefined ? { estimatedDurationMinutes: dto.estimatedDurationMinutes } : {}),
+      ...(dto.estimatedDurationMinutes !== undefined
+        ? { estimatedDurationMinutes: dto.estimatedDurationMinutes }
+        : {}),
       ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
     });
 
     await auditLogService.record({
       action: 'COURSE_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId: existing.id, changes: { ...dto } },
     });
@@ -164,8 +222,14 @@ export class CoursesService extends BaseService {
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateCourseStatusDto, actorId: string, ipAddress?: string | null): Promise<Course> {
+  async updateStatus(
+    id: string,
+    dto: UpdateCourseStatusDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Course> {
     const existing = await this.findOrThrow(id);
+    await this.assertCourseInScope(id, actor);
     if (existing.status === dto.status) {
       throw new ConflictError(`Course is already ${dto.status.toLowerCase()}.`);
     }
@@ -174,7 +238,7 @@ export class CoursesService extends BaseService {
 
     await auditLogService.record({
       action: 'COURSE_STATUS_CHANGED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId: existing.id, from: existing.status, to: dto.status },
     });
@@ -182,35 +246,81 @@ export class CoursesService extends BaseService {
     return updated;
   }
 
-  async softDelete(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
-    const existing = await this.findOrThrow(id);
-    await this.repository.softDelete(id);
+  async remove(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+    const [existing, fileResources] = await Promise.all([
+      this.findOrThrow(id),
+      this.repository.findFileResourcesByCourseId(id),
+    ]);
+    await this.assertCourseInScope(id, actor);
+
+    await this.repository.delete(id);
+    await deleteLessonResourceFiles(fileResources, { type: 'course', id });
 
     await auditLogService.record({
       action: 'COURSE_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId: existing.id, title: existing.title },
     });
   }
 
-  async duplicate(id: string, dto: DuplicateCourseDto, actorId: string, ipAddress?: string | null): Promise<Course> {
+  async duplicate(
+    id: string,
+    dto: DuplicateCourseDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Course> {
     await this.findOrThrow(id);
+    await this.assertCourseInScope(id, actor);
 
-    const created = await this.repository.duplicate(id, dto.title, actorId);
+    const includeResources = dto.includeResources ?? true;
+    const source = await this.repository.findDuplicationSource(id);
+    if (!source) throw new NotFoundError('Course not found.');
 
-    await auditLogService.record({
-      action: 'COURSE_CREATED',
-      actorId,
-      ipAddress,
-      metadata: { courseId: created.id, title: created.title, duplicatedFromId: id },
-    });
+    const copiedPointers: string[] = [];
+    const copiedFilePaths = new Map<string, string>();
+    try {
+      if (includeResources) {
+        const resources = source.modules.flatMap((courseModule) =>
+          courseModule.lessons.flatMap((lesson) => lesson.resources),
+        );
+        for (const resource of resources) {
+          if (!resource.relativePath) continue;
+          const copied = await storageProvider.copy(
+            { relativePath: resource.relativePath },
+            resource.originalFilename ?? resource.title,
+            'lesson-resources',
+          );
+          copiedPointers.push(copied.relativePath);
+          copiedFilePaths.set(resource.id, copied.relativePath);
+        }
+      }
 
-    return created;
+      const created = await this.repository.duplicate(
+        id,
+        dto.title,
+        actor.id,
+        includeResources,
+        copiedFilePaths,
+      );
+
+      await auditLogService.record({
+        action: 'COURSE_CREATED',
+        actorId: actor.id,
+        ipAddress,
+        metadata: { courseId: created.id, title: created.title, duplicatedFromId: id, includeResources },
+      });
+
+      return created;
+    } catch (error) {
+      await Promise.allSettled(copiedPointers.map((relativePath) => storageProvider.delete({ relativePath })));
+      throw error;
+    }
   }
 
-  async listAssignments(courseId: string) {
+  async listAssignments(courseId: string, actor: Actor) {
     await this.findOrThrow(courseId);
+    await this.assertCourseInScope(courseId, actor);
     const assignments = await this.repository.listAssignments(courseId);
     return assignments.map((assignment) => ({
       id: assignment.group.id,
@@ -220,15 +330,19 @@ export class CoursesService extends BaseService {
     }));
   }
 
-  async assignGroup(courseId: string, dto: AssignGroupDto, actorId: string, ipAddress?: string | null) {
+  async assignGroup(courseId: string, dto: AssignGroupDto, actor: Actor, ipAddress?: string | null) {
     const course = await this.findOrThrow(courseId);
+    await this.assertCourseInScope(courseId, actor);
     const group = await this.groupsRepository.findById(dto.groupId);
     if (!group) throw new BadRequestError('Group not found.');
+    if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to assign this group.");
+    }
 
     const existing = await this.repository.findAssignment(courseId, dto.groupId);
     if (existing) throw new ConflictError('This group is already assigned to the course.');
 
-    const created = await this.repository.createAssignment(courseId, dto.groupId, actorId);
+    const created = await this.repository.createAssignment(courseId, dto.groupId, actor.id);
 
     const memberUserIds = await this.repository.findGroupMemberUserIds(dto.groupId);
     if (memberUserIds.length > 0) {
@@ -245,13 +359,17 @@ export class CoursesService extends BaseService {
           relatedEntityId: course.id,
         })
         .catch((error: unknown) => {
-          logger.error('Failed to send course-assigned notifications', { error, courseId, groupId: dto.groupId });
+          logger.error('Failed to send course-assigned notifications', {
+            error,
+            courseId,
+            groupId: dto.groupId,
+          });
         });
     }
 
     await auditLogService.record({
       action: 'COURSE_ASSIGNED_TO_GROUP',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId, groupId: dto.groupId },
     });
@@ -259,8 +377,18 @@ export class CoursesService extends BaseService {
     return created;
   }
 
-  async unassignGroup(courseId: string, groupId: string, actorId: string, ipAddress?: string | null): Promise<void> {
+  async unassignGroup(
+    courseId: string,
+    groupId: string,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<void> {
     await this.findOrThrow(courseId);
+    await this.assertCourseInScope(courseId, actor);
+    const group = await this.groupsRepository.findById(groupId);
+    if (actor.role === 'TRAINER' && group?.trainerId !== actor.id) {
+      throw new ForbiddenError("You don't have permission to unassign this group.");
+    }
     const existing = await this.repository.findAssignment(courseId, groupId);
     if (!existing) throw new NotFoundError('This group is not assigned to the course.');
 
@@ -268,7 +396,7 @@ export class CoursesService extends BaseService {
 
     await auditLogService.record({
       action: 'COURSE_UNASSIGNED_FROM_GROUP',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId, groupId },
     });
@@ -282,7 +410,9 @@ export class CoursesService extends BaseService {
       ...rest,
       modules: visibleModules.map((courseModule) => ({
         ...courseModule,
-        lessons: traineeView ? courseModule.lessons.filter((lesson) => lesson.isPublished) : courseModule.lessons,
+        lessons: traineeView
+          ? courseModule.lessons.filter((lesson) => lesson.isPublished)
+          : courseModule.lessons,
       })),
       assignedGroups: groupAssignments.map((assignment) => assignment.group),
     };
@@ -292,6 +422,12 @@ export class CoursesService extends BaseService {
     const course = await this.repository.findById(id);
     if (!course) throw new NotFoundError('Course not found.');
     return course;
+  }
+
+  private async assertCourseInScope(id: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isInTrainerScope(id, actor.id))) {
+      throw new ForbiddenError("You don't have permission to manage this course.");
+    }
   }
 
   private async assertDepartmentExists(departmentId: string): Promise<void> {

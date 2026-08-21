@@ -2,8 +2,7 @@
 
 Trainer-authored assessment configuration: CRUD, publish lifecycle, group assignment, and the
 question-bank-backed question list within an assessment. Attempt-taking/grading lives in the
-separate assessment-attempts module (built in parallel), mounted nested under this module's
-`/:id/attempts` by the wiring/integration pass — no mount call for it lives in this repo yet.
+separate assessment-attempts module, mounted at `/:id/attempts` by `assessments.routes.ts`.
 
 Layering: `assessments.routes.ts` → `assessments.controller.ts` → `assessments.service.ts` → `assessments.repository.ts`
 (see ARCHITECTURE.md §3.1). `assessments.dto.ts` defines request/response shapes, `assessments.types.ts`
@@ -28,8 +27,7 @@ through the attempts module's start-attempt endpoint (sanitized).
   convention) rather than importing this one.
 - This module imports `QuestionsRepository` from `@/modules/questions` and calls
   `findByIdWithOptions(questionId)` to snapshot a bank question's content onto a new
-  `AssessmentQuestion` row (`POST /:id/questions`). If that module isn't finished at the time this
-  was written, the import is a known, expected typecheck failure until it lands.
+  `AssessmentQuestion` row (`POST /:id/questions`).
 - Calls `notificationsService.notifyMany(...)` (from `@/modules/notifications`) with
   `type: 'ASSESSMENT_ASSIGNED'` whenever a group is assigned to an assessment.
 
@@ -49,3 +47,8 @@ through the attempts module's start-attempt endpoint (sanitized).
 - `POST /:id/duplicate` deep-copies `AssessmentQuestion` snapshot fields verbatim (does not
   re-snapshot from the live bank question) and does not copy group assignments or attempts —
   mirrors `CoursesRepository#duplicate`'s precedent (Prompt 5).
+- Once any attempt exists, scoring/structure fields and question mutations are locked. This
+  preserves the meaning of historical and in-progress results.
+- When `showResultImmediately` is off, `POST /:id/results/release` sets `resultsReleasedAt` after
+  at least one submitted attempt. Learners with submitted attempts receive an
+  `ASSESSMENT_RESULTS_RELEASED` notification; release is one-way and audit logged.

@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
@@ -155,7 +155,6 @@ function EditEventForm({ event, onOpenChange, onRequestDelete }: EditEventFormPr
     register,
     control,
     handleSubmit,
-    watch,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<EditEventFormValues>({
@@ -173,8 +172,8 @@ function EditEventForm({ event, onOpenChange, onRequestDelete }: EditEventFormPr
     },
   });
 
-  const departmentIds = watch('departmentIds');
-  const groupIds = watch('groupIds');
+  const departmentIds = useWatch({ control, name: 'departmentIds' });
+  const groupIds = useWatch({ control, name: 'groupIds' });
 
   const toggleDepartment = (id: string) => {
     setValue(

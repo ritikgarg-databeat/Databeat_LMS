@@ -29,6 +29,7 @@ export interface UpdateCourseStatusDto {
 
 export interface DuplicateCourseDto {
   title: string;
+  includeResources?: boolean;
 }
 
 export interface AssignGroupDto {

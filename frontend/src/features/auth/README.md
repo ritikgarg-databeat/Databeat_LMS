@@ -12,4 +12,5 @@ Login, logout, forgot/reset password, and session bootstrap flows.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented flows include login/remember-me, silent refresh, logout, forced and voluntary password
+change, generic forgot-password confirmation, single-use reset-link handling, and role redirects.

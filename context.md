@@ -1,6 +1,6 @@
 # Databeat LMS — Full Project Context (Ground Truth Snapshot)
 
-**Snapshot date:** this document was generated directly from the live codebase and live database
+**Snapshot date: 2026-08-21.** This document was generated directly from the live codebase and live database
 of the `ai-lms/` project — every feature, number, and status below was verified by reading the
 actual source code, querying the actual database, or exercising the actual running application
 (via curl and a real Chromium browser), not recalled from memory or copied from older materials.
@@ -8,8 +8,8 @@ actual source code, querying the actual database, or exercising the actual runni
 ## How to use this document
 
 **Purpose:** this file exists so you can hand it to a separate Claude conversation (claude.ai or
-otherwise) together with your existing pitch deck / PPT / other documentation, and ask: *"does
-this deck/doc still match what the product actually is and does?"* Everything in this file is
+otherwise) together with your existing pitch deck / PPT / other documentation, and ask: _"does
+this deck/doc still match what the product actually is and does?"_ Everything in this file is
 ground truth as of the snapshot date above. Where the project's own pitch materials (in `pitch/`)
 say something different from this file — especially around numbers, attribution, or pilot status
 — **this file is the one that reflects the current, real state**; the pitch materials may need to
@@ -39,12 +39,13 @@ lesson has to be hand-written by a trainer, every single time.
 route, not just hidden in the UI. There is no public self-registration; every account is
 admin-or-trainer-provisioned.
 
-**Current maturity:** fully working end-to-end across all three roles. The core path — login,
+**Current maturity:** fully working end-to-end across all three roles and suitable for demos and a
+controlled initial pilot. The core path — login,
 course delivery, lesson completion gated by an AI-generated quiz, assessment submission and
 grading (auto and manual), trainer dashboards, Super Admin audit log — was re-verified live this
-session, including a fresh rebuild of the production bundle and a real-browser walkthrough
-against that rebuilt bundle. Automated test coverage is the one honestly-still-open gap (see
-§10).
+session, including production builds and live health checks. A focused backend regression suite
+and CI now cover critical hardening invariants; broad database-integration/browser E2E coverage,
+shared object storage, and malware scanning remain later production-maturity work (see §10).
 
 ---
 
@@ -106,13 +107,14 @@ against that rebuilt bundle. Automated test coverage is the one honestly-still-o
 - **My Classroom**: assigned courses with live progress bars, a "Continue Learning" strip, inline
   rendering of PDFs/slides/video — no download-and-reopen required.
 - **★ The AI Completion Quiz** — the platform's headline feature. Clicking "Mark as complete" on a
-  lesson triggers the AI to read that lesson's *actual* material (including text extracted from
+  lesson triggers the AI to read that lesson's _actual_ material (including text extracted from
   an uploaded PDF or slide deck) and writes a fresh 4–5 question quiz on the spot. Passing it
   completes the lesson. **This gate is enforced server-side**: calling the completion API directly
   still triggers the same check, so it cannot be bypassed from the client. If there's no real
-  content to quiz on (e.g. a video-only lesson) or the AI provider is unavailable, the lesson
-  completes normally instead — the gate only ever blocks when a quiz was actually generated and
-  not yet submitted; it never blocks completion outright due to an AI failure.
+  content to quiz on, a genuinely short text-only lesson can complete without a quiz. An opaque
+  document instead requires readable text/transcript, and provider failure pauses completion with
+  a clear message rather than silently bypassing evidence. Learners must score at least 70% and
+  can retry until they pass.
 - **Contextual AI Tutor**: opened from inside a lesson, already aware of what that trainee is
   looking at. 5 modes, all through one underlying chat pipeline with a mode-specific system
   prompt: `CHAT`, `EXPLAIN_TOPIC` (Beginner/Detailed/Interview depth variants),
@@ -120,9 +122,14 @@ against that rebuilt bundle. Automated test coverage is the one honestly-still-o
   resume; lesson context is rebuilt fresh from the lesson's live content on every turn (so a
   trainee who's since lost access to that lesson keeps their conversation, but stops receiving its
   content in new turns).
+  Lesson answers must cite supplied evidence ids; malformed or invented evidence fails closed.
+  The main tutor refuses unrelated questions outside the user's department/courses/learning
+  domains, and common personal identifiers/secrets are redacted before provider calls.
 - **Assessments**: resumable timed exams, per-answer autosave, instant grading on auto-gradable
   question types, one attempt per assessment (no retakes), the answer key withheld until grading
-  is complete.
+  is complete. The timer is server-authoritative; a worker finalizes abandoned expired attempts.
+  Assessment scoring/structure locks once attempts exist, and trainers can release withheld
+  results once, with learner notifications.
 - **My Progress / My Performance**: a 13-week activity heatmap, weekly trend, streak counter, and
   one composite Performance Score (completion % + average score + recent activity).
 - **Q&A** (ask, optionally scoped to a course/lesson/group; trainers and peers answer; trainers can
@@ -157,12 +164,19 @@ for exactly this kind of reviewable evidence (see §9).
 - **Audit logging** on every security-relevant action, structured so that recording an event never
   blocks the action it's recording (see §7).
 - 3-tier rate limiting: a general app-wide limiter, a stricter login limiter, and a dedicated
-  per-user AI limiter (because every AI call is a real, billed request).
+  per-user AI limiter (because every AI call is a real, billed request). Production counters use
+  a shared PostgreSQL store rather than process-local memory.
 - Swappable file-storage abstraction (`StorageProvider` interface, `LocalStorageProvider`
   implementation today — a cloud/S3 implementation can be dropped in later without touching call
   sites).
 - Forced password change on first login for the seeded Super Admin account, enforced server-side
   (every other authenticated API call is rejected until it's done, not just a UI redirect).
+- Single-use hashed password-reset tokens with generic enumeration-safe responses and pluggable
+  webhook delivery; successful reset revokes existing sessions.
+- Request ids, structured logs, `/health/live` and dependency-aware `/health/ready`, graceful
+  shutdown, and a separate non-overlapping scheduler worker with startup catch-up.
+- Uploads use disk-temporary handling, signature checks, path-root enforcement, storage health,
+  and physical cleanup on resource/lesson/course deletion.
 
 ### 2.6 Design & UX
 
@@ -174,19 +188,19 @@ with visible focus states, `prefers-reduced-motion` respected throughout.
 
 ## 3. Roles & Permissions Matrix
 
-| Capability | Super Admin | Trainer | Trainee |
-|---|:---:|:---:|:---:|
-| Manage users, departments, groups | ✅ | — | — |
-| Manage own assigned groups (roster, announcements) | ✅ | ✅ | — |
-| Platform settings & maintenance mode | ✅ | — | — |
-| View the audit log | ✅ | — | — |
-| Create/edit courses, modules, lessons, question bank | ✅ | ✅ | — |
-| Create & assign assessments, grade attempts | ✅ | ✅ | — |
-| Take courses, complete lessons, attempt assessments | — | — | ✅ |
-| Ask/answer Q&A | ✅ | ✅ | ✅ |
-| Use the AI Tutor | ✅ | ✅ | ✅ |
-| View own analytics/progress | ✅ | ✅ (own groups) | ✅ (own data) |
-| Log timing observations / view pilot dashboard | ✅ | ✅ (own groups) | — |
+| Capability                                           | Super Admin |     Trainer     |    Trainee    |
+| ---------------------------------------------------- | :---------: | :-------------: | :-----------: |
+| Manage users, departments, groups                    |     ✅      |        —        |       —       |
+| Manage own assigned groups (roster, announcements)   |     ✅      |       ✅        |       —       |
+| Platform settings & maintenance mode                 |     ✅      |        —        |       —       |
+| View the audit log                                   |     ✅      |        —        |       —       |
+| Create/edit courses, modules, lessons, question bank |     ✅      |       ✅        |       —       |
+| Create & assign assessments, grade attempts          |     ✅      |       ✅        |       —       |
+| Take courses, complete lessons, attempt assessments  |      —      |        —        |      ✅       |
+| Ask/answer Q&A                                       |     ✅      |       ✅        |      ✅       |
+| Use the AI Tutor                                     |     ✅      |       ✅        |      ✅       |
+| View own analytics/progress                          |     ✅      | ✅ (own groups) | ✅ (own data) |
+| Log timing observations / view pilot dashboard       |     ✅      | ✅ (own groups) |       —       |
 
 ---
 
@@ -198,9 +212,10 @@ config), a shadcn-style hand-authored component library on Radix UI primitives, 
 (client/UI-only state), Framer Motion, Recharts, Lucide Icons.
 
 **Backend:** Node.js, Express 5, TypeScript (strict), Prisma ORM 7 against PostgreSQL via
-`@prisma/adapter-pg` (a standard long-lived connection pool, deliberately not the
-`@prisma/adapter-neon` WebSocket driver, which targets short-lived edge/serverless invocations
-rather than this app's long-running Node process), JWT (`jsonwebtoken`), bcrypt, Multer, Helmet,
+`@prisma/adapter-pg` (bounded, pre-warmed API and worker pools using Neon's pooled runtime
+endpoint, deliberately not the `@prisma/adapter-neon` WebSocket driver, which targets short-lived
+edge/serverless invocations rather than this app's long-running Node process), JWT
+(`jsonwebtoken`), bcrypt, Multer, Helmet,
 Morgan, Compression, CORS, express-rate-limit, express-validator, Winston, node-cron (scheduled
 jobs), the Anthropic and OpenAI SDKs behind the swappable `AiProvider` seam.
 
@@ -235,6 +250,7 @@ product** — they were added specifically in response to Checkpoint 1 feedback 
 concept existed before, but was consolidated here), and `timing-observations`.
 
 **Notable lifecycle states:**
+
 - `AssessmentAttempt.status`: `IN_PROGRESS` → `PENDING_REVIEW` (if any manual-review question
   exists) or straight to `GRADED` (if fully auto-gradable) → `GRADED`.
 - `LessonQuizAttempt.status`: `GENERATED` (quiz created, not yet submitted — this is what blocks
@@ -275,6 +291,7 @@ average — the UI has no code path that renders a mean without also rendering i
 
 Three reports computed live from real historical data already in the system, each returning `n`,
 the date range, mean/median/min/max, and a low-sample-size flag when `n < 20`:
+
 - **Auto-grading latency** — computed from real `AssessmentAttempt` rows where both
   `submittedAt` and `gradedAt` are set and every question on the attempt is auto-gradable.
 - **AI quiz-generation latency** — computed from `LessonQuizAttempt.generationDurationMs`, a field
@@ -317,15 +334,16 @@ is built so that it's structurally impossible to claim otherwise until a real mu
 multi-day pilot actually produces that volume of data.
 
 ### 6.5 Current real numbers (this snapshot — see `pitch/MEASURABLE_IMPACT_REAL_DATA.md` for the
+
 full write-up with methodology)
 
-| Metric | Real measured value | Sample size | Status |
-|---|---|---|---|
-| One-at-a-time trainee add | 3,627 ms | n=1 | measured, too small for a ratio |
-| Bulk CSV import | 3,562 ms (1 row), 4,292 ms (2 rows) | n=2 | measured, too small for a ratio |
-| Auto-grading turnaround (post-fix) | 2,802 ms | n=1 under corrected timing (n=2 blended incl. one stale pre-fix 0ms row) | measured |
-| AI quiz generation (first-time, real model call) | 7,204 ms | n=1 | measured |
-| Manual quiz-writing vs. AI-assisted review, live-timed | 24 min vs. ~30 sec (≈23.5 min saved/lesson; ≈15.7 hrs at the original 40-lesson scale) | n=1, one course, unattributed to a named trainer | measured |
+| Metric                                                 | Real measured value                                                                    | Sample size                                                              | Status                          |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------- |
+| One-at-a-time trainee add                              | 3,627 ms                                                                               | n=1                                                                      | measured, too small for a ratio |
+| Bulk CSV import                                        | 3,562 ms (1 row), 4,292 ms (2 rows)                                                    | n=2                                                                      | measured, too small for a ratio |
+| Auto-grading turnaround (post-fix)                     | 2,802 ms                                                                               | n=1 under corrected timing (n=2 blended incl. one stale pre-fix 0ms row) | measured                        |
+| AI quiz generation (first-time, real model call)       | 7,204 ms                                                                               | n=1                                                                      | measured                        |
+| Manual quiz-writing vs. AI-assisted review, live-timed | 24 min vs. ~30 sec (≈23.5 min saved/lesson; ≈15.7 hrs at the original 40-lesson scale) | n=1, one course, unattributed to a named trainer                         | measured                        |
 
 **The old "4.3×" CSV speedup claim and the old "illustrative — validated in the pilot" framing
 have both been explicitly retired** — they are not restated anywhere in the current pitch
@@ -375,18 +393,18 @@ pitch deck/PPT/docs you already have was written**, and judge how far out of dat
 
 ### 9.1 Checkpoint 1 baseline (verbatim scores)
 
-Overall: **82/100**. Judges' summary: *"A genuinely well-built, working three-portal LMS with AI
+Overall: **82/100**. Judges' summary: _"A genuinely well-built, working three-portal LMS with AI
 wired into the product rather than bolted on, let down mainly by impact numbers that are projected
-rather than measured going into the checkpoint that's supposed to show early results."*
+rather than measured going into the checkpoint that's supposed to show early results."_
 
-| Category | Weight | Score | What was asked for |
-|---|---|---|---|
-| Problem Definition & Idea Clarity | 15 | 14/15 | Name the real pilot team once chosen; ground the problem statement in a real trainer's own words instead of a composite persona. |
-| Solution Approach & AI Methodology | 25 | 24/25 | Show sampled outputs from the completion quiz/tutor judged against source lesson material, so "grounded, not hallucinated" is verifiable. |
-| Execution Progress / Prototype Maturity | 20 | 19/20 | Close three "Partial" maturity-table items: audit-log viewer UI, enforced maintenance-mode gate, scheduled reminders. |
-| **Measurable Early Impact** | 20 | **7/20** | Replace the one projected number ("40 lessons × ~10 min = 6.5 hours," labeled "illustrative — validated in the pilot" before any pilot ran) with real measured numbers, even from a single real example. |
-| Documentation Quality | 10 | 10/10 | One named gap: the "prompts/AI workflow documentation" artifact was two dead links, not standalone documentation. |
-| Presentation & Communication | 10 | 8/10 | Narrate business-impact numbers explicitly on screen; never call a number "validated" before a pilot has actually validated it. |
+| Category                                | Weight | Score    | What was asked for                                                                                                                                                                                       |
+| --------------------------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Problem Definition & Idea Clarity       | 15     | 14/15    | Name the real pilot team once chosen; ground the problem statement in a real trainer's own words instead of a composite persona.                                                                         |
+| Solution Approach & AI Methodology      | 25     | 24/25    | Show sampled outputs from the completion quiz/tutor judged against source lesson material, so "grounded, not hallucinated" is verifiable.                                                                |
+| Execution Progress / Prototype Maturity | 20     | 19/20    | Close three "Partial" maturity-table items: audit-log viewer UI, enforced maintenance-mode gate, scheduled reminders.                                                                                    |
+| **Measurable Early Impact**             | 20     | **7/20** | Replace the one projected number ("40 lessons × ~10 min = 6.5 hours," labeled "illustrative — validated in the pilot" before any pilot ran) with real measured numbers, even from a single real example. |
+| Documentation Quality                   | 10     | 10/10    | One named gap: the "prompts/AI workflow documentation" artifact was two dead links, not standalone documentation.                                                                                        |
+| Presentation & Communication            | 10     | 8/10     | Narrate business-impact numbers explicitly on screen; never call a number "validated" before a pilot has actually validated it.                                                                          |
 
 ### 9.2 Pass 1 — Measurable Impact instrumentation built (the 4-task build)
 
@@ -401,6 +419,7 @@ A full, file:line-cited, "UNVERIFIED"-flagged audit was run across: the Measurab
 source of truth, pilot tracking infrastructure, actual pilot/real-world usage evidence, feature
 maturity, AI methodology, documentation state, stack/architecture, database, API surface,
 security, and environment. Key findings that mattered for credibility:
+
 - A person named "Sumit Sahu" was attributed to a real timing measurement in the docs/pitch
   materials, but no independently verifiable identity behind that name could be confirmed in the
   codebase or database.
@@ -411,13 +430,16 @@ security, and environment. Key findings that mattered for credibility:
   late in the request (after the real DB reads had already happened), making its own "duration"
   partly tautological.
 - The root README undercounted the backend module list ("22 domain modules" vs. the real 26).
-- Several backend module `README.md` files still read "Foundation scaffolding only" despite being
-  fully implemented.
+- At that historical audit point, several backend module `README.md` files still read
+  "Foundation scaffolding only" despite being
+  fully implemented. The 2026-08-21 documentation pass corrected those module and frontend
+  feature READMEs.
 
 ### 9.4 Pass 3 — Remediation of the audit's findings
 
 Executed directly (no invented replacements for any fabrication — where a real identity or number
 didn't exist, the fix was to say so plainly, never to guess a substitute):
+
 - **Sumit Sahu attribution removed.** No real, independently-confirmable person's name is
   attributed to the timing comparison. The measurement itself is kept (it's real), just presented
   as an unattributed real data point rather than a named quote.
@@ -486,9 +508,12 @@ didn't exist, the fix was to say so plainly, never to guess a substitute):
 Stated plainly, matching this whole project's own discipline — a pitch that admits these reads as
 more credible than one that implies they're solved:
 
-- **No automated test suite yet.** `backend/package.json`'s `test` script is a placeholder
-  (`echo "No tests yet"`); there is no frontend test script either. This is an honestly-open gap,
-  not something to claim as done.
+- **Focused automated tests exist, but broad E2E coverage does not yet.** The backend Node suite
+  covers ten critical hardening/storage/AI invariants and CI runs typecheck, lint, tests, and
+  builds. Do not claim exhaustive API integration or browser automation yet.
+- **Local uploads are not horizontally scalable by themselves.** A real multi-instance launch
+  needs shared mounted storage or an object-storage provider, plus backup/restore practice and a
+  malware-scanning integration for untrusted external uploads.
 - **No real pilot team is confirmed.** The group used throughout development (`Media_Freahers_2026`
   in the current dev database) is a development/test fixture, not a named real external cohort
   with a decided go-live date.
@@ -518,7 +543,8 @@ cp backend/.env.example backend/.env   # then edit with a real DATABASE_URL and 
 npm run prisma:generate
 cd backend && npx prisma migrate deploy && cd ..
 npm run seed        # creates the first Super Admin account
-npm run dev         # or: npm run build && npm start (backend) + npm run preview (frontend)
+npm run dev         # frontend + API
+npm run dev:worker --prefix backend  # second terminal: expiry/reminder worker
 ```
 
 Full setup detail: root `README.md`. Production deployment: `docs/DEPLOYMENT.md`.
@@ -533,22 +559,23 @@ come from `ADMIN_EMAIL`/`ADMIN_PASSWORD` in `backend/.env` (defaults shown in `.
 
 ## 12. Documentation Map
 
-| Location | What it covers |
-|---|---|
-| `README.md` (project root) | Features, setup, day-to-day development — comprehensive |
-| `ARCHITECTURE.md` | Full system design rationale (at this project's root) |
-| `docs/DEPLOYMENT.md` | Production deployment, environment, post-deploy checklist |
-| `docs/GIT_WORKFLOW.md` | Branching, commits, versioning strategy |
-| `docs/TESTING_CHECKLIST.md` | Manual QA checklist by feature area |
-| `docs/AI_WORKFLOW.md` | Real system prompts, context builder, provider abstraction, error handling, rate limiting |
-| `backend/docs/ERROR_HANDLING.md` | Backend error-handling standard |
-| `backend/src/modules/*/README.md` | Per-module design notes (25 of 26 modules) |
-| `pitch/CODEBASE_AUDIT_REPORT.md` | The full 11-section audit referenced in §9.3 |
-| `pitch/REMEDIATION_PLAN.md` | The planning document behind the §9.4 remediation pass |
-| `pitch/MEASURABLE_IMPACT_REAL_DATA.md` | Full methodology behind every number in §6.5 |
-| `pitch/PROBLEM_DEFINITION_UPDATE.md` | Full current pilot-team/trainer-quote honesty statement |
-| `pitch/AI_GROUNDING_VERIFICATION.md` | The phrase-by-phrase AI grounding check referenced in §2.4/§8 |
-| `pitch/CLAUDE_PROMPT_FOR_CHANGELOG_DOC.md` | A Checkpoint 1→2 changelog-writing prompt (written after Pass 3, before Pass 4/5 — slightly behind this document) |
-| `pitch/CLAUDE_PROMPT_FOR_PITCH_PPT.md` | The original ground-truth prompt used to brief the pitch deck — written **before** the Measurable Impact system, Audit Log viewer, and most of §9 existed; use *this* file (`context.md`), not that one, as the current source of truth |
-| `pitch/checkpoint-changelog.html` / `pitch/pitch-deck.html` / `pitch/PITCH_VIDEO_SCRIPT.md` | The actual existing pitch materials this document is meant to be checked against |
-| `context.md` (this file) | The current, complete, up-to-date ground truth — regenerate this if the product changes again before your next resubmission |
+| Location                                                                                    | What it covers                                                                                                                  |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` (project root)                                                                  | Features, setup, day-to-day development — comprehensive                                                                         |
+| `ARCHITECTURE.md`                                                                           | Full system design rationale (at this project's root)                                                                           |
+| `docs/DEPLOYMENT.md`                                                                        | Production deployment, environment, post-deploy checklist                                                                       |
+| `docs/GIT_WORKFLOW.md`                                                                      | Branching, commits, versioning strategy                                                                                         |
+| `docs/TESTING_CHECKLIST.md`                                                                 | Manual QA checklist by feature area                                                                                             |
+| `docs/AI_WORKFLOW.md`                                                                       | Real system prompts, context builder, provider abstraction, error handling, rate limiting                                       |
+| `docs/OPERATIONS.md`                                                                        | API/worker process model, health checks, uploads, backups, and retention                                                        |
+| `backend/docs/ERROR_HANDLING.md`                                                            | Backend error-handling standard                                                                                                 |
+| `backend/src/modules/*/README.md`                                                           | Per-module design notes (25 of 26 modules)                                                                                      |
+| `pitch/CODEBASE_AUDIT_REPORT.md`                                                            | The full 11-section audit referenced in §9.3                                                                                    |
+| `pitch/REMEDIATION_PLAN.md`                                                                 | The planning document behind the §9.4 remediation pass                                                                          |
+| `pitch/MEASURABLE_IMPACT_REAL_DATA.md`                                                      | Full methodology behind every number in §6.5                                                                                    |
+| `pitch/PROBLEM_DEFINITION_UPDATE.md`                                                        | Full current pilot-team/trainer-quote honesty statement                                                                         |
+| `pitch/AI_GROUNDING_VERIFICATION.md`                                                        | The phrase-by-phrase AI grounding check referenced in §2.4/§8                                                                   |
+| `pitch/CLAUDE_PROMPT_FOR_CHANGELOG_DOC.md`                                                  | A Checkpoint 1→2 changelog-writing prompt (written after Pass 3, before Pass 4/5 — slightly behind this document)               |
+| `pitch/CLAUDE_PROMPT_FOR_PITCH_PPT.md`                                                      | Pitch-deck brief updated with the 2026-08-21 hardening facts; use this `context.md` for fuller caveats and current ground truth |
+| `pitch/checkpoint-changelog.html` / `pitch/pitch-deck.html` / `pitch/PITCH_VIDEO_SCRIPT.md` | The actual existing pitch materials this document is meant to be checked against                                                |
+| `context.md` (this file)                                                                    | The current, complete, up-to-date ground truth — regenerate this if the product changes again before your next resubmission     |

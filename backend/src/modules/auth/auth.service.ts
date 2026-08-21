@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { Role } from '@prisma/client';
 import ms from 'ms';
@@ -7,12 +7,15 @@ import { env } from '@/config/env';
 import { settingsService } from '@/modules/settings/settings.service';
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
-import { BadRequestError, ForbiddenError, ServiceUnavailableError, UnauthorizedError } from '@/utils/app-error';
+import { passwordResetDeliveryService } from '@/services/password-reset-delivery.service';
 import {
-  signAccessToken,
-  signRefreshToken,
-  verifyRefreshToken,
-} from '@/utils/jwt.util';
+  BadRequestError,
+  ForbiddenError,
+  ServiceUnavailableError,
+  UnauthorizedError,
+} from '@/utils/app-error';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '@/utils/jwt.util';
+import { logger } from '@/utils/logger';
 import { comparePassword, hashPassword } from '@/utils/password.util';
 import { toSafeUser } from '@/utils/user-mapper.util';
 
@@ -42,7 +45,12 @@ export class AuthService extends BaseService {
     super();
   }
 
-  async login(email: string, password: string, ctx: RequestContext, rememberMe = false): Promise<IssuedSession> {
+  async login(
+    email: string,
+    password: string,
+    ctx: RequestContext,
+    rememberMe = false,
+  ): Promise<IssuedSession> {
     const user = await this.repository.findUserByEmail(email);
 
     if (!user) {
@@ -85,19 +93,14 @@ export class AuthService extends BaseService {
       );
     }
 
-    await this.repository.updateLastLogin(user.id);
+    const lastLogin = new Date();
+    const [{ accessToken, refreshToken }] = await Promise.all([
+      this.issueTokenPair(user.id, user.role, ctx, rememberMe, user.passwordChangedAt === null),
+      this.repository.updateLastLogin(user.id, lastLogin),
+      auditLogService.record({ action: 'LOGIN_SUCCESS', actorId: user.id, ipAddress: ctx.ipAddress }),
+    ]);
 
-    const { accessToken, refreshToken } = await this.issueTokenPair(
-      user.id,
-      user.role,
-      ctx,
-      rememberMe,
-      user.passwordChangedAt === null,
-    );
-
-    await auditLogService.record({ action: 'LOGIN_SUCCESS', actorId: user.id, ipAddress: ctx.ipAddress });
-
-    return { user: toSafeUser({ ...user, lastLogin: new Date() }), accessToken, refreshToken, rememberMe };
+    return { user: toSafeUser({ ...user, lastLogin }), accessToken, refreshToken, rememberMe };
   }
 
   async logout(refreshToken: string | undefined, ctx: RequestContext): Promise<void> {
@@ -142,7 +145,11 @@ export class AuthService extends BaseService {
       throw new UnauthorizedError('Your session is no longer valid. Please sign in again.');
     }
 
-    const { accessToken, refreshToken: newRefreshToken, jti } = await this.issueTokenPair(
+    const {
+      accessToken,
+      refreshToken: newRefreshToken,
+      jti,
+    } = await this.issueTokenPair(
       user.id,
       user.role,
       ctx,
@@ -226,15 +233,54 @@ export class AuthService extends BaseService {
 
   /**
    * Always responds as if it succeeded, whether or not the email exists — never reveal
-   * account existence via timing/response differences (ARCHITECTURE.md §17). Email delivery
-   * itself is deferred; see ARCHITECTURE.md §15 Notification Architecture for the future path.
+   * account existence via timing/response differences (ARCHITECTURE.md §17). Delivery uses the
+   * configured password-reset webhook and remains best-effort so it cannot leak account presence.
    */
-  async forgotPassword(email: string): Promise<void> {
+  async forgotPassword(email: string, ctx: RequestContext = {}): Promise<void> {
+    const startedAt = Date.now();
     const user = await this.repository.findUserByEmail(email);
-    if (user) {
-      // TODO: generate a single-use reset token and email it once the Notification
-      // Service (ARCHITECTURE.md §15) exists. Intentionally a no-op today.
+    if (user?.isActive) {
+      const rawToken = randomBytes(32).toString('base64url');
+      const expiresAt = new Date(Date.now() + env.PASSWORD_RESET_EXPIRES_MINUTES * 60_000);
+      await this.repository.createPasswordResetToken({
+        userId: user.id,
+        tokenHash: hashToken(rawToken),
+        expiresAt,
+        requestedIp: ctx.ipAddress,
+      });
+
+      const resetUrl = new URL(env.PASSWORD_RESET_URL);
+      resetUrl.searchParams.set('token', rawToken);
+      try {
+        await passwordResetDeliveryService.send({ to: user.email, resetUrl: resetUrl.toString(), expiresAt });
+      } catch (error) {
+        logger.error('Password reset delivery failed', { error, userId: user.id });
+      }
+
+      await auditLogService.record({
+        action: 'PASSWORD_RESET_REQUESTED',
+        actorId: user.id,
+        ipAddress: ctx.ipAddress,
+      });
     }
+
+    const remainingMs = 500 - (Date.now() - startedAt);
+    if (remainingMs > 0) await new Promise((resolve) => setTimeout(resolve, remainingMs));
+  }
+
+  async resetPassword(token: string, newPassword: string, ctx: RequestContext = {}): Promise<void> {
+    const stored = await this.repository.findValidPasswordResetToken(hashToken(token), new Date());
+    if (!stored) throw new BadRequestError('This password reset link is invalid or has expired.');
+
+    const passwordHash = await hashPassword(newPassword);
+    const consumed = await this.repository.consumePasswordResetToken(stored.id, stored.userId, passwordHash);
+    if (!consumed) throw new BadRequestError('This password reset link is invalid or has expired.');
+
+    await auditLogService.record({
+      action: 'PASSWORD_RESET_COMPLETED',
+      actorId: stored.userId,
+      ipAddress: ctx.ipAddress,
+    });
   }
 
   /**

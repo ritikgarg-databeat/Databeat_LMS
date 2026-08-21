@@ -17,15 +17,14 @@ Frontend → ai.controller.ts → ai.service.ts → { prompt-manager, context-bu
   history, persist the user message, call the provider, persist the assistant message. Exports
   a module-level `aiService` singleton, mirroring `notificationsService` (Prompt 6 precedent).
 - **`prompt-manager.ts`** — the "Prompt Manager". Every AI feature (CHAT / EXPLAIN_TOPIC /
-  SUMMARIZE_LESSON / GENERATE_EXAMPLES / GENERATE_PRACTICE_QUESTIONS) is the *same* underlying
+  SUMMARIZE_LESSON / GENERATE_EXAMPLES / GENERATE_PRACTICE_QUESTIONS) is the _same_ underlying
   chat call — only the system prompt differs, selected here by `feature`
   (+ `explanationLevel` for EXPLAIN_TOPIC's Beginner/Detailed/Interview variants). One pipeline,
   not one bespoke code path per feature.
-- **`context-builder.ts`** — the "Context Builder". Given a `lessonId`, fetches the lesson's
-  title/description, module name, course name, its own text-backed content (concatenated from
-  MARKDOWN/CODE_SNIPPET resources, truncated), and metadata (not content) for every attached
-  resource — a direct Prisma query, per this codebase's feature-local-duplication convention
-  (no import from the courses/lessons modules).
+- **`context-builder.ts`** — builds strict lesson evidence from title/description,
+  MARKDOWN/CODE_SNIPPET content, and extracted PDF/DOCX/PPTX text. It also builds the main
+  tutor's permitted department/course catalog. Document extraction is cached by resource id and
+  `updatedAt` so repeated turns do not repeatedly parse the same file.
 - **`providers/ai-provider.interface.ts`** — the swappable vendor seam (Prompt 7 §
   ARCHITECTURE: "Frontend → Backend AI Service → AI Provider → Response"). Everything above
   this line depends on `AiProvider`, never on a concrete vendor or its SDK types.
@@ -61,9 +60,9 @@ needed — just restart the server.
 populated on ASSISTANT rows straight from the provider's `usage` block — the "token usage
 tracking foundation" required by Prompt 7 § AI SECURITY). Lesson accessibility is re-checked on
 EVERY turn, not just at conversation creation, because the context block is rebuilt from the
-lesson's LIVE content each time — a trainee who has since lost access (group removal,
-unpublish, soft-delete) keeps their conversation, but the lesson context is silently dropped
-from subsequent turns rather than continuing to leak current lesson content.
+lesson's LIVE content each time. If a trainee loses access through group removal, unpublish, or
+soft-delete, further turns are rejected; a lesson conversation never silently changes into a
+general tutor conversation.
 
 ## Security (Prompt 7 § AI SECURITY)
 
@@ -75,6 +74,16 @@ from subsequent turns rather than continuing to leak current lesson content.
 - A trainee can only attach lesson context for a lesson they're actually assigned (self-contained
   `AiRepository#isLessonAccessibleToUser`, mirroring `LessonsRepository#isAccessibleToUser`'s
   exact rule from Prompt 5).
+- Lesson conversations use strict grounding: facts may come only from source-labelled lesson
+  description/resource text. Main-tutor conversations are restricted to the learner's department,
+  assigned course catalog, and supported technical-learning domains.
+- Provider output must be a validated `ANSWER`/`REFUSE` JSON envelope with permitted evidence
+  ids. Malformed output, empty answers, or invented ids fail closed to a deterministic refusal;
+  the internal envelope is removed before the final Markdown answer is saved or shown.
+- Before external provider calls, the system prompt, bounded history, and current message are
+  passed through `redactSensitiveText`. It removes high-confidence email/phone/government-id/IP/
+  long-number patterns and labelled secrets. The original conversation is retained internally;
+  only the outbound copy is redacted. Quiz and dashboard provider calls use the same utility.
 - Neither provider surfaces raw SDK error text (API keys, internal error details) to the
   client — every branch logs the real cause via `logger` and returns a generic, safe message.
   Both check for a model refusal before reading response content (Anthropic:
@@ -86,9 +95,8 @@ from subsequent turns rather than continuing to leak current lesson content.
   `conversationId`, so the client could never reach it, and retries would otherwise strand
   one-message orphan conversations in the history list.
 
-## Known gap
+## Current boundary
 
-`GENERATE_PRACTICE_QUESTIONS` and the other features return plain Markdown-formatted text, not
-structured JSON — matching Prompt 7's explicit scope ("Generate Practice Question **Foundation**",
-"Do not implement... complex RAG pipelines yet"). A future prompt can add `output_config.format`
-structured outputs behind the same `AiProvider` interface without touching call sites.
+The tutor grounds against bounded prompt context rather than vector search/RAG. Very large lesson
+libraries may eventually need chunking and retrieval, but the current implementation deliberately
+fails closed when the supplied lesson evidence cannot support an answer.

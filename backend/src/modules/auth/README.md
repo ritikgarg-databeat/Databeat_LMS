@@ -1,10 +1,24 @@
 # Auth Module
 
-Login, logout, token refresh, and password reset flows.
+Authentication, rotating sessions, forced password changes, and self-service password reset.
 
-Layering: `auth.routes.ts` → `auth.controller.ts` → `auth.service.ts` → `auth.repository.ts`
-(see ARCHITECTURE.md §3.1). `auth.dto.ts` defines request/response shapes, `auth.types.ts`
-defines internal domain shapes, `auth.interfaces.ts` defines the contracts controllers/services
-depend on, and `auth.validation.ts` holds the express-validator chains for this module's routes.
+Layering: `auth.routes.ts` → controller → service → repository. Routes are mounted at
+`/api/v1/auth`.
 
-Foundation scaffolding only — no business logic or endpoints registered yet.
+## Endpoints
+
+- `POST /login`, `/logout`, `/refresh`
+- `POST /forgot-password`, `/reset-password`
+- `POST /change-password`
+- `GET /me`, `POST /validate`
+
+Access JWTs are returned to the SPA and kept in memory. Refresh JWTs are stored as httpOnly
+cookies, hashed in `RefreshToken`, rotated on refresh, and linked by replacement id. Reuse of a
+revoked token revokes every session for that user. Authentication middleware also reloads the
+current active user/role so deactivation, role changes, and password-reset session revocation take
+effect without waiting for the access token to expire.
+
+Password-reset requests return the same response for known and unknown emails and include a
+minimum response delay to reduce account enumeration. Reset tokens are random, hashed at rest,
+single-use, and time-limited. Delivery uses `EMAIL_WEBHOOK_URL`; successful reset updates the
+password atomically, consumes the token, and revokes existing refresh sessions.

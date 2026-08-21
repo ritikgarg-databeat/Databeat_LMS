@@ -19,16 +19,19 @@ const memberInclude = {
   },
 } satisfies Prisma.GroupMemberInclude;
 
-function buildWhere(groupId: string, filters: GroupMemberListFilters): Prisma.GroupMemberWhereInput {
+function buildWhere(
+  groupId: string,
+  filters: GroupMemberListFilters,
+  includeEmailInSearch: boolean,
+): Prisma.GroupMemberWhereInput {
   const where: Prisma.GroupMemberWhereInput = { groupId };
   if (filters.search) {
-    where.user = {
-      OR: [
-        { firstName: { contains: filters.search, mode: 'insensitive' } },
-        { lastName: { contains: filters.search, mode: 'insensitive' } },
-        { email: { contains: filters.search, mode: 'insensitive' } },
-      ],
-    };
+    const searchFields: Prisma.UserWhereInput[] = [
+      { firstName: { contains: filters.search, mode: 'insensitive' } },
+      { lastName: { contains: filters.search, mode: 'insensitive' } },
+    ];
+    if (includeEmailInSearch) searchFields.push({ email: { contains: filters.search, mode: 'insensitive' } });
+    where.user = { OR: searchFields };
   }
   return where;
 }
@@ -43,8 +46,9 @@ export class GroupMembersRepository extends BaseRepository {
     take: number,
     sortBy: GroupMemberSortField = 'joinedAt',
     sortOrder: SortOrder = 'desc',
+    includeEmailInSearch = true,
   ) {
-    const where = buildWhere(groupId, filters);
+    const where = buildWhere(groupId, filters, includeEmailInSearch);
     const orderBy: Prisma.GroupMemberOrderByWithRelationInput =
       sortBy === 'name' ? { user: { firstName: sortOrder } } : { joinedAt: sortOrder };
 

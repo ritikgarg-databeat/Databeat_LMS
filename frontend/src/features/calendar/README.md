@@ -12,4 +12,5 @@ Events, meetings, live sessions, deadlines, holidays, and exams.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented month/list views support role-scoped event creation/editing/deletion and department,
+active-group, user, and assessment-deadline visibility.

@@ -25,6 +25,7 @@ export interface LessonQuizDialogProps {
   /** Fired after the trainee clicks "Mark lesson as complete" on the results screen — the
    * caller (lesson-viewer-page.tsx) fires the real progress mutation, exactly as it always has. */
   onCompleted: () => void;
+  onRetry: () => void;
 }
 
 /**
@@ -33,7 +34,7 @@ export interface LessonQuizDialogProps {
  * -> see the graded result (correct answers revealed) -> "Mark lesson as complete" hands control
  * back to the caller. No retakes — once submitted, the results screen is all this dialog shows.
  */
-function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted }: LessonQuizDialogProps) {
+function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted, onRetry }: LessonQuizDialogProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<LessonQuizResult | null>(null);
   const submitQuiz = useSubmitLessonQuizMutation();
@@ -73,8 +74,10 @@ function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted
           <DialogTitle>Quick check before you finish</DialogTitle>
           <DialogDescription>
             {result
-              ? `You scored ${result.score}/${result.totalQuestions} (${result.percentage}%).`
-              : 'Answer these questions about the lesson content, then mark it complete.'}
+              ? result.passed
+                ? `You passed with ${result.score}/${result.totalQuestions} (${result.percentage}%).`
+                : `You scored ${result.percentage}%. You need ${result.passingPercentage}% to pass.`
+              : 'Answer these questions about the lesson content. You must pass before completing the lesson.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -132,9 +135,15 @@ function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted
 
         <DialogFooter>
           {result ? (
-            <Button type="button" onClick={onCompleted}>
-              <CheckCircle2 /> Mark lesson as complete
-            </Button>
+            result.passed ? (
+              <Button type="button" onClick={onCompleted}>
+                <CheckCircle2 /> Mark lesson as complete
+              </Button>
+            ) : (
+              <Button type="button" onClick={onRetry}>
+                Try again
+              </Button>
+            )
           ) : (
             <Button type="button" onClick={handleSubmit} disabled={!allAnswered || submitQuiz.isPending}>
               {submitQuiz.isPending ? 'Submitting...' : 'Submit quiz'}

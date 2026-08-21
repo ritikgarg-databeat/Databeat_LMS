@@ -1,9 +1,8 @@
 # Final Testing Checklist
 
-Manual QA checklist for Databeat LMS v1.0, organized by feature area (Prompt 10 § Part 11).
-This is a **manual verification checklist**, not an automated test suite — `backend/package.json`'s
-`test` script is currently a placeholder (`echo "No tests yet"`); adding real automated
-integration/E2E tests is a good next investment beyond this v1.0 release.
+Release QA checklist for Databeat LMS. The repository has a focused backend Node test suite and CI
+checks, while the feature checklist below remains the manual browser/API acceptance pass. Wider
+database integration and browser E2E automation are still recommended as the platform grows.
 
 Every item below has already been exercised at least once via live curl/Playwright
 verification during development (not just written from a template) — this checklist is meant
@@ -11,11 +10,31 @@ to be re-run before any future release, not just filed away. Check off each item
 real running instance (seeded test accounts below) before shipping a new build.
 
 **Seeded accounts** (from `npm run seed` + `npm run seed:demo`):
-| Role | Email | Password |
-|---|---|---|
-| Super Admin | (per your `ADMIN_EMAIL`) | (per your `ADMIN_PASSWORD`, forced to change on first login) |
-| Demo Trainer | `ananya.rao@demo.databeat.lms` | `DemoTrainer#2026` |
-| Demo Trainee | `rahul.verma@demo.databeat.lms` | `DemoTrainee#2026` |
+
+| Role         | Email                           | Password                                                     |
+| ------------ | ------------------------------- | ------------------------------------------------------------ |
+| Super Admin  | (per your `ADMIN_EMAIL`)        | (per your `ADMIN_PASSWORD`, forced to change on first login) |
+| Demo Trainer | `ananya.rao@demo.databeat.lms`  | `DemoTrainer#2026`                                           |
+| Demo Trainee | `rahul.verma@demo.databeat.lms` | `DemoTrainee#2026`                                           |
+
+---
+
+## Automated release gate
+
+Run from the project root:
+
+```bash
+npm run typecheck
+npm run lint
+npm test --prefix backend
+npm run build
+```
+
+The current backend suite covers active-group policy, assessment timer boundaries, lesson quiz
+pass rules, trainer scope, AI answer/evidence guardrails, irrelevant-question refusal, outbound
+sensitive-data redaction, upload magic-byte validation, and independent storage copies. CI runs
+the same checks on pushes/pull requests. A passing focused suite does not replace the role-based
+manual workflow checks below.
 
 ---
 
@@ -38,6 +57,9 @@ real running instance (seeded test accounts below) before shipping a new build.
       and doesn't log you out of your own current session.
 - [ ] Directly navigating to `/admin`, `/trainer`, or `/trainee` while logged out redirects to
       `/login`.
+- [ ] Forgot-password returns the same confirmation for an existing and nonexistent email; the
+      configured webhook delivers a link for the real account, that link works once, and a second
+      use is rejected. Existing sessions stop working after reset.
 
 ## Users
 
@@ -68,18 +90,28 @@ real running instance (seeded test accounts below) before shipping a new build.
       page; a trainee NOT in that group does not.
 - [ ] Trainee lesson-progress tracking updates as lessons are viewed/completed, and reflects
       correctly on both the trainee's own progress page and the trainer's group-analytics view.
+- [ ] Add, edit, and remove lesson material after a trainee completed it: completion reopens, the
+      lesson/course shows a new-content indicator, and the learner must pass a current-version
+      quiz and mark complete again. Historical quiz attempts remain available in data.
+- [ ] Learning time stops increasing while the tab is hidden or idle; an API delta above 60
+      seconds is rejected/capped and cannot inflate the total.
+- [ ] Deleting a resource, lesson, and course removes their physical files while files belonging
+      to active or draft courses remain downloadable.
 
 ## Assessments
 
 - [ ] Create an assessment, add questions from the question bank, assign to a group.
 - [ ] A trainee in the assigned group can start an attempt, answer questions, and submit within
       the time limit.
-- [ ] Submitting past the due date/time limit is handled gracefully (either blocked or
-      auto-submitted, per the existing design — not a crash).
+- [ ] The browser timer matches server `remainingSeconds`; answer writes fail after `expiresAt`.
+      With the learner page closed, the worker finalizes the attempt within the next scheduled
+      scan and records the correct expiry reason.
 - [ ] Auto-graded question types show a score immediately (if "show results immediately" is
       enabled); manually-graded types correctly show as pending until a trainer grades them.
 - [ ] Trainer can view and grade pending manual-grading attempts; the trainee sees the final
       grade once graded.
+- [ ] After any attempt exists, score/structure/question edits are blocked. With immediate results
+      disabled, results stay masked until one-time release; release notifies affected learners.
 
 ## Calendar
 
@@ -94,6 +126,8 @@ real running instance (seeded test accounts below) before shipping a new build.
 
 - [ ] Ask the AI a question from within a lesson — response is contextual to that lesson's
       content, not generic.
+- [ ] Ask a lesson question unsupported by that lesson and unrelated trivia such as “What is the
+      capital of India?”; lesson mode and main tutor respectively return the intended refusal.
 - [ ] Conversation history persists and is retrievable on returning to the same lesson/chat.
 - [ ] With the active provider's API key unset (`ANTHROPIC_API_KEY` or `MAIN_OPENAI_API_KEY`,
       depending on `AI_PROVIDER`), `/ai/chat` degrades gracefully (503 with a clear message)
@@ -103,6 +137,11 @@ real running instance (seeded test accounts below) before shipping a new build.
       screen or an infinite loading state.
 - [ ] AI rate limiting kicks in appropriately under rapid repeated requests from the same user
       (doesn't block other users).
+- [ ] Put a test email/phone/labelled API key in the prompt and verify the provider adapter receives
+      redacted placeholders while the original user message remains in LMS conversation history.
+- [ ] For a quiz-worthy lesson, provider failure pauses completion with a clear error. For an
+      opaque file-only lesson, readable text/transcript is requested. A failed quiz can be retried,
+      and only a score of 70% or higher allows completion.
 
 ## Q&A
 
@@ -119,13 +158,16 @@ real running instance (seeded test accounts below) before shipping a new build.
       average completion/score) matching what's actually in the data — not stale/cached
       incorrect values after a recent change.
 - [ ] Reports export (CSV) succeeds and the exported data matches what's shown on-screen.
-- [ ] A Trainee cannot access another trainee's individual analytics (403) but CAN see their
-      own; a Trainer/Admin can see any trainee's (staff-level access).
+- [ ] A Trainee cannot access another trainee's individual analytics (403) but CAN see their own;
+      a Trainer sees only trainees/content in their active assigned scope, while Super Admin has
+      organization-wide access.
 
 ## Notifications
 
 - [ ] Course/assessment assignment, upcoming deadlines, new Q&A answers, and trainer
       announcements each generate a notification for the right recipients.
+- [ ] Releasing withheld assessment results generates an `ASSESSMENT_RESULTS_RELEASED`
+      notification for learners with submitted attempts.
 - [ ] Marking a notification read/unread and deleting it work and persist correctly.
 - [ ] Muting a notification type in Settings actually suppresses future notifications of that
       type (confirmed: no new row created, not just hidden client-side) — and an announcement
@@ -153,7 +195,7 @@ real running instance (seeded test accounts below) before shipping a new build.
 ## Maintenance Mode
 
 - [ ] Toggling maintenance mode on (Platform Settings) blocks every subsequent Trainer/Trainee
-      request immediately — including requests from a token issued *before* the toggle, not just
+      request immediately — including requests from a token issued _before_ the toggle, not just
       new logins — with a clear "platform is under maintenance" message.
 - [ ] A Super Admin remains fully unaffected while maintenance mode is on.
 - [ ] Login itself is blocked for non-Super-Admins while maintenance mode is on, with the same
@@ -162,10 +204,15 @@ real running instance (seeded test accounts below) before shipping a new build.
 
 ## Scheduled Reminders
 
+- [ ] API runs with `RUN_SCHEDULER=false`; exactly one separate worker starts and logs the expiry
+      and reminder jobs.
+- [ ] Restarting the worker immediately runs catch-up checks rather than waiting for the next
+      minute/day schedule.
 - [ ] An assessment due within the reminder window generates a real, correctly-addressed
       deadline-approaching notification for each assigned trainee who hasn't yet submitted.
 - [ ] Running the reminder job twice in a row never sends a duplicate notification for the same
       assessment/trainee pair.
+- [ ] A slow job does not overlap its next scheduled execution.
 - [ ] A trainee who opens their own notification list before the scheduled run still gets the
       reminder (the lazy, on-access check is a real safety net, not dead code).
 
@@ -198,3 +245,5 @@ real running instance (seeded test accounts below) before shipping a new build.
 - [ ] Production build (`npm run build` in both `frontend/` and `backend/`) completes cleanly
       with no errors, and the built frontend correctly calls the built backend end to end (not
       just the dev servers).
+- [ ] `/health/live` returns 200 while the process is alive; `/health/ready` returns 200 only when
+      PostgreSQL and the upload root are available.

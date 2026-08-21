@@ -34,10 +34,6 @@ export class NotificationsService extends BaseService {
     page: number,
     pageSize: number,
   ): Promise<PaginatedData<unknown>> {
-    // Fetching your own notification list is the natural, low-effort touchpoint this project
-    // uses to lazily surface deadline reminders in the absence of a background scheduler.
-    await this.checkAndCreateDeadlineReminders(userId);
-
     const { items, total } = await this.repository.findMany(userId, filters, (page - 1) * pageSize, pageSize);
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
@@ -140,36 +136,6 @@ export class NotificationsService extends BaseService {
     });
 
     return { notifiedCount };
-  }
-
-  /**
-   * Lazy, on-access generation (Prompt 6 § NOTIFICATIONS): every time a user's own notification
-   * list is fetched, checks for upcoming unsubmitted deadlines and creates a reminder if one
-   * doesn't already exist for that assessment. Now a safety net rather than the only mechanism —
-   * `runScheduledDeadlineReminders` below covers the same ground proactively, org-wide, once a
-   * day; both share the same idempotency check, so having both can never double-notify anyone.
-   */
-  private async checkAndCreateDeadlineReminders(userId: string): Promise<void> {
-    const upcoming = await this.repository.findUpcomingUnsubmittedDeadlines(userId);
-
-    for (const assessment of upcoming) {
-      const alreadyNotified = await this.repository.hasNotificationForEntity(
-        userId,
-        'ASSESSMENT_DEADLINE_APPROACHING',
-        'assessment',
-        assessment.id,
-      );
-      if (alreadyNotified) continue;
-
-      await this.notify({
-        userId,
-        type: 'ASSESSMENT_DEADLINE_APPROACHING',
-        title: 'Assessment deadline approaching',
-        message: `"${assessment.title}" is due ${assessment.dueDate ? assessment.dueDate.toLocaleDateString() : 'soon'}.`,
-        relatedEntityType: 'assessment',
-        relatedEntityId: assessment.id,
-      });
-    }
   }
 
   /**

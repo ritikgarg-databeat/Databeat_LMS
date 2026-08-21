@@ -302,6 +302,18 @@ export function useUpdateAssessmentStatusMutation() {
   });
 }
 
+export function useReleaseAssessmentResultsMutation() {
+  const invalidateAssessment = useInvalidateAssessment();
+  const invalidateTraineeSurfaces = useInvalidateTraineeAssessmentSurfaces();
+  return useMutation({
+    mutationFn: (id: string) => assessmentsApi.releaseResults(id),
+    onSuccess: (_data, id) => {
+      invalidateAssessment(id);
+      invalidateTraineeSurfaces();
+    },
+  });
+}
+
 export function useDuplicateAssessmentMutation() {
   const invalidateList = useInvalidateAssessmentsList();
   return useMutation({

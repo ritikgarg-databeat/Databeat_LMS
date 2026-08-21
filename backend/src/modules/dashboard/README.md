@@ -6,6 +6,10 @@ foundation was built against (`frontend/src/features/analytics/types/index.ts`),
 AI-generated (with graceful heuristic fallback) recommendations block cached in the
 `AnalyticsInsight` table.
 
+The final per-user payload also has a 60-second in-process cache. Concurrent misses share one
+promise, preventing duplicate browser requests and rapid route changes from repeating the full
+cross-module query fan-out. Authentication and role checks still run on every HTTP request.
+
 ## Architecture
 
 ```
@@ -29,34 +33,34 @@ reusable home elsewhere (see the field-source table below).
 
 ### `GET /dashboard/trainee` → `TraineeDashboard`
 
-| Field | Source |
-| --- | --- |
-| `welcome.name/departmentName/groupNames` | `analyticsService.getMyAnalytics().user` (verbatim) |
-| `welcome.streakDays` | `analyticsService.getMyAnalytics().streakDays` |
-| `welcome.overallCompletionPercentage` | `analyticsService.getMyAnalytics().performance.completionPercentage` |
-| `continueLearning` | `ProgressService#getContinueLearning` (progress module), reshaped (drops `moduleId`) |
-| `myCourses` | `analyticsService.getMyAnalytics().courses` (verbatim field names) |
-| `assessments.upcoming` | **Feature-local** `dashboard.repository.ts#findUpcomingAssessmentsForUser` — see "Known limitations" |
-| `assessments.averageScore/taken/passed` | `analyticsService.getMyAnalytics().performance` |
-| `assessments.recentResults` | `analyticsService.getMyAnalytics().recentAttempts` (capped to `DASHBOARD_RECENT_RESULTS_LIMIT`) |
-| `upcomingEvents` | `CalendarService#listMine` (calendar module) — the exact method `UpcomingEventsWidget` calls, with the same 30-day window |
-| `recommendations` | `dashboardInsightsService.getUserInsights` (this module) |
-| `qnaActivity` | `analyticsService.getMyAnalytics().qnaActivity` (verbatim — already covers trainee Q&A engagement, no need to duplicate against the qna module) |
+| Field                                    | Source                                                                                                                                          |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `welcome.name/departmentName/groupNames` | `analyticsService.getMyAnalytics().user` (verbatim)                                                                                             |
+| `welcome.streakDays`                     | `analyticsService.getMyAnalytics().streakDays`                                                                                                  |
+| `welcome.overallCompletionPercentage`    | `analyticsService.getMyAnalytics().performance.completionPercentage`                                                                            |
+| `continueLearning`                       | `ProgressService#getContinueLearning` (progress module), reshaped (drops `moduleId`)                                                            |
+| `myCourses`                              | `analyticsService.getMyAnalytics().courses` (verbatim field names)                                                                              |
+| `assessments.upcoming`                   | **Feature-local** `dashboard.repository.ts#findUpcomingAssessmentsForUser` — see "Known limitations"                                            |
+| `assessments.averageScore/taken/passed`  | `analyticsService.getMyAnalytics().performance`                                                                                                 |
+| `assessments.recentResults`              | `analyticsService.getMyAnalytics().recentAttempts` (capped to `DASHBOARD_RECENT_RESULTS_LIMIT`)                                                 |
+| `upcomingEvents`                         | `CalendarService#listMine` (calendar module) — the exact method `UpcomingEventsWidget` calls, with the same 30-day window                       |
+| `recommendations`                        | `dashboardInsightsService.getUserInsights` (this module)                                                                                        |
+| `qnaActivity`                            | `analyticsService.getMyAnalytics().qnaActivity` (verbatim — already covers trainee Q&A engagement, no need to duplicate against the qna module) |
 
 ### `GET /dashboard/trainer` → `TrainerDashboard`
 
-| Field | Source |
-| --- | --- |
-| `groups` | `analyticsService.getGroupsAnalytics(actor, {})`, re-exported verbatim |
-| `overview.totalTrainees` | `sum(groups[].traineeCount)` — see "Known limitations" |
-| `overview.totalGroups` | `groups.length` |
-| `overview.totalCourses` | **Feature-local**: SUPER_ADMIN → all non-deleted courses; TRAINER → distinct courses assigned to their groups |
-| `overview.activeAssessments` | **Feature-local**: SUPER_ADMIN → all published assessments; TRAINER → distinct published assessments assigned to their groups |
-| `overview.averageCompletion` | mean of `groups[].completionPercentage` (0 groups → 0) |
-| `overview.averageScore` | mean of `groups[].averageScore`, nulls skipped (0 non-null scores → `null`) |
-| `leaderboard.items` | `analyticsService.getLeaderboard({ limit: 10 }, actor)` |
-| `insights` | `dashboardInsightsService.getGroupInsights` for the trainer's WORST-performing group — see "Insights scoping" |
-| `pendingGradingCount` | `AssessmentsService#getStats().pendingGradingCount` — see "Known limitations" (org-wide, not trainer-scoped) |
+| Field                        | Source                                                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `groups`                     | `analyticsService.getGroupsAnalytics(actor, {})`, re-exported verbatim                                                                                  |
+| `overview.totalTrainees`     | `sum(groups[].traineeCount)` — see "Known limitations"                                                                                                  |
+| `overview.totalGroups`       | `groups.length`                                                                                                                                         |
+| `overview.totalCourses`      | **Feature-local**: SUPER_ADMIN → all non-deleted courses; TRAINER → distinct courses assigned to their groups                                           |
+| `overview.activeAssessments` | **Feature-local**: SUPER_ADMIN → all published assessments; TRAINER → distinct published assessments assigned to their groups                           |
+| `overview.averageCompletion` | mean of `groups[].completionPercentage` (0 groups → 0)                                                                                                  |
+| `overview.averageScore`      | mean of `groups[].averageScore`, nulls skipped (0 non-null scores → `null`)                                                                             |
+| `leaderboard.items`          | `analyticsService.getLeaderboard({ limit: 10 }, actor)`                                                                                                 |
+| `insights`                   | `dashboardInsightsService.getGroupInsights` for the trainer's WORST-performing group — see "Insights scoping"                                           |
+| `pendingGradingCount`        | `AssessmentsService#getStats(actor).pendingGradingCount` — Super Admin sees all; Trainer sees only assessments in their active creator/assignment scope |
 
 ## AI Insights (`dashboard-insights.service.ts`)
 
@@ -67,15 +71,13 @@ On every call:
 
 1. Look up the cached row for `(scopeType, scopeId)`. If `generatedAt` is within the TTL,
    return it as-is (fields already `{source, generatedAt, insights}`).
-2. Otherwise, compute heuristic insights from the already-available analytics data (see below).
-3. Try `aiProvider.chat(...)` with a compact plain-text summary of that same data and an
-   instruction to return 1–3 short plain-text tips, one per line. On ANY failure — including
-   the expected `ServiceUnavailableError` (503) this environment throws because
-   `ANTHROPIC_API_KEY` is unset — catch it and fall back to the heuristic insights from step 2.
-4. **Always** upsert the result (AI or heuristic) into `AnalyticsInsight` before returning —
-   that upsert is what makes this a cache; a fallback response is cached exactly like an AI one
-   so a flaky/unconfigured provider doesn't cause a repeated Anthropic call (or repeated
-   heuristic recompute) on every request within the TTL window.
+2. Otherwise, compute and persist heuristic insights immediately, then return them without
+   waiting on an external AI provider.
+3. If an AI provider is configured, launch one deduplicated background enrichment using the
+   same compact analytics summary. A stale cached row is likewise served immediately while it
+   refreshes in the background.
+4. Upsert successful AI enrichment for later requests. Provider failures retain the heuristic
+   result, and an unconfigured provider is skipped entirely.
 
 ### Weak-topic specificity — the honesty tradeoff
 
@@ -120,11 +122,6 @@ hallucinating false precision the heuristic path deliberately avoids.
   the trainer's groups is counted twice. A distinct-user count was skipped in favor of reusing
   the already-fetched `groups` array with no extra query; revisit if double-counting becomes a
   real-world problem.
-- **`pendingGradingCount`** reuses `AssessmentsService#getStats().pendingGradingCount` verbatim,
-  which counts every `PENDING_REVIEW` `AssessmentAttempt` platform-wide — the assessments module
-  has no trainer-scoped variant of this count today. Adding one would mean writing a new query
-  against `assessments`' own tables from outside that module's repository, which this module
-  avoids in favor of flagging the limitation instead.
 - **`assessments.upcoming`** is a heuristic, not a first-class "assigned" concept: PUBLISHED,
   non-deleted, assigned to one of the user's groups, `dueDate` in the future, AND no
   `AssessmentAttempt` row yet for this user. An assessment with no `dueDate` never appears here
@@ -134,7 +131,7 @@ hallucinating false precision the heuristic path deliberately avoids.
 
 ## Endpoints (`/api/v1/dashboard`)
 
-| Route | Access |
-| --- | --- |
+| Route          | Access                                                                   |
+| -------------- | ------------------------------------------------------------------------ |
 | `GET /trainee` | TRAINEE only (403 for TRAINER/SUPER_ADMIN — personal view, no "view as") |
-| `GET /trainer` | TRAINER, SUPER_ADMIN |
+| `GET /trainer` | TRAINER, SUPER_ADMIN                                                     |

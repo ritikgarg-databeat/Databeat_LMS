@@ -35,24 +35,32 @@ what's actually here today: features, roles, setup, day-to-day development, and 
   admin-provisioned), split-layout login with "Remember me," dark/light/system theme.
 - **Authentication & RBAC** — JWT access/refresh tokens (httpOnly refresh cookie), three roles
   (`SUPER_ADMIN` / `TRAINER` / `TRAINEE`), forced password change on first login for the seeded
-  Super Admin account, server-enforced authorization on every route.
+  Super Admin account, single-use hashed password-reset links, immediate session revalidation
+  after deactivation/role/password changes, and server-enforced authorization on every route.
 - **User, Department & Group management** — create/edit/deactivate users, organize them into
   departments and training groups, assign trainers, bulk-import members via CSV.
 - **Classroom** — Course → Module → Lesson hierarchy, file/markdown/link lesson resources,
-  per-trainee progress tracking, course-to-group assignment.
-- **AI lesson-completion gate** — when a lesson triggers an AI-generated comprehension quiz, a
-  trainee can't be marked as having completed that lesson until they've submitted it; lessons
-  without a generated quiz (short content, or the AI provider unavailable) complete normally,
-  no gate applied.
+  per-trainee progress tracking, course-to-group assignment, optional deep course duplication,
+  and content versioning. Adding, editing, or removing lesson material reopens stale learner
+  completion and marks the lesson as updated until the learner revisits and completes it again.
+- **AI lesson-completion gate** — readable lesson theory generates a versioned comprehension
+  quiz. A trainee must score at least 70% and may retry until they pass. Opaque uploaded material
+  requires readable text/transcript, and provider failure pauses completion with a clear message
+  rather than silently bypassing the learning check. Genuinely short text-only lessons can still
+  complete without a quiz.
 - **Assessments** — a reusable question bank (multiple question types), timed assessments with
   auto- or manual grading, negative marking, group assignment, attempt tracking and results.
   Manually-graded question types (short/long answer, code snippet, file upload) queue for
-  trainer review; fully auto-gradable attempts are scored the moment they're submitted.
+  trainer review; fully auto-gradable attempts are scored the moment they're submitted. Timers
+  are server-authoritative, expired abandoned attempts are finalized by the worker, assessment
+  definitions lock once attempts exist, and withheld results can be released with learner
+  notifications.
 - **Calendar** — events assignable to a department, a group, or an individual user, each seeing
   it through their own calendar automatically.
 - **AI Tutor** — lesson-contextual AI chat with a swappable provider (OpenAI or Anthropic),
-  conversation history, and graceful degradation (a clear 503, not a crash) when no provider key
-  is configured or the provider itself errors.
+  conversation history, strict lesson/course-domain guardrails, evidence-id validation,
+  deterministic refusal of irrelevant questions, and redaction of common personal identifiers
+  and credentials before any text is sent to an external provider.
 - **Q&A** — trainees ask questions (optionally scoped to a course/lesson/group), trainers and
   peers answer, trainers can mark an answer verified.
 - **Analytics & Reports** — trainer/admin dashboards (completion, scores, engagement,
@@ -66,9 +74,14 @@ what's actually here today: features, roles, setup, day-to-day development, and 
   only ever labeled "measured" or "validated" once it clears fixed sample-size thresholds
   (`backend/src/constants/impact-report.ts`) — otherwise the platform says "insufficient data,"
   never a placeholder number.
-- **Notifications** — in-app notifications for assignments, deadlines, Q&A activity, and
-  trainer announcements, with per-type mute preferences and a daily scheduled job for
-  upcoming-deadline reminders (plus a lazy on-access check as a safety net).
+- **Notifications** — in-app notifications for assignments, deadlines, released assessment
+  results, Q&A activity, and trainer announcements, with per-type mute preferences. A dedicated
+  worker runs catch-up checks on startup and non-overlapping schedules thereafter; notification
+  reads never run deadline-generation work.
+- **Operational safety** — request IDs, structured logs, liveness/readiness endpoints, graceful
+  shutdown, a separate scheduler worker, shared PostgreSQL-backed production rate limits,
+  upload magic-byte checks and root-boundary enforcement, plus physical file cleanup when a
+  resource, lesson, or course is deleted.
 - **Settings** — personal (avatar, theme, notification preferences) and platform-wide
   (Super Admin only) configuration, including a maintenance-mode switch that blocks all
   non-Super-Admin access platform-wide.
@@ -81,19 +94,19 @@ what's actually here today: features, roles, setup, day-to-day development, and 
 
 Three roles, enforced server-side on every route (not just hidden in the UI):
 
-| Capability | Super Admin | Trainer | Trainee |
-|---|:---:|:---:|:---:|
-| Manage users, departments, groups | ✅ | — | — |
-| Manage own assigned groups (roster, announcements) | ✅ | ✅ | — |
-| Platform settings & maintenance mode | ✅ | — | — |
-| View the audit log | ✅ | — | — |
-| Create/edit courses, modules, lessons, question bank | ✅ | ✅ | — |
-| Create & assign assessments, grade attempts | ✅ | ✅ | — |
-| Take courses, complete lessons, attempt assessments | — | — | ✅ |
-| Ask/answer Q&A | ✅ | ✅ | ✅ |
-| Use the AI Tutor | ✅ | ✅ | ✅ |
-| View own analytics/progress | ✅ | ✅ (own groups) | ✅ (own data) |
-| Log timing observations / view pilot dashboard | ✅ | ✅ (own groups) | — |
+| Capability                                           | Super Admin |     Trainer     |    Trainee    |
+| ---------------------------------------------------- | :---------: | :-------------: | :-----------: |
+| Manage users, departments, groups                    |     ✅      |        —        |       —       |
+| Manage own assigned groups (roster, announcements)   |     ✅      |       ✅        |       —       |
+| Platform settings & maintenance mode                 |     ✅      |        —        |       —       |
+| View the audit log                                   |     ✅      |        —        |       —       |
+| Create/edit courses, modules, lessons, question bank |     ✅      |       ✅        |       —       |
+| Create & assign assessments, grade attempts          |     ✅      |       ✅        |       —       |
+| Take courses, complete lessons, attempt assessments  |      —      |        —        |      ✅       |
+| Ask/answer Q&A                                       |     ✅      |       ✅        |      ✅       |
+| Use the AI Tutor                                     |     ✅      |       ✅        |      ✅       |
+| View own analytics/progress                          |     ✅      | ✅ (own groups) | ✅ (own data) |
+| Log timing observations / view pilot dashboard       |     ✅      | ✅ (own groups) |       —       |
 
 A Super Admin account is provisioned once at seed time; every other account (Trainer or
 Trainee) is created by a Super Admin or Trainer — there is no public sign-up.
@@ -108,9 +121,10 @@ Router v7 (route-level code splitting via `React.lazy`), TanStack Query v5, Reac
 Zod, Axios, Zustand (client/UI state), Framer Motion, Recharts, Lucide Icons.
 
 **Backend:** Node.js, Express 5, TypeScript (strict), Prisma ORM 7 against PostgreSQL via
-`@prisma/adapter-pg` (a standard long-lived connection pool — deliberately not the
-`@prisma/adapter-neon` WebSocket driver, which targets short-lived edge/serverless
-invocations rather than this app's long-running Node process), JWT (`jsonwebtoken`), bcrypt,
+`@prisma/adapter-pg` (bounded, pre-warmed API and worker pools; Neon traffic uses its pooled
+runtime endpoint — deliberately not the `@prisma/adapter-neon` WebSocket driver, which targets
+short-lived edge/serverless invocations rather than this app's long-running Node process), JWT
+(`jsonwebtoken`), bcrypt,
 Multer, Helmet, Morgan, Compression, CORS, express-rate-limit, express-validator, Winston,
 node-cron (scheduled jobs), a swappable AI provider layer (Anthropic and OpenAI SDKs).
 
@@ -132,38 +146,38 @@ ai-lms/
 
 ### Frontend (`frontend/src/`)
 
-| Folder | Purpose |
-|---|---|
-| `components/ui/` | Design-system primitives (Button, Input, Dialog, Select, Tabs, ...) |
-| `components/shared/` | Composite components (EmptyState, ConfirmDialog, LoadingScreen, ErrorScreen, ...) |
-| `components/layout/` | Sidebar, Header, Breadcrumbs, MobileNav, Footer |
-| `config/` | Build-time env var access |
-| `constants/` | Roles, permissions, routes, file types, HTTP status, messages |
-| `contexts/` / `providers/` | Auth/theme/query context + provider implementations |
-| `features/` | Feature modules — `ai`, `analytics`, `assessment`, `auth`, `calendar`, `classroom`, `dashboard`, `departments`, `groups`, `landing`, `notifications`, `profile`, `qna`, `reports`, `settings`, `users` |
-| `hooks/` | Cross-feature hooks (`useAuth`, `useTheme`, `useDebounce`, ...) |
-| `layouts/` | Admin/Trainer/Trainee/Auth/Public page shells |
-| `routes/` | React Router route tree (`React.lazy`-split page components), route guards |
-| `services/api/` | Shared Axios client + auth-refresh interceptor |
-| `store/` | Zustand client-UI-state store (sidebar collapse, mobile nav, etc.) |
-| `styles/` | Global stylesheet + design tokens (`globals.css`) |
-| `utils/` | Date/file/validation/permission/theme/error/notification helpers |
+| Folder                     | Purpose                                                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `components/ui/`           | Design-system primitives (Button, Input, Dialog, Select, Tabs, ...)                                                                                                                                    |
+| `components/shared/`       | Composite components (EmptyState, ConfirmDialog, LoadingScreen, ErrorScreen, ...)                                                                                                                      |
+| `components/layout/`       | Sidebar, Header, Breadcrumbs, MobileNav, Footer                                                                                                                                                        |
+| `config/`                  | Build-time env var access                                                                                                                                                                              |
+| `constants/`               | Roles, permissions, routes, file types, HTTP status, messages                                                                                                                                          |
+| `contexts/` / `providers/` | Auth/theme/query context + provider implementations                                                                                                                                                    |
+| `features/`                | Feature modules — `ai`, `analytics`, `assessment`, `auth`, `calendar`, `classroom`, `dashboard`, `departments`, `groups`, `landing`, `notifications`, `profile`, `qna`, `reports`, `settings`, `users` |
+| `hooks/`                   | Cross-feature hooks (`useAuth`, `useTheme`, `useDebounce`, ...)                                                                                                                                        |
+| `layouts/`                 | Admin/Trainer/Trainee/Auth/Public page shells                                                                                                                                                          |
+| `routes/`                  | React Router route tree (`React.lazy`-split page components), route guards                                                                                                                             |
+| `services/api/`            | Shared Axios client + auth-refresh interceptor                                                                                                                                                         |
+| `store/`                   | Zustand client-UI-state store (sidebar collapse, mobile nav, etc.)                                                                                                                                     |
+| `styles/`                  | Global stylesheet + design tokens (`globals.css`)                                                                                                                                                      |
+| `utils/`                   | Date/file/validation/permission/theme/error/notification helpers                                                                                                                                       |
 
 ### Backend (`backend/src/`)
 
-| Folder | Purpose |
-|---|---|
-| `config/` | Env loading/validation, app config, CORS config, Prisma client setup |
-| `constants/` | Roles, permissions, routes, file types, status, HTTP codes, messages |
-| `controllers/` | `BaseController` — shared response-envelope helpers |
-| `jobs/` | `node-cron` scheduler + the daily deadline-reminders job |
-| `middleware/` | Auth, RBAC, rate limiters (global/login/AI), request logger, error/404 handlers, force-password-change gate |
-| `modules/` | 26 domain modules, each with `controller/service/repository/validation/routes/types/dto` — `ai`, `analytics`, `assessment-attempts`, `assessments`, `audit-log`, `auth`, `calendar`, `courses`, `dashboard`, `departments`, `experience-levels`, `group-members`, `groups`, `impact-metrics`, `lesson-quiz`, `lessons`, `modules`, `notifications`, `progress`, `qna`, `questions`, `reports`, `resources`, `settings`, `timing-observations`, `users` |
-| `repositories/` | `BaseRepository` — shared Prisma client access (only repositories touch Prisma directly) |
-| `storage/` | Storage abstraction (`StorageProvider` interface + `LocalStorageProvider`) |
-| `docs/` | [`ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) — the error-handling standard every module follows |
-| `prisma/` | `schema.prisma`, migrations, `seed.ts` (core), `seed-demo.ts` (optional sample data) |
-| `logs/` | Winston log output (gitignored) |
+| Folder          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `config/`       | Env loading/validation, app config, CORS config, Prisma client setup                                                                                                                                                                                                                                                                                                                                                                                   |
+| `constants/`    | Roles, permissions, routes, file types, status, HTTP codes, messages                                                                                                                                                                                                                                                                                                                                                                                   |
+| `controllers/`  | `BaseController` — shared response-envelope helpers                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `jobs/`         | Non-overlapping worker schedules for deadline reminders, expired assessment finalization, and optional security-data retention                                                                                                                                                                                                                                                                                                                         |
+| `middleware/`   | Auth, RBAC, rate limiters (global/login/AI), request logger, error/404 handlers, force-password-change gate                                                                                                                                                                                                                                                                                                                                            |
+| `modules/`      | 26 domain modules, each with `controller/service/repository/validation/routes/types/dto` — `ai`, `analytics`, `assessment-attempts`, `assessments`, `audit-log`, `auth`, `calendar`, `courses`, `dashboard`, `departments`, `experience-levels`, `group-members`, `groups`, `impact-metrics`, `lesson-quiz`, `lessons`, `modules`, `notifications`, `progress`, `qna`, `questions`, `reports`, `resources`, `settings`, `timing-observations`, `users` |
+| `repositories/` | `BaseRepository` — shared Prisma client access (only repositories touch Prisma directly)                                                                                                                                                                                                                                                                                                                                                               |
+| `storage/`      | Storage abstraction (`StorageProvider` interface + `LocalStorageProvider`)                                                                                                                                                                                                                                                                                                                                                                             |
+| `docs/`         | [`ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) — the error-handling standard every module follows                                                                                                                                                                                                                                                                                                                                               |
+| `prisma/`       | `schema.prisma`, migrations, `seed.ts` (core), `seed-demo.ts` (optional sample data)                                                                                                                                                                                                                                                                                                                                                                   |
+| `logs/`         | Winston log output (gitignored)                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 Each module folder also carries its own `README.md` describing that module's specific design
 decisions — start there for implementation detail beyond what this file covers.
@@ -196,6 +210,9 @@ npm run seed
 
 # Run both frontend and backend
 npm run dev
+
+# In a second terminal, run the required background worker
+npm run dev:worker --prefix backend
 ```
 
 ---
@@ -213,6 +230,9 @@ VITE_API_URL=http://localhost:5000/api/v1
 ```env
 PORT=5000
 NODE_ENV=development
+TRUST_PROXY=false
+RUN_SCHEDULER=false                       # keep false in API processes
+RATE_LIMIT_STORE=memory                   # use postgres in production/multi-instance deployments
 DATABASE_URL=postgresql://...              # Neon (or any Postgres) connection string
 JWT_SECRET=...
 JWT_REFRESH_SECRET=...
@@ -221,6 +241,9 @@ REFRESH_EXPIRES=7d
 REFRESH_EXPIRES_REMEMBER_ME=30d
 UPLOAD_PATH=./src/uploads
 CORS_ORIGIN=http://localhost:5173           # required (fails loudly at boot) in production
+PASSWORD_RESET_URL=http://localhost:5173/reset-password
+PASSWORD_RESET_EXPIRES_MINUTES=30
+EMAIL_WEBHOOK_URL=                           # reset-link delivery endpoint; optional for local-only use
 ADMIN_EMAIL=admin@lmsplatform.com           # seed-only — first Super Admin account
 ADMIN_PASSWORD=ChangeMe@123                 # seed-only — forced to change on first login
 
@@ -296,6 +319,9 @@ npm run dev
 # Or individually
 npm run dev:frontend    # http://localhost:5173
 npm run dev:backend     # http://localhost:5000
+
+# Required for expiry finalization and proactive reminders
+npm run dev:worker --prefix backend
 ```
 
 Before committing:
@@ -313,19 +339,19 @@ convention, and versioning strategy.
 
 ## Scripts (root)
 
-| Script | Description |
-|---|---|
-| `npm run dev` | Run frontend + backend dev servers concurrently |
-| `npm run build` | Build both projects for production |
-| `npm run start` | Start the built backend (serves the API) |
-| `npm run typecheck` | Typecheck both projects |
-| `npm run lint` / `lint:fix` | Lint both projects |
-| `npm run format` / `format:check` | Prettier format both projects |
-| `npm run prisma:generate` | Regenerate the Prisma client |
-| `npm run prisma:migrate` | Run Prisma migrations |
-| `npm run seed` | Seed the first Super Admin account (core, required) |
-| `npm run seed:demo` | Seed optional sample departments/groups/course/assessment (backend-only, non-production) |
-| `npm run install:all` | Install dependencies for both projects |
+| Script                            | Description                                                                              |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `npm run dev`                     | Run frontend + backend dev servers concurrently                                          |
+| `npm run build`                   | Build both projects for production                                                       |
+| `npm run start`                   | Start the built backend (serves the API)                                                 |
+| `npm run typecheck`               | Typecheck both projects                                                                  |
+| `npm run lint` / `lint:fix`       | Lint both projects                                                                       |
+| `npm run format` / `format:check` | Prettier format both projects                                                            |
+| `npm run prisma:generate`         | Regenerate the Prisma client                                                             |
+| `npm run prisma:migrate`          | Run Prisma migrations                                                                    |
+| `npm run seed`                    | Seed the first Super Admin account (core, required)                                      |
+| `npm run seed:demo`               | Seed optional sample departments/groups/course/assessment (backend-only, non-production) |
+| `npm run install:all`             | Install dependencies for both projects                                                   |
 
 Each project also has its own scripts beyond these — see `frontend/package.json` and
 `backend/package.json`.
@@ -346,10 +372,11 @@ Each project also has its own scripts beyond these — see `frontend/package.jso
   `{ success, message, data }` on success, `{ success, message, errors }` on failure. See
   [`backend/docs/ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) for the full standard
   (error class hierarchy, HTTP status mapping, what gets logged vs. what the client sees).
-- **Comments:** only where the *why* isn't obvious from the code (a workaround, an
+- **Comments:** only where the _why_ isn't obvious from the code (a workaround, an
   invariant, a non-obvious constraint) — not restating what well-named code already shows.
-- **No raw SQL** — Prisma is the query layer, confirmed zero `$queryRaw`/`$executeRaw` usage
-  anywhere in the codebase.
+- **Prisma-first data access** — domain repositories use Prisma. Tagged, parameterized raw SQL is
+  limited to the readiness `SELECT 1`, shared rate-limit bucket atomics, and the explicit database
+  invariant checker.
 
 Full architectural rationale for every decision above lives in `ARCHITECTURE.md`.
 
@@ -358,7 +385,7 @@ Full architectural rationale for every decision above lives in `ARCHITECTURE.md`
 ## Deployment
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete production deployment guide:
-Neon database setup and migrations, backend hosting (process manager, reverse proxy, TLS),
+Neon database setup and migrations, API + worker hosting (process manager, reverse proxy, TLS),
 frontend static hosting (with SPA fallback routing), the Super Admin first-login flow, and a
 post-deploy checklist.
 
@@ -368,38 +395,42 @@ post-deploy checklist.
 
 See [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md) for the full manual QA checklist
 across every feature area, and [`backend/docs/ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md)
-for the error-handling standard every module follows. Automated test coverage
-(`backend/package.json`'s `test` script) is a placeholder today — a good next investment beyond
-this release.
+for the error-handling standard every module follows. `npm test --prefix backend` runs the current
+Node test suite covering core hardening invariants (group lifecycle, timer boundaries, trainer
+scope, AI guardrails/redaction, quiz pass rules, upload signatures, and storage copies). CI runs
+tests, typechecks, lint, and production builds; wider API-integration and browser E2E coverage
+remain worthwhile follow-up work.
 
 ---
 
 ## Documentation Map
 
-| Location | What it covers |
-|---|---|
-| `README.md` (this file) | Features, setup, and day-to-day development |
-| `ARCHITECTURE.md` | Full system design rationale |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Production deployment, environment, and post-deploy checklist |
-| [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md) | Branching, commits, and versioning strategy |
-| [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md) | Manual QA checklist by feature area |
-| [`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md) | How every AI feature actually works — real system prompts, context builder, provider abstraction, error handling, rate limiting |
-| [`backend/docs/ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) | Backend error-handling standard (error classes, HTTP mapping, logging) |
-| `backend/src/modules/*/README.md` | Per-module design notes (25 of 26 modules) |
+| Location                                                           | What it covers                                                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` (this file)                                            | Features, setup, and day-to-day development                                                                                     |
+| `ARCHITECTURE.md`                                                  | Full system design rationale                                                                                                    |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                         | Production deployment, environment, and post-deploy checklist                                                                   |
+| [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md)                     | Branching, commits, and versioning strategy                                                                                     |
+| [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md)           | Manual QA checklist by feature area                                                                                             |
+| [`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md)                       | How every AI feature actually works — real system prompts, context builder, provider abstraction, error handling, rate limiting |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md)                         | API/worker process model, health checks, storage, backups, retention, and production runbook                                    |
+| [`backend/docs/ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) | Backend error-handling standard (error classes, HTTP mapping, logging)                                                          |
+| `backend/src/modules/*/README.md`                                  | Per-module design notes (25 of 26 modules)                                                                                      |
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| Backend won't start, "Missing required environment variable" | Check `DATABASE_URL`/`JWT_SECRET`/`JWT_REFRESH_SECRET` are set; in production, `CORS_ORIGIN` is required too |
-| Frontend can't reach the API (network errors) | `VITE_API_URL` doesn't match where the backend is actually running, or the backend isn't up |
-| CORS error in the browser console | Backend's `CORS_ORIGIN` doesn't exactly match the frontend's origin (scheme + host + port) |
-| Login succeeds but every other request 403s with "must change your password" | Expected for a never-changed-password account (e.g. a freshly seeded Super Admin) — complete the change-password flow, not a bug |
-| `429 Too Many Requests` during heavy local testing | The global/login/AI rate limiters are working as designed — wait for the window to reset, or check `RateLimit-Reset` |
-| AI Tutor / lesson quiz returns 503 | The active provider's key (`MAIN_OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, per `AI_PROVIDER`) is unset, or the provider itself returned an error (e.g. a real rate-limit/quota error from the vendor) — this is by design, not a crash |
-| Prisma errors after pulling new migrations | Run `npx prisma generate` again — the generated client is out of sync with the schema |
+| Symptom                                                                      | Likely cause                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Backend won't start, "Missing required environment variable"                 | Check `DATABASE_URL`/`JWT_SECRET`/`JWT_REFRESH_SECRET` are set; in production, `CORS_ORIGIN` is required too                                                                                                                         |
+| Frontend can't reach the API (network errors)                                | `VITE_API_URL` doesn't match where the backend is actually running, or the backend isn't up                                                                                                                                          |
+| CORS error in the browser console                                            | Backend's `CORS_ORIGIN` doesn't exactly match the frontend's origin (scheme + host + port)                                                                                                                                           |
+| Login succeeds but every other request 403s with "must change your password" | Expected for a never-changed-password account (e.g. a freshly seeded Super Admin) — complete the change-password flow, not a bug                                                                                                     |
+| `429 Too Many Requests` during heavy local testing                           | The global/login/AI rate limiters are working as designed — wait for the window to reset, or check `RateLimit-Reset`                                                                                                                 |
+| AI Tutor / lesson quiz returns 503                                           | The active provider's key (`MAIN_OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, per `AI_PROVIDER`) is unset, or the provider itself returned an error (e.g. a real rate-limit/quota error from the vendor) — this is by design, not a crash |
+| Assessment timers/reminders do not progress in the background                | Start exactly one worker with `npm run dev:worker --prefix backend` (development) or `npm run start:worker --prefix backend` (built deployment)                                                                                      |
+| Prisma errors after pulling new migrations                                   | Run `npx prisma generate` again — the generated client is out of sync with the schema                                                                                                                                                |
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)'s own troubleshooting table for
 production-specific issues (SPA routing 404s, file upload persistence, etc.).

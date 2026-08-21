@@ -1,9 +1,22 @@
+import type { Role } from '@prisma/client';
+
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
-import { BadRequestError, NotFoundError } from '@/utils/app-error';
+import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { deleteLessonResourceFiles } from '@/utils/lesson-resource-cleanup.util';
 
-import type { CreateModuleDto, ReorderModulesDto, UpdateModuleDto, UpdateModuleStatusDto } from './modules.dto';
+import type {
+  CreateModuleDto,
+  ReorderModulesDto,
+  UpdateModuleDto,
+  UpdateModuleStatusDto,
+} from './modules.dto';
 import { ModulesRepository } from './modules.repository';
+
+interface Actor {
+  id: string;
+  role: Role;
+}
 
 // Business logic for the modules module. Controllers call into this layer only.
 export class ModulesService extends BaseService {
@@ -11,18 +24,21 @@ export class ModulesService extends BaseService {
     super();
   }
 
-  list(courseId: string) {
+  async list(courseId: string, actor: Actor) {
+    await this.assertCourseInScope(courseId, actor);
     return this.repository.findByCourseId(courseId);
   }
 
-  async getById(id: string) {
+  async getById(id: string, actor: Actor) {
     const module = await this.repository.findByIdWithLessons(id);
     if (!module) throw new NotFoundError('Module not found.');
+    await this.assertCourseInScope(module.courseId, actor);
     return module;
   }
 
-  async create(dto: CreateModuleDto, actorId: string, ipAddress?: string | null) {
+  async create(dto: CreateModuleDto, actor: Actor, ipAddress?: string | null) {
     await this.assertCourseExists(dto.courseId);
+    await this.assertCourseInScope(dto.courseId, actor);
     const order = await this.repository.findNextOrder(dto.courseId);
 
     const created = await this.repository.create({
@@ -35,7 +51,7 @@ export class ModulesService extends BaseService {
 
     await auditLogService.record({
       action: 'MODULE_CREATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { moduleId: created.id, courseId: created.courseId, title: created.title },
     });
@@ -43,8 +59,9 @@ export class ModulesService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateModuleDto, actorId: string, ipAddress?: string | null) {
+  async update(id: string, dto: UpdateModuleDto, actor: Actor, ipAddress?: string | null) {
     const existing = await this.findOrThrow(id);
+    await this.assertCourseInScope(existing.courseId, actor);
 
     const updated = await this.repository.update(id, {
       title: dto.title,
@@ -56,7 +73,7 @@ export class ModulesService extends BaseService {
 
     await auditLogService.record({
       action: 'MODULE_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { moduleId: existing.id, changes: { ...dto } },
     });
@@ -64,14 +81,15 @@ export class ModulesService extends BaseService {
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateModuleStatusDto, actorId: string, ipAddress?: string | null) {
+  async updateStatus(id: string, dto: UpdateModuleStatusDto, actor: Actor, ipAddress?: string | null) {
     const existing = await this.findOrThrow(id);
+    await this.assertCourseInScope(existing.courseId, actor);
 
     const updated = await this.repository.update(id, { isPublished: dto.isPublished });
 
     await auditLogService.record({
       action: 'MODULE_UPDATED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { moduleId: existing.id, isPublishedChangedTo: dto.isPublished },
     });
@@ -79,20 +97,26 @@ export class ModulesService extends BaseService {
     return updated;
   }
 
-  async remove(id: string, actorId: string, ipAddress?: string | null): Promise<void> {
-    const existing = await this.findOrThrow(id);
+  async remove(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+    const [existing, fileResources] = await Promise.all([
+      this.findOrThrow(id),
+      this.repository.findFileResourcesByModuleId(id),
+    ]);
+    await this.assertCourseInScope(existing.courseId, actor);
 
     await this.repository.delete(id);
+    await deleteLessonResourceFiles(fileResources, { type: 'module', id });
 
     await auditLogService.record({
       action: 'MODULE_DELETED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { moduleId: existing.id, courseId: existing.courseId, title: existing.title },
     });
   }
 
-  async reorder(dto: ReorderModulesDto, actorId: string, ipAddress?: string | null): Promise<void> {
+  async reorder(dto: ReorderModulesDto, actor: Actor, ipAddress?: string | null): Promise<void> {
+    await this.assertCourseInScope(dto.courseId, actor);
     const [belonging, totalCount] = await Promise.all([
       this.repository.findManyByIds(dto.courseId, dto.orderedIds),
       this.repository.countByCourseId(dto.courseId),
@@ -110,7 +134,7 @@ export class ModulesService extends BaseService {
 
     await auditLogService.record({
       action: 'MODULE_REORDERED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { courseId: dto.courseId, orderedIds: dto.orderedIds },
     });
@@ -125,5 +149,11 @@ export class ModulesService extends BaseService {
   private async assertCourseExists(courseId: string): Promise<void> {
     const course = await this.repository.findCourseById(courseId);
     if (!course) throw new BadRequestError('Course not found.');
+  }
+
+  private async assertCourseInScope(courseId: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isCourseInTrainerScope(courseId, actor.id))) {
+      throw new ForbiddenError("You don't have permission to manage this course.");
+    }
   }
 }

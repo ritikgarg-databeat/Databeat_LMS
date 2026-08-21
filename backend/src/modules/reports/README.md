@@ -16,12 +16,12 @@ respond with `text/csv; charset=utf-8` + `Content-Disposition: attachment;
 filename="<base>-YYYY-MM-DD.csv"` (UTC date). Responses deliberately bypass the JSON success
 envelope — the body is the file itself.
 
-| Endpoint | Query params | One row per |
-|---|---|---|
-| `/api/v1/reports/progress/export` | `groupId?`, `courseId?` | trainee-in-scope × accessible course |
-| `/api/v1/reports/results/export` | `assessmentId?`, `groupId?` | assessment attempt by an in-scope trainee |
-| `/api/v1/reports/groups/export` | — | group in scope |
-| `/api/v1/reports/courses/export` | — | published course in scope |
+| Endpoint                          | Query params                | One row per                               |
+| --------------------------------- | --------------------------- | ----------------------------------------- |
+| `/api/v1/reports/progress/export` | `groupId?`, `courseId?`     | trainee-in-scope × accessible course      |
+| `/api/v1/reports/results/export`  | `assessmentId?`, `groupId?` | assessment attempt by an in-scope trainee |
+| `/api/v1/reports/groups/export`   | —                           | group in scope                            |
+| `/api/v1/reports/courses/export`  | —                           | published course in scope                 |
 
 ## Column contracts
 
@@ -75,9 +75,8 @@ Time Spent (min), Submitted At`
 
 - Routes: `authenticate` + `requireRole(TRAINER, SUPER_ADMIN)`.
 - Data: every export runs through `ReportsService#resolveScopedGroupIds` — a TRAINER's scope
-  is exactly the non-deleted groups with `Group.trainerId = actor.id` (ARCHIVED groups stay
-  in scope: exports are where historical batches matter); SUPER_ADMIN's scope is every
-  non-deleted group. Passing a `groupId` outside a trainer's scope is a 403 whether or not
+  is exactly active, non-deleted groups with `Group.trainerId = actor.id`; SUPER_ADMIN's scope is
+  every active, non-deleted group. Passing a `groupId` outside a trainer's scope is a 403 whether or not
   the group exists (existence is never leaked); a SUPER_ADMIN passing a nonexistent/deleted
   `groupId` gets a 404.
 

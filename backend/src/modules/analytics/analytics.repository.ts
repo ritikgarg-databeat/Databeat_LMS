@@ -1,5 +1,6 @@
 import type { LessonProgressStatus, Prisma, UserPerformanceSnapshot } from '@prisma/client';
 
+import { activeGroupScope } from '@/policies/group-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { AssessmentQuestionStat, AssessmentWeakTopic, LessonFunnelStep } from './analytics.types';
@@ -187,14 +188,18 @@ export class AnalyticsRepository extends BaseRepository {
     // object-spread into a single `groupMemberships` key that would silently overwrite.
     const membershipConditions: Prisma.UserWhereInput[] = [];
     if (criteria.trainerGroupIds) {
-      membershipConditions.push({ groupMemberships: { some: { groupId: { in: criteria.trainerGroupIds } } } });
+      membershipConditions.push({
+        groupMemberships: { some: { groupId: { in: criteria.trainerGroupIds } } },
+      });
     }
     if (criteria.groupId) {
       membershipConditions.push({ groupMemberships: { some: { groupId: criteria.groupId } } });
     }
     if (criteria.courseId) {
       membershipConditions.push({
-        groupMemberships: { some: { group: { courseAssignments: { some: { courseId: criteria.courseId } } } } },
+        groupMemberships: {
+          some: { group: { courseAssignments: { some: { courseId: criteria.courseId } } } },
+        },
       });
     }
 
@@ -260,7 +265,13 @@ export class AnalyticsRepository extends BaseRepository {
   async sumDailyActivitySince(userId: string, since: Date): Promise<number> {
     const result = await this.db.userDailyActivity.aggregate({
       where: { userId, date: { gte: since } },
-      _sum: { logins: true, lessonsCompleted: true, assessmentsSubmitted: true, aiMessages: true, qnaPosts: true },
+      _sum: {
+        logins: true,
+        lessonsCompleted: true,
+        assessmentsSubmitted: true,
+        aiMessages: true,
+        qnaPosts: true,
+      },
     });
     const sums = result._sum;
     return (
@@ -343,9 +354,40 @@ export class AnalyticsRepository extends BaseRepository {
       where: {
         status: 'PUBLISHED',
         deletedAt: null,
-        groupAssignments: { some: { group: { members: { some: { userId } } } } },
+        groupAssignments: { some: { group: activeGroupScope({ members: { some: { userId } } }) } },
       },
       select: { id: true, title: true },
+    });
+  }
+
+  /** Dashboard-oriented shape: accessible courses, published lessons, and this user's progress in one round trip. */
+  findAccessibleCoursesWithProgress(userId: string) {
+    return this.db.course.findMany({
+      where: {
+        status: 'PUBLISHED',
+        deletedAt: null,
+        groupAssignments: { some: { group: activeGroupScope({ members: { some: { userId } } }) } },
+      },
+      select: {
+        id: true,
+        title: true,
+        modules: {
+          where: { isPublished: true },
+          select: {
+            lessons: {
+              where: { isPublished: true },
+              select: {
+                id: true,
+                progress: {
+                  where: { userId },
+                  take: 1,
+                  select: { status: true, timeSpentSeconds: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
   }
 
@@ -401,7 +443,9 @@ export class AnalyticsRepository extends BaseRepository {
     const users = await this.db.user.findMany({
       where: {
         role: 'TRAINEE',
-        groupMemberships: { some: { group: { courseAssignments: { some: { courseId } } } } },
+        groupMemberships: {
+          some: { group: activeGroupScope({ courseAssignments: { some: { courseId } } }) },
+        },
       },
       select: { id: true },
     });
@@ -436,7 +480,7 @@ export class AnalyticsRepository extends BaseRepository {
       where: {
         status: 'PUBLISHED',
         deletedAt: null,
-        groupAssignments: { some: { group: { members: { some: { userId } } } } },
+        groupAssignments: { some: { group: activeGroupScope({ members: { some: { userId } } }) } },
       },
     });
   }
@@ -544,7 +588,11 @@ export class AnalyticsRepository extends BaseRepository {
     const [questionsAsked, answersReceived, verifiedAnswers] = await Promise.all([
       this.db.qnaQuestion.count({ where: { authorId: userId, deletedAt: null } }),
       this.db.qnaAnswer.count({
-        where: { deletedAt: null, authorId: { not: userId }, question: { authorId: userId, deletedAt: null } },
+        where: {
+          deletedAt: null,
+          authorId: { not: userId },
+          question: { authorId: userId, deletedAt: null },
+        },
       }),
       this.db.qnaAnswer.count({
         where: { deletedAt: null, isVerified: true, question: { authorId: userId, deletedAt: null } },

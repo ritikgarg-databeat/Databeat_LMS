@@ -1,3 +1,5 @@
+import type { Role } from '@prisma/client';
+
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
 import type { PaginatedData } from '@/types/common';
@@ -12,6 +14,11 @@ import type {
 import { DepartmentsRepository } from './departments.repository';
 import type { DepartmentListFilters, DepartmentSortField, SortOrder } from './departments.types';
 
+interface Actor {
+  id: string;
+  role: Role;
+}
+
 // Business logic for the departments module. Controllers call into this layer only.
 export class DepartmentsService extends BaseService {
   constructor(protected readonly repository: DepartmentsRepository = new DepartmentsRepository()) {
@@ -19,18 +26,29 @@ export class DepartmentsService extends BaseService {
   }
 
   async list(
+    actor: Actor,
     filters: DepartmentListFilters,
     page: number,
     pageSize: number,
     sortBy: DepartmentSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(
+      filters,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+      sortOrder,
+      actor.role === 'TRAINER' ? actor.id : undefined,
+    );
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async getById(id: string) {
-    const department = await this.repository.findById(id);
+  async getById(id: string, actor?: Actor) {
+    const department =
+      actor?.role === 'TRAINER'
+        ? await this.repository.findByIdInTrainerScope(id, actor.id)
+        : await this.repository.findById(id);
     if (!department) throw new NotFoundError('Department not found.');
     return department;
   }

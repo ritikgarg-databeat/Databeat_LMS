@@ -12,4 +12,5 @@ Department creation and organizational structure management.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented management includes paginated/searchable department lists, create/edit/delete dialogs,
+stats, validation, and role-aware visibility.

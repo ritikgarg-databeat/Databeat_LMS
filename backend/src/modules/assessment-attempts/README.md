@@ -35,8 +35,8 @@ whether an inaccessible/nonexistent assessment exists — always a 403, never a 
 
 `POST /start` additionally enforces a time window that visibility alone doesn't cover: a brand
 new attempt cannot be started before `assessment.availableFrom` or after `assessment.dueDate` —
-but a trainee who already has an `IN_PROGRESS` attempt may always resume/finish it, even if the
-deadline ticks over mid-attempt.
+an existing attempt can be viewed after the boundary, but answer writes are rejected and the
+worker finalizes saved answers automatically.
 
 ## No retakes; resume is idempotent
 
@@ -52,16 +52,26 @@ Every response sent to a trainee before results are authorized to be revealed �
 `POST /start`'s question list, and `GET /mine` while `IN_PROGRESS`/`SUBMITTED`/`PENDING_REVIEW` —
 uses the **sanitized** question view: `snapshotOptions` has every `isCorrect` flag stripped, and
 `snapshotCorrectAnswers`/`snapshotExplanation` are omitted from the payload entirely. Only once an
-attempt is `GRADED` *and* `assessment.showResultImmediately` is true does `GET /mine` switch to
+attempt is `GRADED` and either `assessment.showResultImmediately` is true or
+`assessment.resultsReleasedAt` is set does `GET /mine` switch to
 the full, un-sanitized view (options' `isCorrect`, `snapshotCorrectAnswers`, `snapshotExplanation`,
 plus each answer's `isCorrect`/`marksAwarded` and the attempt's `totalScore`/`percentage`/
 `passed`). Trainer/Super-Admin endpoints always see the full view — they're authorized to grade.
 
-**`showResultImmediately` off:** rather than build an unused "reveal later" mechanism (explicitly
-out of scope for this endpoint per Prompt 6), a `GRADED` attempt with the toggle off simply never
-auto-reveals its results through `GET /mine` — the response is `{ status: 'GRADED', totalScore:
-null, percentage: null, passed: null }` with an empty question list. The real scores are untouched
-in the DB and always visible to a Trainer/Super-Admin via the trainer-only endpoints.
+**`showResultImmediately` off:** a graded attempt remains masked (`totalScore`/`percentage`/
+`passed` null and no answer key) until a trainer uses the assessment result-release action.
+
+## Server-authoritative timer and expiry worker
+
+`POST /start` stores immutable `expiresAt`, calculated as the earlier of the attempt duration and
+assessment due date. Every answer save/upload checks this server timestamp; the browser timer uses
+server-provided `remainingSeconds` and cannot extend the attempt by refreshing or changing its
+clock. Submission clamps `timeSpentSeconds` to the same boundary and records `submissionReason`
+(`LEARNER`, `TIME_EXPIRED`, or `DUE_DATE_REACHED`).
+
+The separate scheduler worker scans `IN_PROGRESS` attempts whose `expiresAt` has passed every
+minute and finalizes the answers already saved. It also runs once on startup to catch up after
+downtime, uses a bounded batch, and prevents overlapping scheduled executions.
 
 ## Auto vs. manual grading (`POST /mine/submit`)
 
@@ -81,14 +91,14 @@ in the DB and always visible to a Trainer/Super-Admin via the trainer-only endpo
   `PENDING_REVIEW` forever.
 - **Aggregate `autoScore`** = sum of auto-graded `marksAwarded`, minus (if
   `assessment.negativeMarkingEnabled`) `negativeMarksPerWrongAnswer` × the count of auto-gradable
-  questions that were *attempted* (an answer row exists) but wrong — skipped questions never incur
+  questions that were _attempted_ (an answer row exists) but wrong — skipped questions never incur
   the penalty. Floored at `0`.
 - **Attempt status after submit**: if the assessment has any manual-review question at all, status
   becomes `PENDING_REVIEW` and `manualScore`/`totalScore`/`percentage`/`passed` stay `null` until a
   trainer finishes grading every one of them. If every question was auto-gradable, status becomes
   `GRADED` immediately with `manualScore = 0`, `totalScore = autoScore`, `percentage =
-  round(totalScore / maxMarks * 100)` (`maxMarks` = sum of this assessment's `AssessmentQuestion
-  .marks`; `0` if `maxMarks` is `0`), and `passed = percentage >= assessment.passingPercentage`.
+round(totalScore / maxMarks * 100)` (`maxMarks` = sum of this assessment's `AssessmentQuestion
+.marks`; `0` if `maxMarks` is `0`), and `passed = percentage >= assessment.passingPercentage`.
 
 ## Manual grading (`PATCH /:attemptId/answers/:answerId/grade`)
 
@@ -106,16 +116,17 @@ update happen inside one `$transaction`.
 `FILE_UPLOAD` questions are answered via the dedicated `POST
 /mine/answers/:assessmentQuestionId/upload` endpoint (multipart, field name `file`), never the
 JSON `PUT /mine/answers/:assessmentQuestionId` endpoint (which explicitly rejects that type,
-pointing the caller at the upload endpoint instead). Reuses the shared `upload` multer instance
+pointing the caller at the upload endpoint instead). Reuses the shared disk-temporary `upload` multer instance
 and `ACCEPTED_LESSON_MIME_TYPES`/`MAX_LESSON_FILE_SIZE_BYTES` — no separate constant set for
-assessment submissions, per Prompt 6's instructions. Saved via the shared `storageProvider`
+assessment submissions, per Prompt 6's instructions. Declared MIME types are verified against
+file signatures before saving via the shared `storageProvider`
 singleton with `entityType: "assessment-submissions"`. Re-uploading (replacing an answer already
 submitted for that question) best-effort deletes the previous file from disk after the new one is
 saved, mirroring `resources.service.ts`'s deletion precedent.
 
 ## Mounting
 
-This module is meant to be mounted **nested** inside the assessments module's router, exactly
+This module is mounted **nested** inside the assessments module's router, exactly
 like `resources.routes.ts` is mounted inside `lessons.routes.ts` (`Router({ mergeParams: true
 })`):
 
@@ -128,16 +139,16 @@ router.use('/:id/attempts', assessmentAttemptsRoutes);
 
 Resulting routes:
 
-| Method | Path                                                     | Access                        |
-| ------ | --------------------------------------------------------- | ------------------------------ |
-| POST   | `/assessments/:id/attempts/start`                          | Trainee only                   |
-| GET    | `/assessments/:id/attempts/mine`                           | Trainee only                   |
-| PUT    | `/assessments/:id/attempts/mine/answers/:assessmentQuestionId` | Trainee only               |
-| POST   | `/assessments/:id/attempts/mine/answers/:assessmentQuestionId/upload` | Trainee only        |
-| POST   | `/assessments/:id/attempts/mine/submit`                    | Trainee only                   |
-| GET    | `/assessments/:id/attempts`                                | Trainer/Super-Admin only       |
-| GET    | `/assessments/:id/attempts/:attemptId`                     | Trainer/Super-Admin only       |
-| PATCH  | `/assessments/:id/attempts/:attemptId/answers/:answerId/grade` | Trainer/Super-Admin only  |
+| Method | Path                                                                  | Access                   |
+| ------ | --------------------------------------------------------------------- | ------------------------ |
+| POST   | `/assessments/:id/attempts/start`                                     | Trainee only             |
+| GET    | `/assessments/:id/attempts/mine`                                      | Trainee only             |
+| PUT    | `/assessments/:id/attempts/mine/answers/:assessmentQuestionId`        | Trainee only             |
+| POST   | `/assessments/:id/attempts/mine/answers/:assessmentQuestionId/upload` | Trainee only             |
+| POST   | `/assessments/:id/attempts/mine/submit`                               | Trainee only             |
+| GET    | `/assessments/:id/attempts`                                           | Trainer/Super-Admin only |
+| GET    | `/assessments/:id/attempts/:attemptId`                                | Trainer/Super-Admin only |
+| PATCH  | `/assessments/:id/attempts/:attemptId/answers/:answerId/grade`        | Trainer/Super-Admin only |
 
 ## Audit logging
 

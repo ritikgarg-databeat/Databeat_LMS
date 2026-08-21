@@ -12,13 +12,14 @@ import { experienceLevelsValidation } from './experience-levels.validation';
 const router = Router();
 const controller = new ExperienceLevelsController();
 const canManage = requireRole(Role.TRAINER, Role.SUPER_ADMIN);
+const adminOnly = requireRole(Role.SUPER_ADMIN);
 
 router.use(authenticate);
 
 // Active-only list — used to populate dropdowns everywhere (any authenticated role).
 router.get('/', controller.list);
 router.get('/all', canManage, controller.listAll);
-router.post('/', canManage, experienceLevelsValidation.create, controller.create);
-router.patch('/:id', canManage, idParamValidator, experienceLevelsValidation.update, controller.update);
+router.post('/', adminOnly, experienceLevelsValidation.create, controller.create);
+router.patch('/:id', adminOnly, idParamValidator, experienceLevelsValidation.update, controller.update);
 
 export default router;

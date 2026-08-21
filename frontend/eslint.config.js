@@ -13,6 +13,7 @@ export default tseslint.config(
   { ignores: ['dist', 'node_modules', 'coverage'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  { settings: { react: { version: '19.2' } } },
   react.configs.flat.recommended,
   react.configs.flat['jsx-runtime'],
   jsxA11y.flatConfigs.recommended,
@@ -36,7 +37,20 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'react-refresh/only-export-components': [
+        'warn',
+        {
+          allowConstantExport: true,
+          allowExportNames: [
+            'badgeVariants',
+            'buttonVariants',
+            'QUESTION_TYPE_LABEL',
+            'QUESTION_TYPE_VALUES',
+            'EVENT_TYPE_META',
+            'EVENT_TYPE_VALUES',
+          ],
+        },
+      ],
 
       // Unused imports/vars: auto-fixable, and the single source of truth for this rule
       // (the native TS/no-unused-vars rule is disabled below to avoid duplicate reports).

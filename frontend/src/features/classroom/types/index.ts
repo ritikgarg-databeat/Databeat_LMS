@@ -165,6 +165,7 @@ export interface UpdateCourseStatusPayload {
 
 export interface DuplicateCoursePayload {
   title: string;
+  includeResources?: boolean;
 }
 
 export interface AssignGroupPayload {
@@ -192,6 +193,7 @@ export interface CourseModule {
   order: number;
   estimatedDurationMinutes: number | null;
   isPublished: boolean;
+  contentVersion: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -344,6 +346,9 @@ export interface LessonProgressView {
   timeSpentSeconds: number;
   lastViewedAt: string | null;
   completedAt: string | null;
+  completedContentVersion: number | null;
+  currentContentVersion: number;
+  hasNewContent: boolean;
 }
 
 export interface UpsertLessonProgressPayload {
@@ -369,8 +374,16 @@ export interface SanitizedQuizQuestion {
 /** `GET /lessons/:id/quiz` response — a discriminated union on `required`/`status`. */
 export type LessonQuizView =
   | { required: false }
-  | { required: true; status: 'GENERATED'; questions: SanitizedQuizQuestion[] }
-  | { required: true; status: 'SUBMITTED'; score: number; totalQuestions: number; percentage: number };
+  | { required: true; status: 'GENERATED'; passingPercentage: number; questions: SanitizedQuizQuestion[] }
+  | {
+      required: true;
+      status: 'SUBMITTED';
+      score: number;
+      totalQuestions: number;
+      percentage: number;
+      passingPercentage: number;
+      passed: boolean;
+    };
 
 export interface SubmitLessonQuizPayload {
   answers: { questionId: string; selectedOptionId: string }[];
@@ -387,6 +400,8 @@ export interface LessonQuizResult {
   score: number;
   totalQuestions: number;
   percentage: number;
+  passingPercentage: number;
+  passed: boolean;
   results: LessonQuizResultQuestion[];
 }
 
@@ -400,6 +415,7 @@ export interface ContinueLearningItem {
   status: LessonProgressStatus;
   timeSpentSeconds: number;
   lastViewedAt: string | null;
+  hasNewContent: boolean;
 }
 
 export interface ProgressSummary {
@@ -415,6 +431,7 @@ export interface CourseLessonProgress {
   title: string;
   status: LessonProgressStatus;
   timeSpentSeconds: number;
+  hasNewContent: boolean;
 }
 
 export interface CourseModuleProgress {

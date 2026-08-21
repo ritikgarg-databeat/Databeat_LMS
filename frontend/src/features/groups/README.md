@@ -12,4 +12,5 @@ Group creation and trainee-to-group assignment.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-This feature currently contains foundation scaffolding only — no business logic.
+Implemented group management includes lifecycle status, trainer/department/experience assignment,
+rosters, CSV onboarding, course/assessment visibility, announcements, and trainer scope.

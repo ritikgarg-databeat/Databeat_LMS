@@ -1,12 +1,43 @@
 import type { NextFunction, Request, Response } from 'express';
 import { TokenExpiredError } from 'jsonwebtoken';
 
+import { AuthRepository } from '@/modules/auth/auth.repository';
 import type { AccessTokenPayload } from '@/modules/auth/auth.types';
 import { UnauthorizedError } from '@/utils/app-error';
 import { verifyAccessToken } from '@/utils/jwt.util';
 
 import { requireNotInMaintenance } from './maintenance-mode.middleware';
 import { requirePasswordChange } from './require-password-change.middleware';
+
+const authRepository = new AuthRepository();
+type CurrentUser = Awaited<ReturnType<AuthRepository['findUserById']>>;
+const currentUserLookups = new Map<string, Promise<CurrentUser>>();
+const currentUserCache = new Map<string, { value: CurrentUser; expiresAt: number }>();
+const CURRENT_USER_CACHE_TTL_MS = 5_000;
+const CURRENT_USER_CACHE_MAX_ENTRIES = 1_000;
+
+function findCurrentUser(userId: string): Promise<CurrentUser> {
+  const cached = currentUserCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value);
+  if (cached) currentUserCache.delete(userId);
+
+  const existing = currentUserLookups.get(userId);
+  if (existing) return existing;
+  const lookup = authRepository
+    .findUserById(userId)
+    .then((value) => {
+      currentUserCache.set(userId, { value, expiresAt: Date.now() + CURRENT_USER_CACHE_TTL_MS });
+      while (currentUserCache.size > CURRENT_USER_CACHE_MAX_ENTRIES) {
+        const oldestKey = currentUserCache.keys().next().value as string | undefined;
+        if (!oldestKey) break;
+        currentUserCache.delete(oldestKey);
+      }
+      return value;
+    })
+    .finally(() => currentUserLookups.delete(userId));
+  currentUserLookups.set(userId, lookup);
+  return lookup;
+}
 
 /**
  * Verifies the `Authorization: Bearer <token>` access token and attaches `req.user`.
@@ -44,7 +75,25 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     throw new UnauthorizedError('Invalid authentication token.');
   }
 
-  req.user = { id: payload.sub, role: payload.role, mustChangePassword: payload.mustChangePassword ?? false };
+  // Re-check security-sensitive state so deactivation, role changes and password resets take
+  // effect promptly instead of waiting for a previously issued access token to expire. A portal
+  // opens several authenticated requests together, so share the lookup and its result for five
+  // seconds. This bounds security-state propagation while avoiding one remote DB read per widget.
+  const currentUser = await findCurrentUser(payload.sub);
+  if (!currentUser?.isActive) throw new UnauthorizedError('This account is inactive.');
+  if (
+    payload.iat &&
+    currentUser.passwordChangedAt &&
+    currentUser.passwordChangedAt.getTime() > payload.iat * 1000
+  ) {
+    throw new UnauthorizedError('Your credentials changed. Please sign in again.');
+  }
+
+  req.user = {
+    id: currentUser.id,
+    role: currentUser.role,
+    mustChangePassword: currentUser.passwordChangedAt === null,
+  };
   await requireNotInMaintenance(req);
   requirePasswordChange(req, res, next);
 }

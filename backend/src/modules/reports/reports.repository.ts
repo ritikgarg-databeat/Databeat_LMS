@@ -103,7 +103,7 @@ export class ReportsRepository extends BaseRepository {
   findGroupMembershipsForUsers(userIds: string[]) {
     if (!userIds.length) return Promise.resolve([]);
     return this.db.groupMember.findMany({
-      where: { userId: { in: userIds } },
+      where: { userId: { in: userIds }, group: { status: 'ACTIVE', deletedAt: null } },
       select: { userId: true, groupId: true },
     });
   }

@@ -5,6 +5,7 @@ import type {
   AssessmentQuestion,
   Prisma,
   QuestionType,
+  Role,
 } from '@prisma/client';
 
 import { ACCEPTED_LESSON_MIME_TYPES, MAX_LESSON_FILE_SIZE_BYTES } from '@/constants/file-types';
@@ -13,7 +14,10 @@ import { BaseService } from '@/services/base.service';
 import { storageProvider } from '@/storage';
 import type { PaginatedData } from '@/types/common';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { getAssessmentAttemptExpiresAt } from '@/utils/assessment-attempt-time.util';
+import { logger } from '@/utils/logger';
 import { buildPaginationMeta } from '@/utils/pagination.util';
+import { assertUploadMatchesDeclaredType, removeTemporaryUpload } from '@/utils/upload-safety.util';
 
 import type { GradeAnswerDto, SaveAnswerDto } from './assessment-attempts.dto';
 import { AssessmentAttemptsRepository, type AnswerGradeUpsert, type AttemptListFilters } from './assessment-attempts.repository';
@@ -62,6 +66,11 @@ function isAutoGradableTextType(type: QuestionType): boolean {
 
 function isManualReviewType(type: QuestionType): boolean {
   return (MANUAL_REVIEW_QUESTION_TYPES as readonly QuestionType[]).includes(type);
+}
+
+interface Actor {
+  id: string;
+  role: Role;
 }
 
 // Business logic for the assessment-attempts module. Controllers call into this layer only.
@@ -113,6 +122,11 @@ export class AssessmentAttemptsService extends BaseService {
       user: { connect: { id: userId } },
       status: 'IN_PROGRESS',
       startedAt: now,
+      expiresAt: getAssessmentAttemptExpiresAt({
+        startedAt: now,
+        durationMinutes: assessment.durationMinutes,
+        dueDate: assessment.dueDate,
+      }),
       ...(questionOrder ? { questionOrder } : {}),
     });
 
@@ -134,7 +148,7 @@ export class AssessmentAttemptsService extends BaseService {
       return this.buildAttemptWithSanitizedQuestions(assessment, attempt);
     }
 
-    if (!assessment.showResultImmediately) {
+    if (!assessment.showResultImmediately && !assessment.resultsReleasedAt) {
       // "Show Result Immediately" toggle is OFF. Withholding forever would be unusual, but a
       // trainer-triggered reveal mechanism is explicitly out of scope for this endpoint (Prompt 6
       // § GET /mine) — so the simplest reasonable behavior is: results are simply never
@@ -166,6 +180,7 @@ export class AssessmentAttemptsService extends BaseService {
   ): Promise<SavedAnswerView> {
     await this.assertAssessmentAccessibleOrThrow(assessmentId, userId);
     const attempt = await this.findOwnInProgressAttemptOrThrow(assessmentId, userId);
+    this.assertAttemptAcceptsAnswers(attempt);
     const question = await this.findAssessmentQuestionOrThrow(assessmentId, assessmentQuestionId);
 
     if (question.snapshotType === 'FILE_UPLOAD') {
@@ -199,6 +214,7 @@ export class AssessmentAttemptsService extends BaseService {
   ): Promise<SavedAnswerView> {
     await this.assertAssessmentAccessibleOrThrow(assessmentId, userId);
     const attempt = await this.findOwnInProgressAttemptOrThrow(assessmentId, userId);
+    this.assertAttemptAcceptsAnswers(attempt);
     const question = await this.findAssessmentQuestionOrThrow(assessmentId, assessmentQuestionId);
 
     if (question.snapshotType !== 'FILE_UPLOAD') {
@@ -207,10 +223,17 @@ export class AssessmentAttemptsService extends BaseService {
 
     this.assertAcceptedMimeType(file.mimetype);
     this.assertFileSizeWithinLimit(file.size);
+    try {
+      await assertUploadMatchesDeclaredType(file);
+    } catch (error) {
+      await removeTemporaryUpload(file).catch(() => undefined);
+      throw error;
+    }
 
     const previous = await this.repository.findAnswerByAttemptAndQuestion(attempt.id, assessmentQuestionId);
 
     const { relativePath } = await storageProvider.save({
+      tempPath: file.path,
       buffer: file.buffer,
       originalName: file.originalname,
       entityType: 'assessment-submissions',
@@ -246,6 +269,46 @@ export class AssessmentAttemptsService extends BaseService {
 
     const assessment = await this.assertAssessmentAccessibleOrThrow(assessmentId, userId);
     const attempt = await this.findOwnInProgressAttemptOrThrow(assessmentId, userId);
+
+    return this.finalizeAttempt(assessment, attempt, requestReceivedAt, ipAddress);
+  }
+
+  /**
+   * Finalizes abandoned attempts after their server-authoritative deadline. This intentionally
+   * uses the assessment snapshot linked to the attempt rather than current group access: an
+   * already-started attempt must not remain IN_PROGRESS forever merely because access changed.
+   */
+  async finalizeExpiredAttempts(limit = 100): Promise<{ found: number; finalized: number; failed: number }> {
+    const cutoff = new Date();
+    const attempts = await this.repository.findExpiredInProgressAttempts(cutoff, Math.max(1, Math.min(limit, 500)));
+    let finalized = 0;
+    let failed = 0;
+
+    for (const attempt of attempts) {
+      try {
+        await this.finalizeAttempt(attempt.assessment, attempt, cutoff);
+        finalized += 1;
+      } catch (error) {
+        failed += 1;
+        logger.error('Failed to finalize an expired assessment attempt', {
+          error,
+          assessmentId: attempt.assessmentId,
+          attemptId: attempt.id,
+        });
+      }
+    }
+
+    return { found: attempts.length, finalized, failed };
+  }
+
+  private async finalizeAttempt(
+    assessment: Assessment,
+    attempt: AssessmentAttempt,
+    requestReceivedAt: Date,
+    ipAddress?: string | null,
+  ): Promise<AttemptSummary> {
+    const { id: assessmentId } = assessment;
+    const { userId } = attempt;
 
     const [questions, existingAnswers] = await Promise.all([
       this.repository.findAssessmentQuestions(assessmentId),
@@ -289,11 +352,30 @@ export class AssessmentAttemptsService extends BaseService {
     const autoScore = Math.max(0, autoScoreBeforePenalty - negativeMarksTotal);
 
     const now = new Date();
-    const timeSpentSeconds = Math.round((now.getTime() - attempt.startedAt.getTime()) / 1000);
+    // Server-authoritative elapsed time is capped at the earlier of duration expiry and due date.
+    // Submitting after expiry is still allowed so answers saved before the deadline can be graded,
+    // but no answer write is accepted after that boundary (see assertAttemptAcceptsAnswers).
+    const effectiveEnd = now < attempt.expiresAt ? now : attempt.expiresAt;
+    const timeSpentSeconds = Math.max(
+      0,
+      Math.round((effectiveEnd.getTime() - attempt.startedAt.getTime()) / 1000),
+    );
+    const expired = requestReceivedAt >= attempt.expiresAt;
+    const submissionReason = expired
+      ? assessment.dueDate && attempt.expiresAt.getTime() === assessment.dueDate.getTime()
+        ? 'DUE_DATE_REACHED'
+        : 'TIME_EXPIRED'
+      : 'LEARNER';
     const maxMarks = questions.reduce((sum, question) => sum + question.marks, 0);
 
     const attemptData: Prisma.AssessmentAttemptUpdateInput = hasManualReviewQuestion
-      ? { status: 'PENDING_REVIEW', autoScore, submittedAt: requestReceivedAt, timeSpentSeconds }
+      ? {
+          status: 'PENDING_REVIEW',
+          autoScore,
+          submittedAt: requestReceivedAt,
+          submissionReason,
+          timeSpentSeconds,
+        }
       : {
           status: 'GRADED',
           autoScore,
@@ -303,6 +385,7 @@ export class AssessmentAttemptsService extends BaseService {
           passed: (maxMarks === 0 ? 0 : Math.round((autoScore / maxMarks) * 100)) >= assessment.passingPercentage,
           gradedAt: now,
           submittedAt: requestReceivedAt,
+          submissionReason,
           timeSpentSeconds,
         };
 
@@ -324,11 +407,13 @@ export class AssessmentAttemptsService extends BaseService {
 
   async listAttempts(
     assessmentId: string,
+    actor: Actor,
     filters: AttemptListFilters,
     page: number,
     pageSize: number,
   ): Promise<PaginatedData<TrainerAttemptListItem>> {
     await this.findAssessmentOrThrow(assessmentId);
+    await this.assertAssessmentInScope(assessmentId, actor);
 
     const { items, total } = await this.repository.findAttemptsForAssessment(
       assessmentId,
@@ -352,7 +437,8 @@ export class AssessmentAttemptsService extends BaseService {
     };
   }
 
-  async getAttemptDetail(assessmentId: string, attemptId: string) {
+  async getAttemptDetail(assessmentId: string, attemptId: string, actor: Actor) {
+    await this.assertAssessmentInScope(assessmentId, actor);
     const attempt = await this.repository.findAttemptDetail(attemptId);
     if (!attempt || attempt.assessmentId !== assessmentId) throw new NotFoundError('Attempt not found.');
 
@@ -404,9 +490,10 @@ export class AssessmentAttemptsService extends BaseService {
     attemptId: string,
     answerId: string,
     dto: GradeAnswerDto,
-    actorId: string,
+    actor: Actor,
     ipAddress?: string | null,
   ) {
+    await this.assertAssessmentInScope(assessmentId, actor);
     const attempt = await this.repository.findAttemptById(attemptId);
     if (!attempt || attempt.assessmentId !== assessmentId) throw new NotFoundError('Attempt not found.');
 
@@ -470,14 +557,14 @@ export class AssessmentAttemptsService extends BaseService {
     const isCorrect = dto.isCorrect !== undefined ? dto.isCorrect : answer.isCorrect;
     const result = await this.repository.persistGrade(
       answerId,
-      { marksAwarded: dto.marksAwarded, isCorrect, gradedById: actorId, gradedAt: now },
+      { marksAwarded: dto.marksAwarded, isCorrect, gradedById: actor.id, gradedAt: now },
       attemptId,
       attemptData,
     );
 
     await auditLogService.record({
       action: 'ASSESSMENT_ANSWER_GRADED',
-      actorId,
+      actorId: actor.id,
       ipAddress,
       metadata: { attemptId, answerId, marksAwarded: dto.marksAwarded },
     });
@@ -515,6 +602,12 @@ export class AssessmentAttemptsService extends BaseService {
     return attempt;
   }
 
+  private assertAttemptAcceptsAnswers(attempt: AssessmentAttempt): void {
+    if (new Date() >= attempt.expiresAt) {
+      throw new ConflictError('Time has expired for this assessment. Submit the answers already saved.');
+    }
+  }
+
   private async findAssessmentQuestionOrThrow(assessmentId: string, assessmentQuestionId: string): Promise<AssessmentQuestion> {
     const question = await this.repository.findAssessmentQuestionById(assessmentQuestionId);
     if (!question || question.assessmentId !== assessmentId) {
@@ -527,6 +620,15 @@ export class AssessmentAttemptsService extends BaseService {
     const assessment = await this.repository.findAssessmentById(assessmentId);
     if (!assessment) throw new NotFoundError('Assessment not found.');
     return assessment;
+  }
+
+  private async assertAssessmentInScope(assessmentId: string, actor: Actor): Promise<void> {
+    if (
+      actor.role === 'TRAINER' &&
+      !(await this.repository.isAssessmentInTrainerScope(assessmentId, actor.id))
+    ) {
+      throw new ForbiddenError("You don't have permission to manage this assessment.");
+    }
   }
 
   private async buildAttemptWithSanitizedQuestions(
@@ -637,7 +739,10 @@ export class AssessmentAttemptsService extends BaseService {
       userId: attempt.userId,
       status: attempt.status,
       startedAt: attempt.startedAt,
+      expiresAt: attempt.expiresAt,
+      remainingSeconds: Math.max(0, Math.ceil((attempt.expiresAt.getTime() - Date.now()) / 1000)),
       submittedAt: attempt.submittedAt,
+      submissionReason: attempt.submissionReason,
       gradedAt: attempt.gradedAt,
       timeSpentSeconds: attempt.timeSpentSeconds,
       totalScore: attempt.totalScore,

@@ -8,32 +8,34 @@ import { logger } from '@/utils/logger';
 
 const PPTX_TEXT_TAG_PATTERN = /<a:t>([^<]*)<\/a:t>/g;
 
+/** File types whose textual contents can be used as grounded lesson material. */
+export const EXTRACTABLE_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+
 /**
- * Best-effort text extraction from an uploaded lesson-resource file, so the quiz generator can
- * see real theory content even when a trainer added it as a PDF/DOCX/PPTX upload rather than a
- * pasted MARKDOWN resource (the only source `ai/context-builder.ts` reads). Any failure (a
- * scanned/image-only PDF with no text layer, a corrupt file, an unsupported mime type) returns
- * an empty string rather than throwing — the caller already treats "no extractable content" as
- * "skip the quiz gate", the same graceful path as a lesson with genuinely no content.
+ * Best-effort text extraction shared by the lesson tutor and completion-quiz generator.
+ * Unsupported, scanned/image-only, corrupt, or unreadable files return an empty string so an
+ * unavailable document can never break the surrounding learning flow.
  */
-export async function extractTextFromResourceFile(stream: NodeJS.ReadableStream, mimeType: string | null): Promise<string> {
-  if (!mimeType) return '';
+export async function extractTextFromResourceFile(
+  stream: NodeJS.ReadableStream,
+  mimeType: string | null,
+): Promise<string> {
+  if (!mimeType || !EXTRACTABLE_DOCUMENT_MIME_TYPES.has(mimeType)) return '';
 
   try {
     const fileBuffer = await readStreamToBuffer(stream);
 
-    if (mimeType === 'application/pdf') {
-      return extractPdfText(fileBuffer);
-    }
+    if (mimeType === 'application/pdf') return extractPdfText(fileBuffer);
     if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       return extractDocxText(fileBuffer);
     }
-    if (mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
-      return extractPptxText(fileBuffer);
-    }
-    return '';
+    return extractPptxText(fileBuffer);
   } catch (error) {
-    logger.warn('Failed to extract text from lesson resource file for quiz generation', { error, mimeType });
+    logger.warn('Failed to extract text from lesson resource document', { error, mimeType });
     return '';
   }
 }
@@ -56,7 +58,6 @@ async function extractDocxText(fileBuffer: Buffer): Promise<string> {
 /** PPTX is a zip of per-slide XML files; slide text lives in `<a:t>` runs. */
 async function extractPptxText(fileBuffer: Buffer): Promise<string> {
   const zip = await JSZip.loadAsync(fileBuffer);
-
   const slideFiles = Object.keys(zip.files)
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
     .sort((a, b) => slideNumber(a) - slideNumber(b));

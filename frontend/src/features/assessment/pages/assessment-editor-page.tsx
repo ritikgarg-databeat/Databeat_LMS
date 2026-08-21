@@ -26,7 +26,12 @@ import { AssessmentQuestionList } from '../components/assessment-question-list';
 import { AssessmentStatusBadge } from '../components/assessment-status-badge';
 import { AssignAssessmentGroupsDialog } from '../components/assign-assessment-groups-dialog';
 import { EditAssessmentDialog } from '../components/edit-assessment-dialog';
-import { useAssessmentQuery, useDeleteAssessmentMutation, useUpdateAssessmentStatusMutation } from '../hooks';
+import {
+  useAssessmentQuery,
+  useDeleteAssessmentMutation,
+  useReleaseAssessmentResultsMutation,
+  useUpdateAssessmentStatusMutation,
+} from '../hooks';
 import type { AssessmentStatus } from '../types';
 
 /** Target status → the label used for both the triggering menu item and the confirm dialog. */
@@ -60,10 +65,12 @@ function AssessmentEditorPage() {
   const [assignGroupsOpen, setAssignGroupsOpen] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<AssessmentStatus | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
 
   const { data: assessment, isLoading, isError, error, refetch } = useAssessmentQuery(id);
   const updateStatus = useUpdateAssessmentStatusMutation();
   const deleteAssessment = useDeleteAssessmentMutation();
+  const releaseResults = useReleaseAssessmentResultsMutation();
 
   if (!id) return null;
 
@@ -114,6 +121,17 @@ function AssessmentEditorPage() {
     }
   };
 
+  const handleReleaseResults = async () => {
+    try {
+      await releaseResults.mutateAsync(assessment.id);
+      await refetch();
+      toast.success('Assessment results released to trainees.');
+      setReleaseConfirmOpen(false);
+    } catch (releaseError) {
+      toast.error(getErrorMessage(releaseError));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -139,6 +157,9 @@ function AssessmentEditorPage() {
             <DropdownMenuItem asChild>
               <Link to={`${basePath}/assessments/${assessment.id}/results`}>View Results</Link>
             </DropdownMenuItem>
+            {!assessment.showResultImmediately && !assessment.resultsReleasedAt ? (
+              <DropdownMenuItem onClick={() => setReleaseConfirmOpen(true)}>Release Results</DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             {assessment.status === 'DRAFT' ? (
               <>
@@ -202,6 +223,16 @@ function AssessmentEditorPage() {
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">Show result immediately</p>
             <p className="text-sm">{assessment.showResultImmediately ? 'Yes' : 'No'}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase text-muted-foreground">Delayed results</p>
+            <p className="text-sm">
+              {assessment.showResultImmediately
+                ? 'Not applicable'
+                : assessment.resultsReleasedAt
+                  ? `Released ${formatDateTime(assessment.resultsReleasedAt)}`
+                  : 'Not released'}
+            </p>
           </div>
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">Questions</p>
@@ -269,6 +300,15 @@ function AssessmentEditorPage() {
         confirmLabel={pendingStatus ? STATUS_ACTION_LABEL[pendingStatus] : 'Confirm'}
         destructive={pendingStatus === 'ARCHIVED'}
         onConfirm={() => void handleUpdateStatus()}
+      />
+
+      <ConfirmDialog
+        open={releaseConfirmOpen}
+        onOpenChange={setReleaseConfirmOpen}
+        title="Release assessment results"
+        description="All graded trainees will be able to see their scores and answer feedback. This cannot be revoked."
+        confirmLabel="Release results"
+        onConfirm={() => void handleReleaseResults()}
       />
 
       <ConfirmDialog
