@@ -6,6 +6,7 @@ import { requireRole } from '@/middleware/rbac.middleware';
 import { lessonQuizRoutes } from '@/modules/lesson-quiz';
 import { ProgressController, progressValidation } from '@/modules/progress';
 import { resourcesRoutes } from '@/modules/resources';
+import { videoGenerationRoutes } from '@/modules/video-generation';
 import { idParamValidator } from '@/validators/common.validators';
 
 import { LessonsController } from './lessons.controller';
@@ -46,6 +47,7 @@ router.post(
 );
 
 router.use('/:id/resources', idParamValidator, resourcesRoutes);
+router.use('/:id/video-generations', idParamValidator, videoGenerationRoutes);
 router.use('/:id/quiz', idParamValidator, lessonQuizRoutes);
 
 export default router;

@@ -1,3 +1,5 @@
+export * from './video-generation';
+
 // TypeScript types and interfaces for the classroom feature.
 //
 // Mirrors the backend's Course -> CourseModule -> Lesson -> LessonResource hierarchy

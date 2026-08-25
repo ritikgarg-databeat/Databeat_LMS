@@ -32,6 +32,19 @@ export class ModulesRepository extends BaseRepository {
     });
   }
 
+  findVideoDraftsByModuleId(moduleId: string) {
+    return this.db.videoGenerationJob.findMany({
+      where: { lesson: { moduleId }, status: { not: 'PUBLISHED' } },
+      select: {
+        id: true,
+        artifactRelativePath: true,
+        captionRelativePath: true,
+        thumbnailRelativePath: true,
+        audioArtifacts: true,
+      },
+    });
+  }
+
   findByIdWithLessons(id: string) {
     return this.db.courseModule.findUnique({
       where: { id },

@@ -33,6 +33,19 @@ export class LessonsRepository extends BaseRepository {
     });
   }
 
+  findVideoDraftsByLessonId(lessonId: string) {
+    return this.db.videoGenerationJob.findMany({
+      where: { lessonId, status: { not: 'PUBLISHED' } },
+      select: {
+        id: true,
+        artifactRelativePath: true,
+        captionRelativePath: true,
+        thumbnailRelativePath: true,
+        audioArtifacts: true,
+      },
+    });
+  }
+
   /**
    * Flat lookup for `GET /lessons/:id`, used by both the trainer editor and the trainee
    * viewer (Prompt 5). `progress` is scoped to `userId` so it resolves to at most one row —

@@ -1,3 +1,5 @@
+export * from './use-video-generations';
+
 // React hooks (including TanStack Query hooks) for the classroom feature.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';

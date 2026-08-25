@@ -90,6 +90,9 @@ what's actually here today: features, roles, setup, day-to-day development, and 
 
 ---
 
+- **Trainer AI lesson videos** - feature-flagged source selection, editable grounded storyboards,
+  per-scene narration, deterministic Remotion rendering, private review, and atomic publication.
+
 ## Roles & Permissions
 
 Three roles, enforced server-side on every route (not just hidden in the UI):
@@ -255,6 +258,16 @@ MAIN_OPENAI_API_KEY=                        # used when AI_PROVIDER=openai
 MAIN_OPENAI_MODEL=gpt-5.3-codex
 ANTHROPIC_API_KEY=                          # used when AI_PROVIDER=anthropic
 AI_MODEL_ID=claude-opus-4-8
+
+# Trainer AI lesson video studio (disabled by default)
+VIDEO_GENERATION_ENABLED=false
+VIDEO_STORYBOARD_MODEL=gpt-4o-mini
+VIDEO_TTS_MODEL=gpt-4o-mini-tts
+VIDEO_RENDER_CONCURRENCY=1
+VIDEO_FRAME_CONCURRENCY=50%
+VIDEO_MAX_DURATION_SECONDS=480
+VIDEO_DRAFT_RETENTION_DAYS=7
+VIDEO_RENDER_TIMEOUT_MS=900000
 ```
 
 See `.env.example` in each project for the full, documented list, and
@@ -419,6 +432,8 @@ remain worthwhile follow-up work.
 
 ---
 
+Trainer video generation is documented in [`docs/VIDEO_GENERATION.md`](docs/VIDEO_GENERATION.md).
+
 ## Troubleshooting
 
 | Symptom                                                                      | Likely cause                                                                                                                                                                                                                         |
@@ -431,6 +446,9 @@ remain worthwhile follow-up work.
 | AI Tutor / lesson quiz returns 503                                           | The active provider's key (`MAIN_OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, per `AI_PROVIDER`) is unset, or the provider itself returned an error (e.g. a real rate-limit/quota error from the vendor) — this is by design, not a crash |
 | Assessment timers/reminders do not progress in the background                | Start exactly one worker with `npm run dev:worker --prefix backend` (development) or `npm run start:worker --prefix backend` (built deployment)                                                                                      |
 | Prisma errors after pulling new migrations                                   | Run `npx prisma generate` again — the generated client is out of sync with the schema                                                                                                                                                |
+
+If video generation stays queued, enable the feature, start the worker, verify the API and worker
+share persistent `UPLOAD_PATH`, and install the Chromium/FFmpeg prerequisites.
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)'s own troubleshooting table for
 production-specific issues (SPA routing 404s, file upload persistence, etc.).

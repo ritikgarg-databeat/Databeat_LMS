@@ -2,6 +2,10 @@
 
 Course to Module to Lesson hierarchy, resources, and learner progress tracking.
 
+Trainer resource management includes a feature-flagged AI Video Studio for grounded source
+selection, asynchronous storyboard/render progress, editing, authenticated MP4 preview, and
+explicit publication with the learner-reset warning.
+
 ## Structure
 
 - `components/` — feature-scoped React components (not shared elsewhere).

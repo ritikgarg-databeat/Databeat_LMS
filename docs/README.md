@@ -1,5 +1,8 @@
 # docs/
 
+See [`VIDEO_GENERATION.md`](VIDEO_GENERATION.md) for the trainer video studio, grounded storyboard,
+TTS/Remotion pipeline, private draft lifecycle, publication rules, and configuration.
+
 Supplementary documentation that doesn't belong in the root [`README.md`](../README.md) or the
 full system design doc:
 

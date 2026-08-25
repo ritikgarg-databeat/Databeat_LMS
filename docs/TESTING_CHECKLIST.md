@@ -143,6 +143,18 @@ manual workflow checks below.
       opaque file-only lesson, readable text/transcript is requested. A failed quiz can be retried,
       and only a score of 70% or higher allows completion.
 
+## Trainer AI Lesson Video
+
+- [ ] With the feature disabled, the LMS loads and the video studio stays hidden.
+- [ ] A trainer selects supported evidence, edits/reorders the generated storyboard, renders in
+      the background, and previews the authenticated MP4.
+- [ ] Every factual scene has a selected source reference; unsupported files and title-only
+      lessons are rejected.
+- [ ] Content edits mark a job stale and block rendering/publication.
+- [ ] Publishing creates one VIDEO resource, increments the content version, reopens completed
+      trainees, and requires a current-version quiz.
+- [ ] Cancellation, retries, expiry, and hierarchy deletion clean drafts without affecting LMS health.
+
 ## Q&A
 
 - [ ] Ask a question (optionally scoped to a group/course/lesson) as a trainee.

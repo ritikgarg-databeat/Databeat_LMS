@@ -160,6 +160,19 @@ Trainee → AI Chat widget on Lesson page → POST /api/v1/ai/chat {lessonId, me
       → AiRepository persists the original user turn and safe final assistant Markdown
 ```
 
+### 4.5 Trainer AI Lesson Video
+
+```
+Trainer -> lesson resource manager -> asynchronous VideoGenerationJob
+  -> worker fingerprints selected lesson evidence and generates a strict sourced storyboard
+  -> trainer edits and approves -> cached per-scene TTS -> fixed Remotion child renderer
+  -> authenticated preview -> version-checked publication as one VIDEO resource
+  -> contentVersion advances and completed progress reopens for quiz retake
+```
+
+Model-produced code, URLs, and external assets are never executed or fetched. Draft storage
+expires independently, and renderer health is not part of API health.
+
 ---
 
 ## 5. Folder Structure

@@ -96,6 +96,19 @@ export class CoursesRepository extends BaseRepository {
     });
   }
 
+  findVideoDraftsByCourseId(courseId: string) {
+    return this.db.videoGenerationJob.findMany({
+      where: { lesson: { module: { courseId } }, status: { not: 'PUBLISHED' } },
+      select: {
+        id: true,
+        artifactRelativePath: true,
+        captionRelativePath: true,
+        thumbnailRelativePath: true,
+        audioArtifacts: true,
+      },
+    });
+  }
+
   create(data: Prisma.CourseCreateInput) {
     return this.db.course.create({ data, include: summaryInclude });
   }

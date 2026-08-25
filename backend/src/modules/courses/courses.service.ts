@@ -12,6 +12,7 @@ import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@
 import { deleteLessonResourceFiles } from '@/utils/lesson-resource-cleanup.util';
 import { logger } from '@/utils/logger';
 import { buildPaginationMeta } from '@/utils/pagination.util';
+import { deleteVideoDraftFiles } from '@/utils/video-draft-cleanup.util';
 
 import type {
   AssignGroupDto,
@@ -247,14 +248,16 @@ export class CoursesService extends BaseService {
   }
 
   async remove(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
-    const [existing, fileResources] = await Promise.all([
+    const [existing, fileResources, videoDrafts] = await Promise.all([
       this.findOrThrow(id),
       this.repository.findFileResourcesByCourseId(id),
+      this.repository.findVideoDraftsByCourseId(id),
     ]);
     await this.assertCourseInScope(id, actor);
 
     await this.repository.delete(id);
     await deleteLessonResourceFiles(fileResources, { type: 'course', id });
+    await deleteVideoDraftFiles(videoDrafts, { type: 'course', id });
 
     await auditLogService.record({
       action: 'COURSE_DELETED',

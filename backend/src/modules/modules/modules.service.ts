@@ -4,6 +4,7 @@ import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
 import { deleteLessonResourceFiles } from '@/utils/lesson-resource-cleanup.util';
+import { deleteVideoDraftFiles } from '@/utils/video-draft-cleanup.util';
 
 import type {
   CreateModuleDto,
@@ -98,14 +99,16 @@ export class ModulesService extends BaseService {
   }
 
   async remove(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
-    const [existing, fileResources] = await Promise.all([
+    const [existing, fileResources, videoDrafts] = await Promise.all([
       this.findOrThrow(id),
       this.repository.findFileResourcesByModuleId(id),
+      this.repository.findVideoDraftsByModuleId(id),
     ]);
     await this.assertCourseInScope(existing.courseId, actor);
 
     await this.repository.delete(id);
     await deleteLessonResourceFiles(fileResources, { type: 'module', id });
+    await deleteVideoDraftFiles(videoDrafts, { type: 'module', id });
 
     await auditLogService.record({
       action: 'MODULE_DELETED',

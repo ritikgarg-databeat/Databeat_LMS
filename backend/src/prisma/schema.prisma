@@ -73,6 +73,9 @@ enum AuditAction {
   LESSON_REORDERED
   RESOURCE_UPLOADED
   RESOURCE_DELETED
+  VIDEO_GENERATION_CREATED
+  VIDEO_GENERATION_CANCELLED
+  VIDEO_GENERATION_PUBLISHED
   QUESTION_CREATED
   QUESTION_UPDATED
   QUESTION_STATUS_CHANGED
@@ -233,6 +236,30 @@ enum LessonQuizAttemptStatus {
   SUBMITTED
 }
 
+enum VideoGenerationPurpose {
+  LESSON_RESOURCE
+  TRAINEE_EXPLANATION
+}
+
+enum VideoGenerationStatus {
+  PLANNING
+  STORYBOARD_READY
+  QUEUED
+  SYNTHESIZING
+  RENDERING
+  READY
+  PUBLISHED
+  FAILED
+  CANCELLED
+  STALE
+}
+
+enum VideoStylePreset {
+  CLEAN_CORPORATE
+  VISUAL_EXPLAINER
+  CODE_WALKTHROUGH
+}
+
 model User {
   id                String           @id @default(uuid())
   firstName         String
@@ -290,6 +317,7 @@ model User {
   notificationPreference   NotificationPreference?
   platformSettingsUpdates  PlatformSettings[]          @relation("PlatformSettingsUpdatedBy")
   timingObservations       TimingObservation[]
+  videoGenerationJobs      VideoGenerationJob[]        @relation("VideoGenerationRequestedBy")
 
   @@index([role])
   @@index([departmentId])
@@ -552,12 +580,13 @@ model Lesson {
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 
-  resources          LessonResource[]
-  progress           LessonProgress[]
-  aiConversations    AiConversation[]
-  qnaQuestions       QnaQuestion[]
-  quizAttempts       LessonQuizAttempt[]
-  timingObservations TimingObservation[]
+  resources           LessonResource[]
+  progress            LessonProgress[]
+  aiConversations     AiConversation[]
+  qnaQuestions        QnaQuestion[]
+  quizAttempts        LessonQuizAttempt[]
+  timingObservations  TimingObservation[]
+  videoGenerationJobs VideoGenerationJob[]
 
   @@index([moduleId])
   @@index([moduleId, order])
@@ -569,9 +598,9 @@ model Lesson {
 /// Text-backed resources (MARKDOWN/CODE_SNIPPET) and EXTERNAL_LINK populate `content`
 /// (raw text or a URL respectively) and leave the file fields null.
 model LessonResource {
-  id               String       @id @default(uuid())
+  id               String              @id @default(uuid())
   lessonId         String
-  lesson           Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  lesson           Lesson              @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   type             ResourceType
   title            String
   relativePath     String?
@@ -579,14 +608,65 @@ model LessonResource {
   mimeType         String?
   fileSizeBytes    Int?
   content          String?
-  order            Int          @default(0)
+  order            Int                 @default(0)
   createdById      String?
-  createdBy        User?        @relation("LessonResourceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdBy        User?               @relation("LessonResourceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  videoGeneration  VideoGenerationJob? @relation("PublishedVideoResource")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@index([lessonId])
   @@map("lesson_resources")
+}
+
+/// Asynchronous, source-grounded video work. Draft artifacts remain private until an explicit
+/// publish action creates a normal LessonResource and advances the lesson content version.
+model VideoGenerationJob {
+  id                      String                 @id @default(uuid())
+  lessonId                String
+  lesson                  Lesson                 @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  requestedById           String
+  requestedBy             User                   @relation("VideoGenerationRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  purpose                 VideoGenerationPurpose @default(LESSON_RESOURCE)
+  status                  VideoGenerationStatus  @default(PLANNING)
+  sourceContentVersion    Int
+  sourceFingerprint       String
+  selectedResourceIds     Json
+  creativeInstructions    String?
+  targetDurationSeconds   Int
+  language                String
+  voice                   String
+  style                   VideoStylePreset
+  storyboard              Json?
+  regenerationSceneIds    Json?
+  progressPercent         Int                    @default(0)
+  errorCode               String?
+  errorMessage            String?
+  inputTokens             Int                    @default(0)
+  outputTokens            Int                    @default(0)
+  audioArtifacts          Json?
+  artifactRelativePath    String?
+  captionRelativePath     String?
+  thumbnailRelativePath   String?
+  artifactMimeType        String?
+  artifactSizeBytes       Int?
+  renderAttempts          Int                    @default(0)
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  publishedResourceId     String?                @unique
+  publishedResource       LessonResource?        @relation("PublishedVideoResource", fields: [publishedResourceId], references: [id], onDelete: SetNull)
+  publishedContentVersion Int?
+  expiresAt               DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  @@index([lessonId, createdAt])
+  @@index([requestedById, status])
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([expiresAt])
+  @@map("video_generation_jobs")
 }
 
 /// Join table granting every member of `group` access to `course` (Prompt 5 § COURSE

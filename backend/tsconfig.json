@@ -22,6 +22,7 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "jsx": "react-jsx",
     "skipLibCheck": true,
 
     /* Path aliases (rewritten to relative paths at build time by tsc-alias; resolved at
@@ -50,7 +51,7 @@
     // service/repository/controller shells. ESLint's unused-imports rule (argsIgnorePattern
     // '^_') covers genuinely-unused function parameters instead — see eslint.config.js.
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules", "dist", "logs", "uploads", "storage"],
 
   /* ts-node (dev server via nodemon) builds its type-checking program lazily from the

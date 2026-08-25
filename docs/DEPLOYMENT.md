@@ -182,6 +182,9 @@ their password-change history already set, so they skip the forced first-login p
 
 ## 6. Post-deploy checklist
 
+If AI video is enabled, confirm the API and worker share `UPLOAD_PATH`, applicable Remotion
+licensing is approved, Chromium/FFmpeg prerequisites are installed, and a test draft publishes.
+
 - [ ] `GET /health/live` and `GET /health/ready` return 200.
 - [ ] Exactly one worker is running and its startup log lists `expired-assessment-attempts` and
       `deadline-reminders`; the reminder catch-up completes without error.

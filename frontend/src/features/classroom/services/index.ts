@@ -1,3 +1,5 @@
+export * from './video-generations.service';
+
 // API calls for the classroom feature, built on the shared Axios client.
 import { apiClient } from '@/services/api/client';
 import type { ApiSuccessResponse, PaginatedData } from '@/types/api';

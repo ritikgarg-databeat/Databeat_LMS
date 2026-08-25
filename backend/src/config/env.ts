@@ -19,6 +19,18 @@ function readOptionalEnv(key: string, fallback: string): string {
   return process.env[key] ?? fallback;
 }
 
+function readVideoFrameConcurrency(): number | string {
+  const value = readOptionalEnv('VIDEO_FRAME_CONCURRENCY', '50%').trim();
+  const percentage = /^(\d{1,3})%$/.exec(value);
+  if (percentage) {
+    const numeric = Number(percentage[1]);
+    if (numeric >= 1 && numeric <= 100) return `${numeric}%`;
+  }
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 16) return numeric;
+  throw new Error('VIDEO_FRAME_CONCURRENCY must be an integer from 1-16 or a percentage from 1%-100%.');
+}
+
 const nodeEnv = readOptionalEnv('NODE_ENV', 'development');
 
 export const env = {
@@ -77,6 +89,17 @@ export const env = {
   AI_MODEL_ID: readOptionalEnv('AI_MODEL_ID', 'claude-opus-4-8'),
   MAIN_OPENAI_API_KEY: readOptionalEnv('MAIN_OPENAI_API_KEY', ''),
   MAIN_OPENAI_MODEL: readOptionalEnv('MAIN_OPENAI_MODEL', 'gpt-5.3-codex'),
+
+  // Optional trainer video studio. It is disabled by default because rendering needs the
+  // Remotion runtime plus explicit commercial-license approval for applicable organizations.
+  VIDEO_GENERATION_ENABLED: readOptionalEnv('VIDEO_GENERATION_ENABLED', 'false') === 'true',
+  VIDEO_STORYBOARD_MODEL: readOptionalEnv('VIDEO_STORYBOARD_MODEL', 'gpt-4o-mini'),
+  VIDEO_TTS_MODEL: readOptionalEnv('VIDEO_TTS_MODEL', 'gpt-4o-mini-tts'),
+  VIDEO_RENDER_CONCURRENCY: Number(readOptionalEnv('VIDEO_RENDER_CONCURRENCY', '1')),
+  VIDEO_FRAME_CONCURRENCY: readVideoFrameConcurrency(),
+  VIDEO_MAX_DURATION_SECONDS: Number(readOptionalEnv('VIDEO_MAX_DURATION_SECONDS', '480')),
+  VIDEO_DRAFT_RETENTION_DAYS: Number(readOptionalEnv('VIDEO_DRAFT_RETENTION_DAYS', '7')),
+  VIDEO_RENDER_TIMEOUT_MS: Number(readOptionalEnv('VIDEO_RENDER_TIMEOUT_MS', '900000')),
 } as const;
 
 export const isProduction = env.NODE_ENV === 'production';

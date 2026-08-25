@@ -15,6 +15,57 @@ export const EXTRACTABLE_DOCUMENT_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ]);
 
+export interface DocumentTextSegment {
+  locator: string;
+  text: string;
+}
+
+/** Extracts addressable pages/slides for evidence-citation workflows such as video storyboards. */
+export async function extractTextSegmentsFromResourceFile(
+  stream: NodeJS.ReadableStream,
+  mimeType: string | null,
+): Promise<DocumentTextSegment[]> {
+  if (!mimeType || !EXTRACTABLE_DOCUMENT_MIME_TYPES.has(mimeType)) return [];
+  try {
+    const fileBuffer = await readStreamToBuffer(stream);
+    if (mimeType === 'application/pdf') {
+      const parser = new PDFParse({ data: fileBuffer });
+      try {
+        const result = await parser.getText();
+        return result.pages
+          .map((page) => ({ locator: `page-${page.num}`, text: page.text.trim() }))
+          .filter((page) => page.text.length > 0);
+      } finally {
+        await parser.destroy();
+      }
+    }
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+      const zip = await JSZip.loadAsync(fileBuffer);
+      const slideFiles = Object.keys(zip.files)
+        .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+        .sort((a, b) => slideNumber(a) - slideNumber(b));
+      const slides = await Promise.all(
+        slideFiles.map(async (name) => {
+          const xml = await zip.files[name]?.async('string');
+          const text = xml
+            ? [...xml.matchAll(PPTX_TEXT_TAG_PATTERN)]
+                .map((match) => match[1])
+                .join(' ')
+                .trim()
+            : '';
+          return { locator: `slide-${slideNumber(name)}`, text };
+        }),
+      );
+      return slides.filter((slide) => slide.text.length > 0);
+    }
+    const text = (await extractDocxText(fileBuffer)).trim();
+    return text ? [{ locator: 'document', text }] : [];
+  } catch (error) {
+    logger.warn('Failed to extract addressable document text', { error, mimeType });
+    return [];
+  }
+}
+
 /**
  * Best-effort text extraction shared by the lesson tutor and completion-quiz generator.
  * Unsupported, scanned/image-only, corrupt, or unreadable files return an empty string so an

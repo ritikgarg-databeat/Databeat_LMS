@@ -29,6 +29,7 @@ import {
 } from '../hooks';
 import type { LessonResource, ResourceType } from '../types';
 
+import { LessonVideoStudio } from './lesson-video-studio';
 import { ResourceTypeIcon } from './resource-type-icon';
 
 // Mirrors `ResourceType` exactly — see create-lesson-dialog.tsx for the same convention.
@@ -261,6 +262,8 @@ function LessonResourceManager({ lessonId }: LessonResourceManagerProps) {
           </ul>
         )}
       </div>
+
+      <LessonVideoStudio lessonId={lessonId} />
 
       <div className="space-y-3 border-t pt-4">
         <h3 className="text-sm font-semibold">Add resource</h3>

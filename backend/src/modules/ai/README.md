@@ -47,6 +47,10 @@ config, both optional (see `src/config/env.ts`):
   `gpt-5.3-codex`).
 - Anthropic: `ANTHROPIC_API_KEY`, `AI_MODEL_ID` (default `claude-opus-4-8`).
 
+The trainer video engine uses `providers/openai-video.provider.ts`. It shares
+`MAIN_OPENAI_API_KEY` but uses `VIDEO_STORYBOARD_MODEL` and `VIDEO_TTS_MODEL`; it emits a strict
+source-referenced storyboard and speech only. Rendering and captions remain deterministic.
+
 Whichever provider is active constructs its SDK client lazily as `null` when its key is unset,
 so the app still boots normally; `POST /ai/chat` (and the lesson-quiz module's quiz generation)
 return `503 SERVICE_UNAVAILABLE` with a clear message instead of the whole server failing to

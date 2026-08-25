@@ -19,6 +19,8 @@ The worker owns:
 - assessment-deadline reminders daily at 06:00;
 - optional expired security-data retention daily at 03:00 when
   `RUN_RETENTION_CLEANUP=true`.
+- PostgreSQL-leased AI video storyboard, speech, and render jobs when
+  `VIDEO_GENERATION_ENABLED=true`, plus draft-retention cleanup.
 
 Expiry and reminder tasks also execute once on worker startup to recover from downtime. Scheduled
 runs use `noOverlap`, so a slow execution is not stacked on top of the next execution. The jobs
@@ -73,6 +75,10 @@ an already-completed database deletion into a false failed response.
 Do not delete files solely by age or filename. Reconcile a suspected orphan against active and
 draft course/resource rows first. Draft courses are active platform data and their files must be
 retained.
+
+AI video previews use separate `video-generation-*` namespaces under the same storage root.
+Publishing copies only the approved MP4 into `lesson-resources`. Cancellation, expiry, and
+hierarchy deletion remove drafts and cached narration; renderer health never blocks API readiness.
 
 ## Backups
 
