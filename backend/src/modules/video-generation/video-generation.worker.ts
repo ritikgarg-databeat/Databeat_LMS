@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
+import { buffer as readStreamToBuffer } from 'node:stream/consumers';
 
 import { Prisma, type VideoGenerationJob } from '@prisma/client';
 
@@ -12,7 +13,11 @@ import { measureMp3DurationSeconds } from './audio-duration.util';
 import { VideoGenerationRepository } from './video-generation.repository';
 import { hashAudioInput } from './video-generation.service';
 import { videoStoryboardSchema, type AudioArtifact, type VideoStoryboardV1 } from './video-generation.types';
-import { synchronizeStoryboardToAudio, validateStoryboardForSources } from './video-generation.utils';
+import {
+  normalizeTimedCaptionWords,
+  synchronizeStoryboardToAudio,
+  validateStoryboardForSources,
+} from './video-generation.utils';
 import { videoRendererService } from './video-renderer.service';
 import { buildVideoSourceSnapshot } from './video-source-context';
 
@@ -143,13 +148,14 @@ async function planStoryboard(job: VideoGenerationJob): Promise<void> {
     true,
     snapshot.sources.filter((source) => !source.isVisualOnly).map((source) => source.id),
   );
+  const autoRender = job.purpose === 'TRAINEE_EXPLANATION';
   await repository.updateIfStatus(job.id, 'PLANNING', {
-    status: 'STORYBOARD_READY',
+    status: autoRender ? 'QUEUED' : 'STORYBOARD_READY',
     storyboard: storyboard as never,
     regenerationSceneIds: Prisma.JsonNull,
     inputTokens: { increment: response.inputTokens },
     outputTokens: { increment: response.outputTokens },
-    progressPercent: 50,
+    progressPercent: autoRender ? 55 : 50,
     errorCode: null,
     errorMessage: null,
     leaseOwner: null,
@@ -190,22 +196,55 @@ async function renderVideo(job: VideoGenerationJob): Promise<void> {
     }
     const hash = hashAudioInput(scene.narration, job.voice, job.language);
     const cached = priorAudio.find((artifact) => artifact.sceneId === scene.id && artifact.hash === hash);
-    if (cached) audioArtifacts.push(cached);
-    else {
+    if (cached) {
+      let captionWords = cached.captionWords;
+      if (!Array.isArray(captionWords)) {
+        const audio = await readStreamToBuffer(
+          await storageProvider.getReadStream({ relativePath: cached.relativePath }),
+        );
+        captionWords = normalizeTimedCaptionWords(
+          await openAiVideoProvider.alignSpeech(audio, scene.narration),
+          cached.durationSeconds,
+        );
+      }
+      if (await isCancelled(job.id)) {
+        await deleteAudioArtifacts(audioArtifacts);
+        return;
+      }
+      audioArtifacts.push({ ...cached, captionWords });
+    } else {
       const audio = await openAiVideoProvider.synthesizeSpeech(scene.narration, job.voice, job.language);
-      const durationSeconds = await measureMp3DurationSeconds(audio);
+      const [durationSeconds, alignedCaptionWords] = await Promise.all([
+        measureMp3DurationSeconds(audio),
+        openAiVideoProvider.alignSpeech(audio, scene.narration),
+      ]);
+      const captionWords = normalizeTimedCaptionWords(alignedCaptionWords, durationSeconds);
+      if (await isCancelled(job.id)) {
+        await deleteAudioArtifacts(audioArtifacts);
+        return;
+      }
       const pointer = await storageProvider.save({
         buffer: audio,
         originalName: `${hash}.mp3`,
         entityType: 'video-generation-audio',
       });
+      if (await isCancelled(job.id)) {
+        await storageProvider.delete(pointer);
+        await deleteAudioArtifacts(audioArtifacts);
+        return;
+      }
       audioArtifacts.push({
         sceneId: scene.id,
         hash,
         relativePath: pointer.relativePath,
         durationSeconds,
         sizeBytes: audio.length,
+        captionWords,
       });
+    }
+    if (await isCancelled(job.id)) {
+      await deleteAudioArtifacts(audioArtifacts);
+      return;
     }
     await repository.update(job.id, {
       progressPercent: Math.max(

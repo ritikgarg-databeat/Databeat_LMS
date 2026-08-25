@@ -1,13 +1,14 @@
 import type { AiFeature, Role } from '@prisma/client';
 
 import { AI_HISTORY_MESSAGES_INCLUDED, MAX_AI_CONVERSATION_TITLE_LENGTH } from '@/constants/ai';
+import { videoGenerationService } from '@/modules/video-generation/video-generation.service';
 import { BaseService } from '@/services/base.service';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
 import { logger } from '@/utils/logger';
 import { redactSensitiveText } from '@/utils/pii-redaction.util';
 
 import { aiProvider } from './active-provider';
-import type { ChatRequestDto } from './ai.dto';
+import type { ChatRequestDto, CreateTraineeVideoDto } from './ai.dto';
 import { AiRepository } from './ai.repository';
 import { buildLearningScopeContext, buildLessonContext } from './context-builder';
 import { promptManager } from './prompt-manager';
@@ -97,6 +98,7 @@ export class AiService extends BaseService {
       AI_HISTORY_MESSAGES_INCLUDED,
     );
     const history = recentMessages
+      .filter((message) => message.feature !== 'GENERATE_VIDEO')
       .slice()
       .reverse()
       .map((message) => ({
@@ -156,7 +158,103 @@ export class AiService extends BaseService {
 
     await this.repository.touchConversation(conversationId);
 
-    return { conversationId, lessonId: conversationLessonId, message: assistantMessage };
+    return {
+      conversationId,
+      lessonId: conversationLessonId,
+      message: this.toMessageView(assistantMessage),
+    };
+  }
+
+  async createTraineeVideo(dto: CreateTraineeVideoDto, actor: Actor, ipAddress?: string | null) {
+    if (actor.role !== 'TRAINEE') throw new ForbiddenError('Only trainees can create tutor videos.');
+    let conversationId: string;
+    let lessonId: string;
+    let createdConversation = false;
+    const customInstructions = dto.message?.trim() ?? '';
+    const requestText = customInstructions || 'Create a short explanatory video for this lesson.';
+
+    if (dto.conversationId) {
+      const conversation = await this.findOwnedConversation(dto.conversationId, actor.id);
+      if (!conversation.lessonId) throw new BadRequestError('Attach a lesson before creating a video.');
+      conversationId = conversation.id;
+      lessonId = conversation.lessonId;
+    } else {
+      if (!dto.lessonId) throw new BadRequestError('Attach a lesson before creating a video.');
+      const accessible = await this.repository.isLessonAccessibleToUser(dto.lessonId, actor.id, actor.role);
+      if (!accessible) throw new ForbiddenError("You don't have permission to access this lesson.");
+      const context = await buildLessonContext(dto.lessonId);
+      if (!context) throw new NotFoundError('Lesson not found.');
+      const conversation = await this.repository.createConversation({
+        user: { connect: { id: actor.id } },
+        lesson: { connect: { id: dto.lessonId } },
+        title: `${context.lessonTitle} — AI Tutor`.slice(0, MAX_AI_CONVERSATION_TITLE_LENGTH),
+      });
+      conversationId = conversation.id;
+      lessonId = dto.lessonId;
+      createdConversation = true;
+    }
+
+    const accessible = await this.repository.isLessonAccessibleToUser(lessonId, actor.id, actor.role);
+    if (!accessible) throw new ForbiddenError('You no longer have access to this lesson.');
+
+    let userMessageId: string | undefined;
+    let assistantMessageId: string | undefined;
+    let videoJobId: string | undefined;
+    try {
+      const userMessage = await this.repository.createMessage({
+        conversation: { connect: { id: conversationId } },
+        role: 'USER',
+        feature: 'GENERATE_VIDEO',
+        content: requestText,
+      });
+      userMessageId = userMessage.id;
+      const assistantMessage = await this.repository.createMessage({
+        conversation: { connect: { id: conversationId } },
+        role: 'ASSISTANT',
+        feature: 'GENERATE_VIDEO',
+        content: 'Your lesson video is being generated.',
+      });
+      assistantMessageId = assistantMessage.id;
+      const video = await videoGenerationService.createTraineeExplanation(
+        lessonId,
+        customInstructions,
+        assistantMessage.id,
+        actor,
+        ipAddress,
+      );
+      videoJobId = video.id;
+      await this.repository.touchConversation(conversationId);
+      return {
+        conversationId,
+        lessonId,
+        message: { ...assistantMessage, video },
+      };
+    } catch (error) {
+      if (videoJobId) {
+        await videoGenerationService.cleanupTraineeJobs([videoJobId], actor.id).catch(() => undefined);
+      }
+      if (createdConversation)
+        await this.repository.deleteConversation(conversationId).catch(() => undefined);
+      else {
+        const messageIds = [userMessageId, assistantMessageId].filter((value): value is string =>
+          Boolean(value),
+        );
+        if (messageIds.length) await this.repository.deleteMessages(messageIds).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  getTraineeVideo(jobId: string, actor: Actor) {
+    return videoGenerationService.getTraineeExplanation(jobId, actor);
+  }
+
+  previewTraineeVideo(jobId: string, actor: Actor) {
+    return videoGenerationService.previewTraineeExplanation(jobId, actor);
+  }
+
+  retryTraineeVideo(jobId: string, actor: Actor) {
+    return videoGenerationService.retryTraineeExplanation(jobId, actor);
   }
 
   async list(userId: string, filters: { lessonId?: string }, page: number, pageSize: number) {
@@ -172,10 +270,18 @@ export class AiService extends BaseService {
       throw new ForbiddenError("You don't have permission to view this conversation.");
     }
     // Repository fetches most-recent-first (bounded window) — restore chronological order.
-    return { ...conversation, messages: conversation.messages.slice().reverse() };
+    return {
+      ...conversation,
+      messages: conversation.messages
+        .slice()
+        .reverse()
+        .map((message) => this.toMessageView(message)),
+    };
   }
 
   async deleteAllHistory(userId: string): Promise<void> {
+    const jobIds = await this.repository.findTraineeVideoJobIdsForUser(userId);
+    await videoGenerationService.cleanupTraineeJobs(jobIds, userId);
     await this.repository.deleteAllForUser(userId);
   }
 
@@ -186,7 +292,19 @@ export class AiService extends BaseService {
 
   async deleteConversation(id: string, actor: Actor): Promise<void> {
     const conversation = await this.findOwnedConversation(id, actor.id);
+    const jobIds = await this.repository.findTraineeVideoJobIdsForConversation(conversation.id, actor.id);
+    await videoGenerationService.cleanupTraineeJobs(jobIds, actor.id);
     await this.repository.deleteConversation(conversation.id);
+  }
+
+  private toMessageView<T extends object>(message: T) {
+    const { videoGenerationJob, ...rest } = message as T & { videoGenerationJob?: unknown };
+    return {
+      ...rest,
+      ...(videoGenerationJob
+        ? { video: videoGenerationService.toTraineeView(videoGenerationJob as never) }
+        : {}),
+    };
   }
 
   private async findOwnedConversation(id: string, userId: string) {

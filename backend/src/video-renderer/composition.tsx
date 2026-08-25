@@ -12,6 +12,7 @@ import {
 } from 'remotion';
 
 import type {
+  TimedCaptionWord,
   VideoStoryboardScene,
   VideoStoryboardV1,
 } from '@/modules/video-generation/video-generation.types';
@@ -20,6 +21,7 @@ export interface LessonVideoProps extends Record<string, unknown> {
   storyboard: VideoStoryboardV1;
   audioFiles: Record<string, string>;
   visualFiles: Record<string, string>;
+  captionWords: Record<string, TimedCaptionWord[]>;
   style: 'CLEAN_CORPORATE' | 'VISUAL_EXPLAINER' | 'CODE_WALKTHROUGH';
 }
 
@@ -50,7 +52,13 @@ const palette = {
   },
 };
 
-export const LessonVideo: React.FC<LessonVideoProps> = ({ storyboard, audioFiles, visualFiles, style }) => {
+export const LessonVideo: React.FC<LessonVideoProps> = ({
+  storyboard,
+  audioFiles,
+  visualFiles,
+  captionWords,
+  style,
+}) => {
   let startFrame = 0;
   return (
     <AbsoluteFill
@@ -73,6 +81,7 @@ export const LessonVideo: React.FC<LessonVideoProps> = ({ storyboard, audioFiles
               durationInFrames={durationInFrames}
               style={style}
               visualFiles={visualFiles}
+              captionWords={captionWords[scene.id] ?? []}
             />
             {audioFiles[scene.id] ? <Audio src={staticFile(audioFiles[scene.id] as string)} /> : null}
           </Sequence>
@@ -89,7 +98,8 @@ const Scene: React.FC<{
   durationInFrames: number;
   style: VideoStyle;
   visualFiles: Record<string, string>;
-}> = ({ scene, index, total, durationInFrames, style, visualFiles }) => {
+  captionWords: TimedCaptionWord[];
+}> = ({ scene, index, total, durationInFrames, style, visualFiles, captionWords }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const colors = palette[style];
@@ -145,7 +155,7 @@ const Scene: React.FC<{
           hasVisual={Boolean(visual)}
         />
       </div>
-      <KaraokeCaption narration={scene.narration} progress={progress} colors={colors} />
+      <KaraokeCaption words={captionWords} frame={frame} fps={fps} colors={colors} />
       <div
         style={{
           position: 'absolute',
@@ -833,16 +843,36 @@ const AnimatedPill: React.FC<{ text: string; index: number; frame: number; fps: 
   );
 };
 
-const KaraokeCaption: React.FC<{ narration: string; progress: number; colors: Colors }> = ({
-  narration,
-  progress,
-  colors,
-}) => {
-  const phrases = chunkWords(narration, 10);
-  const scaled = Math.min(Math.max(0, phrases.length - 0.001), progress * phrases.length);
-  const phrase = phrases[Math.floor(scaled)] ?? narration;
-  const words = phrase.split(/\s+/).filter(Boolean);
-  const activeWord = Math.min(words.length - 1, Math.floor((scaled % 1) * Math.max(1, words.length)));
+const KaraokeCaption: React.FC<{
+  words: TimedCaptionWord[];
+  frame: number;
+  fps: number;
+  colors: Colors;
+}> = ({ words, frame, fps, colors }) => {
+  if (!words.length) return null;
+  const timeSeconds = frame / fps;
+  const firstWord = words[0];
+  const lastWord = words.at(-1);
+  if (!firstWord || !lastWord || timeSeconds < firstWord.startSeconds || timeSeconds >= lastWord.endSeconds) {
+    return null;
+  }
+  const currentIndex = words.findIndex(
+    (word) => timeSeconds >= word.startSeconds && timeSeconds < word.endSeconds,
+  );
+  let nearestIndex = currentIndex;
+  if (nearestIndex < 0) {
+    nearestIndex = 0;
+    for (let index = 0; index < words.length; index += 1) {
+      if ((words[index]?.startSeconds ?? Number.POSITIVE_INFINITY) > timeSeconds) break;
+      nearestIndex = index;
+    }
+  }
+  const chunkStart = Math.floor(nearestIndex / 8) * 8;
+  const visibleWords = words.slice(chunkStart, chunkStart + 8);
+  const activeWord =
+    currentIndex >= chunkStart && currentIndex < chunkStart + visibleWords.length
+      ? currentIndex - chunkStart
+      : -1;
   return (
     <div
       style={{
@@ -866,26 +896,18 @@ const KaraokeCaption: React.FC<{ narration: string; progress: number; colors: Co
         textAlign: 'center',
       }}
     >
-      {words.map((word, index) => (
+      {visibleWords.map((word, index) => (
         <span
-          key={`${word}-${index}`}
+          key={`${word.word}-${word.startSeconds}-${index}`}
           style={{
             color: index === activeWord ? colors.accent : '#f8fafc',
             fontWeight: index === activeWord ? 850 : 550,
             transform: index === activeWord ? 'scale(1.05)' : 'scale(1)',
           }}
         >
-          {word}
+          {word.word}
         </span>
       ))}
     </div>
   );
 };
-
-function chunkWords(text: string, size: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const chunks: string[] = [];
-  for (let index = 0; index < words.length; index += size)
-    chunks.push(words.slice(index, index + size).join(' '));
-  return chunks.length ? chunks : [''];
-}

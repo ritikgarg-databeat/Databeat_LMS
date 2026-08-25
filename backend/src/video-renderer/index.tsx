@@ -25,6 +25,7 @@ const defaultProps: LessonVideoProps = {
   },
   audioFiles: {},
   visualFiles: {},
+  captionWords: {},
   style: 'CLEAN_CORPORATE',
 };
 

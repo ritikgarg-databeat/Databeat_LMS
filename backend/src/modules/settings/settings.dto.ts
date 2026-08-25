@@ -29,4 +29,9 @@ export interface UpdatePlatformSettingsDto {
   platformName?: string;
   supportEmail?: string | null;
   maintenanceMode?: boolean;
+  traineeVideoDailyLimit?: number;
+}
+
+export interface UpdateTrainerVideoLimitDto {
+  dailyLimit: number | null;
 }

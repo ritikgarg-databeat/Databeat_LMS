@@ -7,7 +7,7 @@
 // rendered optimistically from local state (see `ChatTurn` below) rather than waiting on/relying
 // on a refetch, and a failed send leaves the user's own bubble in place with an inline error
 // note instead of disappearing.
-import { BookOpen, History, Plus, Send, ShieldCheck } from 'lucide-react';
+import { BookOpen, History, Plus, Send, ShieldCheck, Video as VideoIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -22,11 +22,12 @@ import { ROUTES } from '@/constants/routes';
 import { useLessonQuery } from '@/features/classroom/hooks';
 import { getErrorMessage } from '@/utils/error';
 
-import { ChatMessageBubble, SuggestedPrompts } from '../components';
-import { useAiChatMutation, useAiConversationQuery } from '../hooks';
-import type { AiExplanationLevel, AiFeature, AiMessage } from '../types';
+import { ChatMessageBubble, SuggestedPrompts, TraineeVideoResponse } from '../components';
+import { useAiChatMutation, useAiConversationQuery, useAiVideoMutation } from '../hooks';
+import type { AiExplanationLevel, AiFeature, AiMessage, AiVideoGeneration, ChatResponse } from '../types';
 
 const AI_HISTORY_PATH = `${ROUTES.TRAINEE.AI_TUTOR}/history`;
+const DEFAULT_VIDEO_REQUEST = 'Create a short explanatory video for this lesson.';
 
 interface ChatTurn {
   /** Locally-generated id for turns sent this session; the seed user message's own id for turns
@@ -37,6 +38,7 @@ interface ChatTurn {
   explanationLevel: AiExplanationLevel | undefined;
   assistantStatus: 'pending' | 'success' | 'error';
   assistantContent: string;
+  video?: AiVideoGeneration;
 }
 
 const FEATURE_OPTIONS: { value: AiFeature; label: string }[] = [
@@ -45,6 +47,7 @@ const FEATURE_OPTIONS: { value: AiFeature; label: string }[] = [
   { value: 'SUMMARIZE_LESSON', label: 'Summarize lesson' },
   { value: 'GENERATE_EXAMPLES', label: 'Examples' },
   { value: 'GENERATE_PRACTICE_QUESTIONS', label: 'Practice questions' },
+  { value: 'GENERATE_VIDEO', label: 'Video' },
 ];
 
 const EXPLANATION_LEVEL_OPTIONS: { value: AiExplanationLevel; label: string }[] = [
@@ -78,6 +81,7 @@ function messagesToTurns(messages: AiMessage[]): ChatTurn[] {
         explanationLevel: undefined,
         assistantStatus: 'success',
         assistantContent: next.content,
+        video: next.video,
       });
       i += 2;
     } else {
@@ -133,9 +137,12 @@ function AiChatPage() {
   // this one component, never fired from an effect — the StrictMode double-invoke pitfall that
   // requires separate instances (see `lesson-viewer-page.tsx`) doesn't apply.
   const chatMutation = useAiChatMutation();
+  const videoMutation = useAiVideoMutation();
   const [feature, setFeature] = useState<AiFeature>('CHAT');
   const [explanationLevel, setExplanationLevel] = useState<AiExplanationLevel | undefined>(undefined);
   const [inputValue, setInputValue] = useState('');
+  const effectiveFeature: AiFeature =
+    !effectiveLessonId && (feature === 'GENERATE_VIDEO' || feature === 'SUMMARIZE_LESSON') ? 'CHAT' : feature;
 
   function sendMessage(
     rawText: string,
@@ -143,7 +150,13 @@ function AiChatPage() {
     sendExplanationLevel: AiExplanationLevel | undefined,
   ) {
     const trimmed = rawText.trim();
-    if (!trimmed || chatMutation.isPending) return;
+    const userContent = sendFeature === 'GENERATE_VIDEO' && !trimmed ? DEFAULT_VIDEO_REQUEST : trimmed;
+    const isSending = chatMutation.isPending || videoMutation.isPending;
+    if (!userContent || isSending) return;
+    if (sendFeature === 'GENERATE_VIDEO' && !effectiveLessonId) {
+      toast.error('Attach a lesson before creating a video.');
+      return;
+    }
 
     const sessionAtSend = chatSessionRef.current;
     const turnId = crypto.randomUUID();
@@ -151,7 +164,7 @@ function AiChatPage() {
       ...prev,
       {
         id: turnId,
-        userContent: trimmed,
+        userContent,
         feature: sendFeature,
         explanationLevel: sendExplanationLevel,
         assistantStatus: 'pending',
@@ -159,56 +172,79 @@ function AiChatPage() {
       },
     ]);
 
-    chatMutation.mutate(
-      {
-        conversationId,
-        lessonId: !conversationId ? lessonIdParam : undefined,
-        message: trimmed,
-        feature: sendFeature,
-        explanationLevel: sendExplanationLevel,
-      },
-      {
-        onSuccess: (data) => {
-          // The user hit "New chat" while this request was in flight — the reply belongs to an
-          // abandoned chat, so leave the fresh chat's turns and URL alone.
-          if (sessionAtSend !== chatSessionRef.current) return;
-          setTurns((prev) =>
-            prev.map((turn) =>
-              turn.id === turnId
-                ? { ...turn, assistantStatus: 'success', assistantContent: data.message.content }
-                : turn,
-            ),
+    const callbacks = {
+      onSuccess: (data: ChatResponse) => {
+        // The user hit "New chat" while this request was in flight — the reply belongs to an
+        // abandoned chat, so leave the fresh chat's turns and URL alone.
+        if (sessionAtSend !== chatSessionRef.current) return;
+        setTurns((prev) =>
+          prev.map((turn) =>
+            turn.id === turnId
+              ? {
+                  ...turn,
+                  assistantStatus: 'success' as const,
+                  assistantContent: data.message.content,
+                  video: data.message.video,
+                }
+              : turn,
+          ),
+        );
+        if (!conversationId) {
+          // Mark the just-created conversation as already seeded BEFORE the URL write enables
+          // its detail query — otherwise the seed effect would clobber the live local turns
+          // (e.g. one sent or regenerated while this reply was in flight) with the fetched
+          // snapshot. Seeding is only for opening an existing conversation from history.
+          seededConversationIdRef.current = data.conversationId;
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.set('conversationId', data.conversationId);
+              return next;
+            },
+            { replace: true },
           );
-          if (!conversationId) {
-            // Mark the just-created conversation as already seeded BEFORE the URL write enables
-            // its detail query — otherwise the seed effect would clobber the live local turns
-            // (e.g. one sent or regenerated while this reply was in flight) with the fetched
-            // snapshot. Seeding is only for opening an existing conversation from history.
-            seededConversationIdRef.current = data.conversationId;
-            setSearchParams(
-              (prev) => {
-                const next = new URLSearchParams(prev);
-                next.set('conversationId', data.conversationId);
-                return next;
-              },
-              { replace: true },
-            );
-          }
-        },
-        onError: (error) => {
-          if (sessionAtSend !== chatSessionRef.current) return;
-          setTurns((prev) =>
-            prev.map((turn) => (turn.id === turnId ? { ...turn, assistantStatus: 'error' } : turn)),
-          );
-          toast.error(getErrorMessage(error));
-        },
+        }
       },
-    );
+      onError: (error: Error) => {
+        if (sessionAtSend !== chatSessionRef.current) return;
+        setTurns((prev) =>
+          prev.map((turn) => (turn.id === turnId ? { ...turn, assistantStatus: 'error' } : turn)),
+        );
+        toast.error(getErrorMessage(error));
+      },
+    };
+
+    if (sendFeature === 'GENERATE_VIDEO') {
+      videoMutation.mutate(
+        {
+          conversationId,
+          lessonId: !conversationId ? lessonIdParam : undefined,
+          message: trimmed || undefined,
+        },
+        callbacks,
+      );
+    } else {
+      chatMutation.mutate(
+        {
+          conversationId,
+          lessonId: !conversationId ? lessonIdParam : undefined,
+          message: trimmed,
+          feature: sendFeature,
+          explanationLevel: sendExplanationLevel,
+        },
+        callbacks,
+      );
+    }
   }
 
   function handleSend() {
-    if (!inputValue.trim() || chatMutation.isPending) return;
-    sendMessage(inputValue, feature, explanationLevel);
+    if (
+      (!inputValue.trim() && effectiveFeature !== 'GENERATE_VIDEO') ||
+      chatMutation.isPending ||
+      videoMutation.isPending
+    )
+      return;
+    sendMessage(inputValue, effectiveFeature, explanationLevel);
     setInputValue('');
   }
 
@@ -266,7 +302,10 @@ function AiChatPage() {
     Boolean(conversationId) && conversationQuery.isLoading && turns.length === 0;
   const visibleFeatureOptions = effectiveLessonId
     ? FEATURE_OPTIONS
-    : FEATURE_OPTIONS.filter((option) => option.value !== 'SUMMARIZE_LESSON');
+    : FEATURE_OPTIONS.filter(
+        (option) => option.value !== 'SUMMARIZE_LESSON' && option.value !== 'GENERATE_VIDEO',
+      );
+  const isSending = chatMutation.isPending || videoMutation.isPending;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
@@ -313,15 +352,19 @@ function AiChatPage() {
               return (
                 <div key={turn.id} className="space-y-2">
                   <ChatMessageBubble sender="user" content={turn.userContent} />
-                  <ChatMessageBubble
-                    sender="assistant"
-                    content={turn.assistantContent}
-                    isPending={turn.assistantStatus === 'pending'}
-                    isError={turn.assistantStatus === 'error'}
-                    onCopy={() => void handleCopy(turn.assistantContent)}
-                    onRegenerate={() => handleRegenerate(turn)}
-                    showRegenerate={isLast && turn.assistantStatus === 'success' && !chatMutation.isPending}
-                  />
+                  {turn.video && turn.assistantStatus === 'success' ? (
+                    <TraineeVideoResponse initialVideo={turn.video} />
+                  ) : (
+                    <ChatMessageBubble
+                      sender="assistant"
+                      content={turn.assistantContent}
+                      isPending={turn.assistantStatus === 'pending'}
+                      isError={turn.assistantStatus === 'error'}
+                      onCopy={() => void handleCopy(turn.assistantContent)}
+                      onRegenerate={() => handleRegenerate(turn)}
+                      showRegenerate={isLast && turn.assistantStatus === 'success' && !isSending}
+                    />
+                  )}
                 </div>
               );
             })
@@ -337,7 +380,7 @@ function AiChatPage() {
               key={option.value}
               type="button"
               size="sm"
-              variant={feature === option.value ? 'default' : 'outline'}
+              variant={effectiveFeature === option.value ? 'default' : 'outline'}
               onClick={() => {
                 setFeature(option.value);
                 if (option.value === 'EXPLAIN_TOPIC' && !explanationLevel) setExplanationLevel('BEGINNER');
@@ -348,7 +391,7 @@ function AiChatPage() {
           ))}
         </div>
 
-        {feature === 'EXPLAIN_TOPIC' ? (
+        {effectiveFeature === 'EXPLAIN_TOPIC' ? (
           <div className="flex flex-wrap items-center gap-1.5">
             {EXPLANATION_LEVEL_OPTIONS.map((option) => (
               <Button
@@ -376,15 +419,27 @@ function AiChatPage() {
               }
             }}
             placeholder={
-              effectiveLessonId
-                ? 'Ask a question about this lesson...'
-                : 'Ask about your courses or learning topics...'
+              effectiveFeature === 'GENERATE_VIDEO'
+                ? 'Optional: describe what this short lesson video should focus on...'
+                : effectiveLessonId
+                  ? 'Ask a question about this lesson...'
+                  : 'Ask about your courses or learning topics...'
             }
             rows={2}
+            maxLength={effectiveFeature === 'GENERATE_VIDEO' ? 2000 : undefined}
             className="resize-none"
           />
-          <Button type="button" onClick={handleSend} disabled={chatMutation.isPending || !inputValue.trim()}>
-            <Send className="size-4" /> Send
+          <Button
+            type="button"
+            onClick={handleSend}
+            disabled={isSending || (!inputValue.trim() && effectiveFeature !== 'GENERATE_VIDEO')}
+          >
+            {effectiveFeature === 'GENERATE_VIDEO' ? (
+              <VideoIcon className="size-4" />
+            ) : (
+              <Send className="size-4" />
+            )}
+            {effectiveFeature === 'GENERATE_VIDEO' ? 'Create video' : 'Send'}
           </Button>
         </div>
       </div>

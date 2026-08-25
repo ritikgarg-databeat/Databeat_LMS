@@ -263,6 +263,7 @@ AI_MODEL_ID=claude-opus-4-8
 VIDEO_GENERATION_ENABLED=false
 VIDEO_STORYBOARD_MODEL=gpt-4o-mini
 VIDEO_TTS_MODEL=gpt-4o-mini-tts
+VIDEO_TRANSCRIPTION_MODEL=whisper-1
 VIDEO_RENDER_CONCURRENCY=1
 VIDEO_FRAME_CONCURRENCY=50%
 VIDEO_MAX_DURATION_SECONDS=480
@@ -432,7 +433,9 @@ remain worthwhile follow-up work.
 
 ---
 
-Trainer video generation is documented in [`docs/VIDEO_GENERATION.md`](docs/VIDEO_GENERATION.md).
+Trainer publishing and private trainee tutor video generation are documented in
+[`docs/VIDEO_GENERATION.md`](docs/VIDEO_GENERATION.md). Trainees use the lesson-scoped **Video**
+mode; Super Admins set the platform daily allowance and trainers may apply a stricter group limit.
 
 ## Troubleshooting
 

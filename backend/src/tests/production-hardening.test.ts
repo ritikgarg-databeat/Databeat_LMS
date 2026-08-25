@@ -13,7 +13,10 @@ import { hashAudioInput } from '@/modules/video-generation/video-generation.serv
 import {
   createVideoPromptCacheKey,
   createWebVttCaptions,
+  effectiveTraineeVideoLimit,
+  normalizeTimedCaptionWords,
   synchronizeStoryboardToAudio,
+  traineeVideoUtcDayWindow,
   validateStoryboardForSources,
 } from '@/modules/video-generation/video-generation.utils';
 import {
@@ -148,9 +151,42 @@ test('video storyboards enforce lesson source references, duration, captions, an
       ),
     /not grounded in factual lesson evidence/,
   );
-  const captions = createWebVttCaptions(storyboard);
+  const captionAudio = [
+    {
+      sceneId: 'scene-1',
+      hash: 'one',
+      relativePath: 'one.mp3',
+      durationSeconds: 30,
+      captionWords: [{ word: 'Start', startSeconds: 0.1, endSeconds: 0.7 }],
+    },
+    {
+      sceneId: 'scene-2',
+      hash: 'two',
+      relativePath: 'two.mp3',
+      durationSeconds: 30,
+      captionWords: [
+        { word: 'Review', startSeconds: 0.2, endSeconds: 0.8 },
+        { word: 'evidence', startSeconds: 0.85, endSeconds: 1.4 },
+      ],
+    },
+  ];
+  const captions = createWebVttCaptions(storyboard, captionAudio);
   assert.match(captions, /^WEBVTT/);
-  assert.match(captions, /00:00:30\.000 --> 00:01:00\.000/);
+  assert.match(captions, /00:00:30\.200 --> 00:00:31\.400/);
+  assert.deepEqual(
+    normalizeTimedCaptionWords(
+      [
+        { word: 'before', startSeconds: -0.2, endSeconds: 0.4 },
+        { word: 'after', startSeconds: 1.8, endSeconds: 2.4 },
+        { word: 'outside', startSeconds: 2.1, endSeconds: 2.5 },
+      ],
+      2,
+    ),
+    [
+      { word: 'before', startSeconds: 0, endSeconds: 0.4 },
+      { word: 'after', startSeconds: 1.8, endSeconds: 2 },
+    ],
+  );
   assert.equal(
     hashAudioInput('Narration', 'coral', 'English'),
     hashAudioInput('Narration', 'coral', 'English'),
@@ -166,7 +202,7 @@ test('video storyboards enforce lesson source references, duration, captions, an
   ]);
   assert.equal(synchronized.scenes[0]?.durationSeconds, 877 / 30);
   assert.equal(synchronized.scenes[1]?.durationSeconds, 931 / 30);
-  assert.match(createWebVttCaptions(synchronized), /00:00:29\.233 --> 00:01:00\.267/);
+  assert.match(createWebVttCaptions(synchronized, captionAudio), /00:00:29\.433 --> 00:00:30\.633/);
 });
 
 test('video rendering retries transient crashes but fails fast for deterministic asset errors', () => {
@@ -180,6 +216,14 @@ test('video rendering retries transient crashes but fails fast for deterministic
   assert.equal(frameConcurrencyForAttempt(1, 3), 2);
   assert.equal(frameConcurrencyForAttempt(2, 3), 1);
   assert.equal(frameConcurrencyForAttempt(1, '50%'), '25%');
+});
+
+test('trainee video limits use the strictest policy and a stable UTC day', () => {
+  assert.equal(effectiveTraineeVideoLimit(5, []), 5);
+  assert.equal(effectiveTraineeVideoLimit(5, [4, 2, 7]), 2);
+  const window = traineeVideoUtcDayWindow(new Date('2026-08-25T23:59:59.999Z'));
+  assert.equal(window.start.toISOString(), '2026-08-25T00:00:00.000Z');
+  assert.equal(window.end.toISOString(), '2026-08-26T00:00:00.000Z');
 });
 
 test('attempt expiry uses the earlier of duration and due date', () => {

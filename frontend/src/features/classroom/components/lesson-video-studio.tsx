@@ -574,9 +574,9 @@ export function LessonVideoStudio({ lessonId }: LessonVideoStudioProps) {
               {currentJob?.status === 'READY' || currentJob?.status === 'PUBLISHED' ? (
                 <>
                   {previewUrl ? (
-                    <video className="aspect-video w-full rounded-lg bg-black" controls src={previewUrl}>
-                      <track kind="captions" />
-                    </video>
+                    // Captions are burned into the MP4 only when word-level timing succeeds.
+                    // eslint-disable-next-line jsx-a11y/media-has-caption
+                    <video className="aspect-video w-full rounded-lg bg-black" controls src={previewUrl} />
                   ) : (
                     <div className="flex aspect-video items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
                       Loading authenticated preview…

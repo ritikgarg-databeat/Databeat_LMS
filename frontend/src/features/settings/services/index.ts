@@ -11,6 +11,7 @@ import type {
   NotificationType,
   PlatformSettings,
   ThemePreference,
+  TrainerVideoLimit,
   UpdatePlatformSettingsPayload,
   UploadAvatarResult,
   UserSettings,
@@ -23,9 +24,12 @@ export const settingsApi = {
   },
 
   async updateTheme(theme: ThemePreference): Promise<{ theme: ThemePreference }> {
-    const { data } = await apiClient.patch<ApiSuccessResponse<{ theme: ThemePreference }>>('/settings/theme', {
-      theme,
-    });
+    const { data } = await apiClient.patch<ApiSuccessResponse<{ theme: ThemePreference }>>(
+      '/settings/theme',
+      {
+        theme,
+      },
+    );
     return data.data;
   },
 
@@ -47,9 +51,13 @@ export const settingsApi = {
   async uploadAvatar(file: File): Promise<UploadAvatarResult> {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await apiClient.post<ApiSuccessResponse<UploadAvatarResult>>('/settings/avatar', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const { data } = await apiClient.post<ApiSuccessResponse<UploadAvatarResult>>(
+      '/settings/avatar',
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      },
+    );
     return data.data;
   },
 
@@ -78,7 +86,25 @@ export const settingsApi = {
 
   /** SUPER_ADMIN only — the backend 403s for every other role. */
   async updatePlatformSettings(payload: UpdatePlatformSettingsPayload): Promise<PlatformSettings> {
-    const { data } = await apiClient.patch<ApiSuccessResponse<PlatformSettings>>('/settings/platform', payload);
+    const { data } = await apiClient.patch<ApiSuccessResponse<PlatformSettings>>(
+      '/settings/platform',
+      payload,
+    );
+    return data.data;
+  },
+
+  async getTrainerVideoLimit(): Promise<TrainerVideoLimit> {
+    const { data } = await apiClient.get<ApiSuccessResponse<TrainerVideoLimit>>(
+      '/settings/trainer-video-limit',
+    );
+    return data.data;
+  },
+
+  async updateTrainerVideoLimit(dailyLimit: number | null): Promise<TrainerVideoLimit> {
+    const { data } = await apiClient.patch<ApiSuccessResponse<TrainerVideoLimit>>(
+      '/settings/trainer-video-limit',
+      { dailyLimit },
+    );
     return data.data;
   },
 };

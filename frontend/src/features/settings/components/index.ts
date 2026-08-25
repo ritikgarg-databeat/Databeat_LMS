@@ -4,3 +4,4 @@ export * from './notification-preferences-card';
 export * from './personal-settings-section';
 export * from './platform-settings-card';
 export * from './profile-settings-card';
+export * from './trainer-video-limit-card';

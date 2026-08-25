@@ -6,8 +6,10 @@ import type {
   AiConversationDetail,
   AiConversationListItem,
   AiUsageOverview,
+  AiVideoGeneration,
   ChatRequestPayload,
   ChatResponse,
+  CreateAiVideoPayload,
   ListAiHistoryParams,
 } from '../types';
 
@@ -23,6 +25,32 @@ export const aiApi = {
    */
   async chat(payload: ChatRequestPayload): Promise<ChatResponse> {
     const { data } = await apiClient.post<ApiSuccessResponse<ChatResponse>>('/ai/chat', payload);
+    return data.data;
+  },
+
+  async createVideo(payload: CreateAiVideoPayload): Promise<ChatResponse> {
+    const { data } = await apiClient.post<ApiSuccessResponse<ChatResponse>>('/ai/video-generations', payload);
+    return data.data;
+  },
+
+  async getVideo(jobId: string): Promise<AiVideoGeneration> {
+    const { data } = await apiClient.get<ApiSuccessResponse<AiVideoGeneration>>(
+      `/ai/video-generations/${jobId}`,
+    );
+    return data.data;
+  },
+
+  async getVideoPreview(jobId: string): Promise<Blob> {
+    const { data } = await apiClient.get<Blob>(`/ai/video-generations/${jobId}/preview`, {
+      responseType: 'blob',
+    });
+    return data;
+  },
+
+  async retryVideo(jobId: string): Promise<AiVideoGeneration> {
+    const { data } = await apiClient.post<ApiSuccessResponse<AiVideoGeneration>>(
+      `/ai/video-generations/${jobId}/retry`,
+    );
     return data.data;
   },
 

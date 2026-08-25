@@ -37,5 +37,18 @@ export const settingsValidation = {
       .isEmail()
       .withMessage(VALIDATION_MESSAGES.INVALID_EMAIL),
     body('maintenanceMode').optional().isBoolean().withMessage('maintenanceMode must be a boolean.'),
+    body('traineeVideoDailyLimit')
+      .optional()
+      .isInt({ min: 0, max: 20 })
+      .withMessage('traineeVideoDailyLimit must be between 0 and 20.'),
+  ],
+
+  updateTrainerVideoLimit: [
+    body('dailyLimit')
+      .custom(
+        (value: unknown) =>
+          value === null || (Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 20),
+      )
+      .withMessage('dailyLimit must be null or between 0 and 20.'),
   ],
 };

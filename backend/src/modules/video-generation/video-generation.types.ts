@@ -86,6 +86,13 @@ export interface AudioArtifact {
   relativePath: string;
   durationSeconds: number;
   sizeBytes?: number;
+  captionWords?: TimedCaptionWord[];
+}
+
+export interface TimedCaptionWord {
+  word: string;
+  startSeconds: number;
+  endSeconds: number;
 }
 
 export interface VideoGenerationSettings {

@@ -49,7 +49,9 @@ config, both optional (see `src/config/env.ts`):
 
 The trainer video engine uses `providers/openai-video.provider.ts`. It shares
 `MAIN_OPENAI_API_KEY` but uses `VIDEO_STORYBOARD_MODEL` and `VIDEO_TTS_MODEL`; it emits a strict
-source-referenced storyboard and speech only. Rendering and captions remain deterministic.
+source-referenced storyboard and speech only. Rendering remains deterministic. Lesson-scoped
+trainee conversations also expose a **Video** action: the assistant message owns a private
+`TRAINEE_EXPLANATION` job, which is polled and replayed from conversation history.
 
 Whichever provider is active constructs its SDK client lazily as `null` when its key is unset,
 so the app still boots normally; `POST /ai/chat` (and the lesson-quiz module's quiz generation)

@@ -32,9 +32,10 @@ npm run build
 
 The current backend suite covers active-group policy, assessment timer boundaries, lesson quiz
 pass rules, trainer scope, AI answer/evidence guardrails, irrelevant-question refusal, outbound
-sensitive-data redaction, upload magic-byte validation, and independent storage copies. CI runs
-the same checks on pushes/pull requests. A passing focused suite does not replace the role-based
-manual workflow checks below.
+sensitive-data redaction, upload magic-byte validation, independent storage copies, video source
+fingerprints, synchronized caption cues, render retry policy, and trainee video quota rules. CI
+runs the same checks on pushes/pull requests. A passing focused suite does not replace the
+role-based manual workflow checks below.
 
 ---
 
@@ -155,6 +156,23 @@ manual workflow checks below.
       trainees, and requires a current-version quiz.
 - [ ] Cancellation, retries, expiry, and hierarchy deletion clean drafts without affecting LMS health.
 
+## Trainee AI Lesson Video
+
+- [ ] **Ask AI & Video** opens the tutor with the current lesson attached, and **Video** is hidden
+      when no lesson is attached.
+- [ ] A trainee can submit optional creative direction; the storyboard is approved automatically,
+      renders in the background, and the private MP4 appears in the conversation without publishing
+      a lesson resource or changing lesson progress.
+- [ ] The video remains playable after leaving and reopening conversation history. Deleting the
+      conversation cancels active work and removes its private video/audio artifacts.
+- [ ] Super Admin can set the platform daily allowance from 0 to 20. A trainer can inherit that
+      allowance or set a stricter one for active-group trainees; the lowest applicable limit wins
+      and resets at midnight UTC.
+- [ ] Reaching the limit returns a clear message. Retrying the same failed job does not consume a
+      second allowance, and a trainee cannot run two video jobs simultaneously.
+- [ ] Burned-in captions follow word timestamps from the generated audio. If transcription alignment
+      is unavailable, the video renders without captions rather than displaying unsynchronized text.
+
 ## Q&A
 
 - [ ] Ask a question (optionally scoped to a group/course/lesson) as a trainee.
@@ -195,6 +213,8 @@ manual workflow checks below.
       inaccessible (403) to Trainer/Trainee roles.
 - [ ] Clearing a previously-set support email (leaving the field blank and saving) actually
       clears it rather than erroring or silently keeping the old value.
+- [ ] Changing the platform trainee-video daily allowance is reflected in the trainer's inherited
+      limit, and a trainer cannot save a custom value above the platform maximum.
 
 ## Audit Log
 

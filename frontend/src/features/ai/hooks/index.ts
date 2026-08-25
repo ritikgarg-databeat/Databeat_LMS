@@ -2,11 +2,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { aiApi } from '../services';
-import type { ChatRequestPayload, ListAiHistoryParams } from '../types';
+import type { ChatRequestPayload, CreateAiVideoPayload, ListAiHistoryParams } from '../types';
 
 export const AI_HISTORY_QUERY_KEY = 'ai-history';
 export const AI_CONVERSATION_QUERY_KEY = 'ai-conversation';
 export const AI_USAGE_QUERY_KEY = 'ai-usage';
+export const AI_VIDEO_QUERY_KEY = 'ai-video';
 
 /* -------------------------------------------------------------------------- */
 /* Queries                                                                     */
@@ -73,6 +74,45 @@ export function useAiChatMutation() {
   return useMutation({
     mutationFn: (payload: ChatRequestPayload) => aiApi.chat(payload),
     onSuccess: (data) => invalidate(data.conversationId),
+  });
+}
+
+export function useAiVideoMutation() {
+  const invalidate = useInvalidateAiQueries();
+  return useMutation({
+    mutationFn: (payload: CreateAiVideoPayload) => aiApi.createVideo(payload),
+    onSuccess: (data) => invalidate(data.conversationId),
+  });
+}
+
+export function useAiVideoQuery(jobId: string | undefined) {
+  return useQuery({
+    queryKey: [AI_VIDEO_QUERY_KEY, jobId],
+    queryFn: () => aiApi.getVideo(jobId as string),
+    enabled: Boolean(jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && ['PLANNING', 'QUEUED', 'SYNTHESIZING', 'RENDERING'].includes(status) ? 2_000 : false;
+    },
+  });
+}
+
+export function useAiVideoPreviewQuery(jobId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['ai-video-preview', jobId],
+    queryFn: () => aiApi.getVideoPreview(jobId as string),
+    enabled: enabled && Boolean(jobId),
+    staleTime: Infinity,
+  });
+}
+
+export function useRetryAiVideoMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => aiApi.retryVideo(jobId),
+    onSuccess: (job) => {
+      queryClient.setQueryData([AI_VIDEO_QUERY_KEY, job.id], job);
+    },
   });
 }
 

@@ -17,3 +17,9 @@ export interface ListConversationsQueryDto {
   pageSize?: string;
   lessonId?: string;
 }
+
+export interface CreateTraineeVideoDto {
+  conversationId?: string;
+  lessonId?: string;
+  message?: string;
+}

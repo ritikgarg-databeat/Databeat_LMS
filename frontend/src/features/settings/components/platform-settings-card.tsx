@@ -28,6 +28,7 @@ import type { PlatformSettings } from '../types';
 const platformSettingsSchema = z.object({
   platformName: z.string().min(1, 'Platform name is required.').max(120),
   supportEmail: z.string().email('Enter a valid email.').or(z.literal('')),
+  traineeVideoDailyLimit: z.number().int().min(0).max(20),
 });
 type PlatformSettingsFormValues = z.infer<typeof platformSettingsSchema>;
 
@@ -71,7 +72,11 @@ function PlatformSettingsForm({ data }: { data: PlatformSettings }) {
     formState: { errors },
   } = useForm<PlatformSettingsFormValues>({
     resolver: zodResolver(platformSettingsSchema),
-    defaultValues: { platformName: data.platformName, supportEmail: data.supportEmail ?? '' },
+    defaultValues: {
+      platformName: data.platformName,
+      supportEmail: data.supportEmail ?? '',
+      traineeVideoDailyLimit: data.traineeVideoDailyLimit,
+    },
   });
 
   const onSubmit = (values: PlatformSettingsFormValues) => {
@@ -80,6 +85,7 @@ function PlatformSettingsForm({ data }: { data: PlatformSettings }) {
         platformName: values.platformName,
         supportEmail: values.supportEmail || null,
         maintenanceMode,
+        traineeVideoDailyLimit: values.traineeVideoDailyLimit,
       },
       {
         onSuccess: () => toast.success('Platform settings saved.'),
@@ -93,7 +99,9 @@ function PlatformSettingsForm({ data }: { data: PlatformSettings }) {
       <div className="space-y-2">
         <Label htmlFor="platformName">Platform name</Label>
         <Input id="platformName" disabled={updateMutation.isPending} {...register('platformName')} />
-        {errors.platformName ? <p className="text-sm text-destructive">{errors.platformName.message}</p> : null}
+        {errors.platformName ? (
+          <p className="text-sm text-destructive">{errors.platformName.message}</p>
+        ) : null}
       </div>
 
       <div className="space-y-2">
@@ -105,7 +113,9 @@ function PlatformSettingsForm({ data }: { data: PlatformSettings }) {
           disabled={updateMutation.isPending}
           {...register('supportEmail')}
         />
-        {errors.supportEmail ? <p className="text-sm text-destructive">{errors.supportEmail.message}</p> : null}
+        {errors.supportEmail ? (
+          <p className="text-sm text-destructive">{errors.supportEmail.message}</p>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-4">
@@ -121,13 +131,31 @@ function PlatformSettingsForm({ data }: { data: PlatformSettings }) {
         />
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="traineeVideoDailyLimit">Trainee videos per day</Label>
+        <Input
+          id="traineeVideoDailyLimit"
+          type="number"
+          min={0}
+          max={20}
+          disabled={updateMutation.isPending}
+          {...register('traineeVideoDailyLimit', { valueAsNumber: true })}
+        />
+        <p className="text-sm text-muted-foreground">
+          Platform-wide maximum per trainee, reset at 00:00 UTC. Set 0 to disable trainee videos.
+        </p>
+        {errors.traineeVideoDailyLimit ? (
+          <p className="text-sm text-destructive">Enter a whole number from 0 to 20.</p>
+        ) : null}
+      </div>
+
       {maintenanceMode ? (
         <Alert variant="warning">
           <AlertTitle>Trainers and trainees will be blocked</AlertTitle>
           <AlertDescription>
-            Saving this blocks every Trainer and Trainee request with a clear “under maintenance”
-            message, and stops new logins for those roles — takes effect within a few seconds.
-            Only Super Admins are unaffected, so you can always come back here to turn it off.
+            Saving this blocks every Trainer and Trainee request with a clear “under maintenance” message, and
+            stops new logins for those roles — takes effect within a few seconds. Only Super Admins are
+            unaffected, so you can always come back here to turn it off.
           </AlertDescription>
         </Alert>
       ) : null}

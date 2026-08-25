@@ -25,7 +25,7 @@ function LessonAiButton({ lessonId }: LessonAiButtonProps) {
       variant="outline"
       onClick={() => navigate(`${ROUTES.TRAINEE.AI_TUTOR}?lessonId=${lessonId}`)}
     >
-      <Sparkles /> Ask AI about this lesson
+      <Sparkles /> Ask AI &amp; Video
     </Button>
   );
 }

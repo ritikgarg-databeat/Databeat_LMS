@@ -14,6 +14,7 @@ import {
   ForbiddenError,
   NotFoundError,
   ServiceUnavailableError,
+  TooManyRequestsError,
 } from '@/utils/app-error';
 
 import type {
@@ -28,6 +29,7 @@ import {
   type AudioArtifact,
   type VideoStoryboardV1,
 } from './video-generation.types';
+import { traineeVideoUtcDayWindow } from './video-generation.utils';
 import { buildVideoSourceSnapshot, listEligibleVideoSources } from './video-source-context';
 
 interface Actor {
@@ -128,6 +130,126 @@ export class VideoGenerationService extends BaseService {
       metadata: { lessonId, jobId: job.id, sourceContentVersion: snapshot.contentVersion },
     });
     return this.toView(job);
+  }
+
+  async createTraineeExplanation(
+    lessonId: string,
+    creativeInstructions: string,
+    aiMessageId: string,
+    actor: Actor,
+    ipAddress?: string | null,
+  ) {
+    this.requireEnabled();
+    if (actor.role !== 'TRAINEE') throw new ForbiddenError('Only trainees can create private tutor videos.');
+    if (!openAiVideoProvider.configured)
+      throw new ServiceUnavailableError('AI video generation is not configured.');
+    const lesson = await this.repository.findLessonForTrainee(lessonId, actor.id);
+    if (!lesson) throw new ForbiddenError("You don't have permission to generate a video for this lesson.");
+    const active = await this.repository.findActiveForRequester(actor.id, 'TRAINEE_EXPLANATION');
+    if (active) throw new ConflictError('Your previous video is still being generated.');
+
+    const now = new Date();
+    const { start, end } = traineeVideoUtcDayWindow(now);
+    const [dailyLimit, usedToday] = await Promise.all([
+      this.repository.getTraineeVideoLimit(actor.id),
+      this.repository.countTraineeVideosCreatedBetween(actor.id, start, end),
+    ]);
+    if (usedToday >= dailyLimit) {
+      throw new TooManyRequestsError(
+        dailyLimit === 0
+          ? 'Trainee video generation is disabled by your trainer or administrator.'
+          : `You have reached your daily limit of ${dailyLimit} video${dailyLimit === 1 ? '' : 's'}. It resets at 00:00 UTC.`,
+      );
+    }
+
+    const snapshot = await buildVideoSourceSnapshot(lesson);
+    let job;
+    try {
+      job = await this.repository.create({
+        lessonId,
+        requesterId: actor.id,
+        purpose: 'TRAINEE_EXPLANATION',
+        aiMessageId,
+        sourceContentVersion: snapshot.contentVersion,
+        sourceFingerprint: snapshot.fingerprint,
+        selectedResourceIds: snapshot.selectedResourceIds,
+        creativeInstructions: creativeInstructions.trim().slice(0, 2000) || undefined,
+        targetDurationSeconds: 60,
+        language: 'English',
+        voice: 'coral',
+        style: 'VISUAL_EXPLAINER',
+        expiresAt: null,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictError('Your previous video is still being generated.');
+      }
+      throw error;
+    }
+    await auditLogService.record({
+      action: 'VIDEO_GENERATION_CREATED',
+      actorId: actor.id,
+      ipAddress,
+      metadata: { lessonId, jobId: job.id, purpose: 'TRAINEE_EXPLANATION' },
+    });
+    return this.toTraineeView(job);
+  }
+
+  async getTraineeExplanation(jobId: string, actor: Actor) {
+    if (actor.role !== 'TRAINEE') throw new ForbiddenError('Only trainees can access tutor videos.');
+    const job = await this.repository.findOwnedTraineeJob(jobId, actor.id);
+    if (!job) throw new NotFoundError('Video generation not found.');
+    const lesson = await this.repository.findLessonForTrainee(job.lessonId, actor.id);
+    if (!lesson) throw new ForbiddenError('You no longer have access to this lesson.');
+    return this.toTraineeView(job);
+  }
+
+  async previewTraineeExplanation(jobId: string, actor: Actor) {
+    await this.getTraineeExplanation(jobId, actor);
+    const job = await this.repository.findOwnedTraineeJob(jobId, actor.id);
+    if (!job?.artifactRelativePath || job.status !== 'READY')
+      throw new NotFoundError('Video preview is not ready.');
+    return {
+      stream: await storageProvider.getReadStream({ relativePath: job.artifactRelativePath }),
+      mimeType: job.artifactMimeType ?? 'video/mp4',
+      size: job.artifactSizeBytes,
+    };
+  }
+
+  async retryTraineeExplanation(jobId: string, actor: Actor) {
+    if (actor.role !== 'TRAINEE') throw new ForbiddenError('Only trainees can retry tutor videos.');
+    const job = await this.repository.findOwnedTraineeJob(jobId, actor.id);
+    if (!job) throw new NotFoundError('Video generation not found.');
+    if (job.status !== 'FAILED') throw new ConflictError('Only a failed video can be retried.');
+    const lesson = await this.repository.findLessonForTrainee(job.lessonId, actor.id);
+    if (!lesson) throw new ForbiddenError('You no longer have access to this lesson.');
+    await this.assertCurrent(job, lesson);
+    await this.deleteArtifacts(job, true);
+    const hasStoryboard = Boolean(this.storyboard(job));
+    const updated = await this.repository.update(job.id, {
+      status: hasStoryboard ? 'QUEUED' : 'PLANNING',
+      progressPercent: hasStoryboard ? 55 : 5,
+      renderAttempts: 0,
+      errorCode: null,
+      errorMessage: null,
+      completedAt: null,
+      artifactRelativePath: null,
+      captionRelativePath: null,
+      thumbnailRelativePath: null,
+      artifactMimeType: null,
+      artifactSizeBytes: null,
+      audioArtifacts: Prisma.JsonNull,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    return this.toTraineeView(updated);
+  }
+
+  async cleanupTraineeJobs(jobIds: string[], userId: string): Promise<void> {
+    if (!jobIds.length) return;
+    const jobs = await this.repository.findOwnedTraineeJobs(jobIds, userId);
+    await this.repository.cancelOwnedTraineeJobs(jobIds, userId);
+    await Promise.all(jobs.map((job) => this.deleteArtifacts(job, true)));
   }
 
   async updateStoryboard(lessonId: string, jobId: string, dto: UpdateVideoStoryboardDto, actor: Actor) {
@@ -390,7 +512,7 @@ export class VideoGenerationService extends BaseService {
     return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
   }
 
-  private toView(job: JobWithResource) {
+  toView(job: JobWithResource) {
     return {
       id: job.id,
       lessonId: job.lessonId,
@@ -417,6 +539,20 @@ export class VideoGenerationService extends BaseService {
       publishedResourceId: job.publishedResourceId,
       publishedContentVersion: job.publishedContentVersion,
       expiresAt: job.expiresAt,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
+  }
+
+  toTraineeView(job: JobWithResource) {
+    return {
+      id: job.id,
+      lessonId: job.lessonId,
+      purpose: job.purpose,
+      status: job.status,
+      progress: job.progressPercent,
+      error: job.errorCode ? { code: job.errorCode, message: job.errorMessage } : null,
+      hasPreview: job.status === 'READY' && Boolean(job.artifactRelativePath),
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     };

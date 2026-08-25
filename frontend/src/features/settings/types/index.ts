@@ -49,10 +49,16 @@ export interface PlatformSettings {
   platformName: string;
   supportEmail: string | null;
   maintenanceMode: boolean;
+  traineeVideoDailyLimit: number;
   updatedAt: string;
 }
 
 /** Body for `PATCH /settings/platform` — every field optional (partial update). */
 export type UpdatePlatformSettingsPayload = Partial<
-  Pick<PlatformSettings, 'platformName' | 'supportEmail' | 'maintenanceMode'>
+  Pick<PlatformSettings, 'platformName' | 'supportEmail' | 'maintenanceMode' | 'traineeVideoDailyLimit'>
 >;
+
+export interface TrainerVideoLimit {
+  dailyLimit: number | null;
+  platformMaximum: number;
+}

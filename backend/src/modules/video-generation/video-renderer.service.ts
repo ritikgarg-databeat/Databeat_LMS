@@ -113,7 +113,15 @@ export class VideoRendererService {
           assetNamespace,
           frameConcurrency,
           outputPath,
-          inputProps: { storyboard, audioFiles, visualFiles, style },
+          inputProps: {
+            storyboard,
+            audioFiles,
+            visualFiles,
+            captionWords: Object.fromEntries(
+              audioArtifacts.map((artifact) => [artifact.sceneId, artifact.captionWords ?? []]),
+            ),
+            style,
+          },
         }),
         'utf8',
       );
@@ -128,7 +136,7 @@ export class VideoRendererService {
         entityType: 'video-generation-drafts',
       });
       const captions = await storageProvider.save({
-        buffer: Buffer.from(createWebVttCaptions(storyboard)),
+        buffer: Buffer.from(createWebVttCaptions(storyboard, audioArtifacts)),
         originalName: `lesson-video-${jobId}.vtt`,
         entityType: 'video-generation-captions',
       });

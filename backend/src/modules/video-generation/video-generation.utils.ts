@@ -3,11 +3,34 @@ import { env } from '@/config/env';
 import {
   videoStoryboardSchema,
   type AudioArtifact,
+  type TimedCaptionWord,
   type VideoStoryboardScene,
   type VideoStoryboardV1,
 } from './video-generation.types';
 
 const VIDEO_FPS = 30;
+
+export function traineeVideoUtcDayWindow(now: Date): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return { start, end: new Date(start.getTime() + 86_400_000) };
+}
+
+export function effectiveTraineeVideoLimit(platformLimit: number, trainerLimits: number[]): number {
+  return Math.min(platformLimit, ...trainerLimits);
+}
+
+export function normalizeTimedCaptionWords(
+  words: TimedCaptionWord[],
+  durationSeconds: number,
+): TimedCaptionWord[] {
+  return words.flatMap((word) => {
+    const startSeconds = Math.max(0, word.startSeconds);
+    const endSeconds = Math.min(durationSeconds, word.endSeconds);
+    return startSeconds < durationSeconds && endSeconds > startSeconds
+      ? [{ ...word, startSeconds, endSeconds }]
+      : [];
+  });
+}
 
 export function calculateStoryboardDuration(scenes: VideoStoryboardScene[]): number {
   return scenes.reduce((total, scene) => total + scene.durationSeconds, 0);
@@ -71,13 +94,25 @@ export function validateStoryboardForSources(
   return normalizeTotal ? { ...parsed, totalDurationSeconds: duration } : parsed;
 }
 
-export function createWebVttCaptions(storyboard: VideoStoryboardV1): string {
+export function createWebVttCaptions(storyboard: VideoStoryboardV1, audioArtifacts: AudioArtifact[]): string {
   let start = 0;
-  const cues = storyboard.scenes.map((scene, index) => {
-    const end = start + scene.durationSeconds;
-    const cue = `${index + 1}\n${timestamp(start)} --> ${timestamp(end)}\n${scene.narration.replace(/\s+/g, ' ').trim()}\n`;
-    start = end;
-    return cue;
+  let cueIndex = 0;
+  const wordsByScene = new Map(
+    audioArtifacts.map((artifact) => [artifact.sceneId, artifact.captionWords ?? []]),
+  );
+  const cues = storyboard.scenes.flatMap((scene) => {
+    const sceneStart = start;
+    start += scene.durationSeconds;
+    const words = wordsByScene.get(scene.id) ?? [];
+    const chunks: (typeof words)[] = [];
+    for (let index = 0; index < words.length; index += 8) chunks.push(words.slice(index, index + 8));
+    return chunks.flatMap((chunk) => {
+      const first = chunk[0];
+      const last = chunk.at(-1);
+      if (!first || !last) return [];
+      cueIndex += 1;
+      return `${cueIndex}\n${timestamp(sceneStart + first.startSeconds)} --> ${timestamp(sceneStart + last.endSeconds)}\n${chunk.map((word) => word.word).join(' ')}\n`;
+    });
   });
   return `WEBVTT\n\n${cues.join('\n')}`;
 }

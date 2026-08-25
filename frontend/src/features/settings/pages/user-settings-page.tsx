@@ -3,9 +3,13 @@
 // build spec is covered by `PersonalSettingsSection` (Profile + Appearance + Notifications);
 // "Default settings" has no backend contract in this prompt's scope and is intentionally
 // left out rather than faked (see AdminSettingsPage's sibling doc comment for the same call).
-import { PersonalSettingsSection } from '../components';
+import { ROLES } from '@/constants/roles';
+import { useAuth } from '@/hooks/use-auth';
+
+import { PersonalSettingsSection, TrainerVideoLimitCard } from '../components';
 
 function UserSettingsPage() {
+  const { user } = useAuth();
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
@@ -14,6 +18,7 @@ function UserSettingsPage() {
       </div>
 
       <PersonalSettingsSection />
+      {user?.role === ROLES.TRAINER ? <TrainerVideoLimitCard /> : null}
     </div>
   );
 }

@@ -4,10 +4,12 @@ import OpenAI, {
   AuthenticationError,
   PermissionDeniedError,
   RateLimitError,
+  toFile,
 } from 'openai';
 
 import { env } from '@/config/env';
 import type {
+  TimedCaptionWord,
   VideoSourceSnapshot,
   VideoStoryboardV1,
 } from '@/modules/video-generation/video-generation.types';
@@ -199,6 +201,38 @@ export class OpenAiVideoProvider {
       return Buffer.from(await response.arrayBuffer());
     } catch (error) {
       this.handleError(error, 'speech');
+    }
+  }
+
+  async alignSpeech(audio: Buffer, narration: string): Promise<TimedCaptionWord[]> {
+    const client = this.requireClient();
+    try {
+      const transcription = await client.audio.transcriptions.create({
+        file: await toFile(audio, 'narration.mp3', { type: 'audio/mpeg' }),
+        model: env.VIDEO_TRANSCRIPTION_MODEL,
+        response_format: 'verbose_json',
+        timestamp_granularities: ['word'],
+        prompt: narration.slice(0, 224),
+      });
+      if (!('words' in transcription) || !Array.isArray(transcription.words)) return [];
+      return transcription.words
+        .filter(
+          (word) =>
+            Boolean(word.word.trim()) &&
+            Number.isFinite(word.start) &&
+            Number.isFinite(word.end) &&
+            word.end > word.start,
+        )
+        .map((word) => ({
+          word: word.word.trim(),
+          startSeconds: word.start,
+          endSeconds: word.end,
+        }));
+    } catch (error) {
+      logger.warn('Word-level caption alignment failed; rendering without estimated subtitles', {
+        error: error instanceof Error ? error.message : error,
+      });
+      return [];
     }
   }
 

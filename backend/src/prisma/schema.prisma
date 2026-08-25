@@ -278,6 +278,9 @@ model User {
   /// keeps its own localStorage copy for pre-auth/offline-first paint; this is the
   /// cross-device source of truth, pulled once on login and pushed on change.
   themePreference   ThemePreference  @default(SYSTEM)
+  /// Optional trainer-specific cap for each trainee in that trainer's active groups. Null means
+  /// inherit the platform cap; the effective cap can never exceed the platform setting.
+  traineeVideoDailyLimit Int?
   lastLogin         DateTime?
   passwordChangedAt DateTime?
   createdAt         DateTime         @default(now())
@@ -627,6 +630,8 @@ model VideoGenerationJob {
   lesson                  Lesson                 @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   requestedById           String
   requestedBy             User                   @relation("VideoGenerationRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  aiMessageId             String?                @unique
+  aiMessage               AiMessage?             @relation("TraineeVideoMessage", fields: [aiMessageId], references: [id], onDelete: Cascade)
   purpose                 VideoGenerationPurpose @default(LESSON_RESOURCE)
   status                  VideoGenerationStatus  @default(PLANNING)
   sourceContentVersion    Int
@@ -1062,6 +1067,7 @@ model PlatformSettings {
   platformName    String   @default("Databeat LMS")
   supportEmail    String?
   maintenanceMode Boolean  @default(false)
+  traineeVideoDailyLimit Int @default(3)
   updatedById     String?
   updatedBy       User?    @relation("PlatformSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   updatedAt       DateTime @updatedAt
@@ -1082,6 +1088,7 @@ enum AiFeature {
   SUMMARIZE_LESSON
   GENERATE_EXAMPLES
   GENERATE_PRACTICE_QUESTIONS
+  GENERATE_VIDEO
 }
 
 enum AiExplanationLevel {
@@ -1138,6 +1145,8 @@ model AiMessage {
   inputTokens    Int?
   outputTokens   Int?
   createdAt      DateTime       @default(now())
+
+  videoGenerationJob VideoGenerationJob? @relation("TraineeVideoMessage")
 
   @@index([conversationId, createdAt])
   @@map("ai_messages")

@@ -10,9 +10,22 @@ export type AiFeature =
   | 'EXPLAIN_TOPIC'
   | 'SUMMARIZE_LESSON'
   | 'GENERATE_EXAMPLES'
-  | 'GENERATE_PRACTICE_QUESTIONS';
+  | 'GENERATE_PRACTICE_QUESTIONS'
+  | 'GENERATE_VIDEO';
 
 export type AiExplanationLevel = 'BEGINNER' | 'DETAILED' | 'INTERVIEW';
+
+export interface AiVideoGeneration {
+  id: string;
+  lessonId: string;
+  purpose: 'TRAINEE_EXPLANATION';
+  status: 'PLANNING' | 'QUEUED' | 'SYNTHESIZING' | 'RENDERING' | 'READY' | 'FAILED' | 'CANCELLED' | 'STALE';
+  progress: number;
+  error: { code: string; message: string | null } | null;
+  hasPreview: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface AiMessage {
   id: string;
@@ -23,6 +36,7 @@ export interface AiMessage {
   inputTokens: number | null;
   outputTokens: number | null;
   createdAt: string;
+  video?: AiVideoGeneration;
 }
 
 export interface AiConversationListItem {
@@ -61,6 +75,12 @@ export interface ChatResponse {
   lessonId: string | null;
   /** Always the ASSISTANT's reply — the user's own message is saved server-side but not echoed back. */
   message: AiMessage;
+}
+
+export interface CreateAiVideoPayload {
+  conversationId?: string;
+  lessonId?: string;
+  message?: string;
 }
 
 /** Query params for `GET /ai/history`. */

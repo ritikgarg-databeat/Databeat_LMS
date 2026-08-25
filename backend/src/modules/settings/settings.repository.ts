@@ -8,6 +8,7 @@ export interface PlatformSettingsPatch {
   platformName?: string;
   supportEmail?: string | null;
   maintenanceMode?: boolean;
+  traineeVideoDailyLimit?: number;
 }
 
 // Data-access layer for the settings module. Only this class may query Prisma directly (see
@@ -39,6 +40,21 @@ export class SettingsRepository extends BaseRepository {
 
   updateAvatar(userId: string, avatar: string | null) {
     return this.db.user.update({ where: { id: userId }, data: { avatar }, select: { avatar: true } });
+  }
+
+  findTrainerVideoLimit(userId: string) {
+    return this.db.user.findUnique({
+      where: { id: userId },
+      select: { traineeVideoDailyLimit: true },
+    });
+  }
+
+  updateTrainerVideoLimit(userId: string, dailyLimit: number | null) {
+    return this.db.user.update({
+      where: { id: userId },
+      data: { traineeVideoDailyLimit: dailyLimit },
+      select: { traineeVideoDailyLimit: true },
+    });
   }
 
   findNotificationPreference(userId: string) {
@@ -86,6 +102,8 @@ export class SettingsRepository extends BaseRepository {
     if (patch.platformName !== undefined) fields.platformName = patch.platformName;
     if (patch.supportEmail !== undefined) fields.supportEmail = patch.supportEmail;
     if (patch.maintenanceMode !== undefined) fields.maintenanceMode = patch.maintenanceMode;
+    if (patch.traineeVideoDailyLimit !== undefined)
+      fields.traineeVideoDailyLimit = patch.traineeVideoDailyLimit;
 
     return this.db.platformSettings.upsert({
       where: { id: PLATFORM_SETTINGS_SINGLETON_ID },

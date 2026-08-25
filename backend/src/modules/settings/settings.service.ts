@@ -6,7 +6,7 @@ import type { NotificationType, ThemePreference } from '@prisma/client';
 import { AVATAR_ENTITY_TYPE, AVATAR_MIME_TYPE_BY_EXTENSION } from '@/constants/settings';
 import { BaseService } from '@/services/base.service';
 import { storageProvider } from '@/storage';
-import { NotFoundError } from '@/utils/app-error';
+import { BadRequestError, NotFoundError } from '@/utils/app-error';
 import { logger } from '@/utils/logger';
 import { assertUploadMatchesDeclaredType } from '@/utils/upload-safety.util';
 
@@ -18,6 +18,7 @@ import type {
   PlatformSettingsResult,
   SettingsSummary,
   ThemeResult,
+  TrainerVideoLimitResult,
 } from './settings.types';
 
 /** How long a cached `maintenanceMode` read is trusted before re-hitting the DB — see
@@ -117,6 +118,35 @@ export class SettingsService extends BaseService {
     return this.toPlatformSettingsResult(settings);
   }
 
+  async getTrainerVideoLimit(userId: string): Promise<TrainerVideoLimitResult> {
+    const [trainer, platform] = await Promise.all([
+      this.repository.findTrainerVideoLimit(userId),
+      this.getPlatformSettings(),
+    ]);
+    if (!trainer) throw new NotFoundError('Trainer not found.');
+    return {
+      dailyLimit:
+        trainer.traineeVideoDailyLimit === null
+          ? null
+          : Math.min(trainer.traineeVideoDailyLimit, platform.traineeVideoDailyLimit),
+      platformMaximum: platform.traineeVideoDailyLimit,
+    };
+  }
+
+  async updateTrainerVideoLimit(userId: string, dailyLimit: number | null): Promise<TrainerVideoLimitResult> {
+    const platform = await this.getPlatformSettings();
+    if (dailyLimit !== null && dailyLimit > platform.traineeVideoDailyLimit) {
+      throw new BadRequestError(
+        `The trainer limit cannot exceed the platform maximum of ${platform.traineeVideoDailyLimit}.`,
+      );
+    }
+    const updated = await this.repository.updateTrainerVideoLimit(userId, dailyLimit);
+    return {
+      dailyLimit: updated.traineeVideoDailyLimit,
+      platformMaximum: platform.traineeVideoDailyLimit,
+    };
+  }
+
   async updatePlatformSettings(
     dto: UpdatePlatformSettingsDto,
     actorId: string,
@@ -192,12 +222,14 @@ export class SettingsService extends BaseService {
     platformName: string;
     supportEmail: string | null;
     maintenanceMode: boolean;
+    traineeVideoDailyLimit: number;
     updatedAt: Date;
   }): PlatformSettingsResult {
     return {
       platformName: settings.platformName,
       supportEmail: settings.supportEmail,
       maintenanceMode: settings.maintenanceMode,
+      traineeVideoDailyLimit: settings.traineeVideoDailyLimit,
       updatedAt: settings.updatedAt,
     };
   }

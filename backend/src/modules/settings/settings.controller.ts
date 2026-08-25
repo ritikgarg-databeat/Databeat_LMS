@@ -7,7 +7,12 @@ import { BadRequestError, NotFoundError, UnauthorizedError } from '@/utils/app-e
 import { logger } from '@/utils/logger';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { UpdateNotificationPreferencesDto, UpdatePlatformSettingsDto, UpdateThemeDto } from './settings.dto';
+import type {
+  UpdateNotificationPreferencesDto,
+  UpdatePlatformSettingsDto,
+  UpdateThemeDto,
+  UpdateTrainerVideoLimitDto,
+} from './settings.dto';
 import type { SettingsService } from './settings.service';
 import { settingsService } from './settings.service';
 
@@ -102,7 +107,22 @@ export class SettingsController extends BaseController {
   updatePlatformSettings = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const result = await this.service.updatePlatformSettings(req.body as UpdatePlatformSettingsDto, req.user.id);
+    const result = await this.service.updatePlatformSettings(
+      req.body as UpdatePlatformSettingsDto,
+      req.user.id,
+    );
     this.ok(res, result);
+  };
+
+  getTrainerVideoLimit = async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw new UnauthorizedError();
+    this.ok(res, await this.service.getTrainerVideoLimit(req.user.id));
+  };
+
+  updateTrainerVideoLimit = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
+    const { dailyLimit } = req.body as UpdateTrainerVideoLimitDto;
+    this.ok(res, await this.service.updateTrainerVideoLimit(req.user.id, dailyLimit));
   };
 }

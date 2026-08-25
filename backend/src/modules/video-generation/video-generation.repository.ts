@@ -11,6 +11,7 @@ import { BaseRepository } from '@/repositories/base.repository';
 import { ConflictError } from '@/utils/app-error';
 
 import { ACTIVE_VIDEO_JOB_STATUSES } from './video-generation.types';
+import { effectiveTraineeVideoLimit } from './video-generation.utils';
 
 interface Actor {
   id: string;
@@ -28,7 +29,9 @@ interface CreateJobInput {
   language: string;
   voice: string;
   style: VideoStylePreset;
-  expiresAt: Date;
+  expiresAt: Date | null;
+  purpose?: 'LESSON_RESOURCE' | 'TRAINEE_EXPLANATION';
+  aiMessageId?: string;
 }
 
 export class VideoGenerationRepository extends BaseRepository {
@@ -54,6 +57,32 @@ export class VideoGenerationRepository extends BaseRepository {
     });
   }
 
+  findLessonForTrainee(lessonId: string, traineeId: string) {
+    return this.db.lesson.findFirst({
+      where: {
+        id: lessonId,
+        isPublished: true,
+        module: {
+          isPublished: true,
+          course: {
+            status: 'PUBLISHED',
+            deletedAt: null,
+            groupAssignments: {
+              some: {
+                group: {
+                  status: 'ACTIVE',
+                  deletedAt: null,
+                  members: { some: { userId: traineeId } },
+                },
+              },
+            },
+          },
+        },
+      },
+      include: { resources: { orderBy: { order: 'asc' } } },
+    });
+  }
+
   list(lessonId: string) {
     return this.db.videoGenerationJob.findMany({
       where: { lessonId },
@@ -70,10 +99,68 @@ export class VideoGenerationRepository extends BaseRepository {
     });
   }
 
-  findActiveForRequester(requesterId: string) {
+  findActiveForRequester(
+    requesterId: string,
+    purpose: 'LESSON_RESOURCE' | 'TRAINEE_EXPLANATION' = 'LESSON_RESOURCE',
+  ) {
+    const statuses =
+      purpose === 'LESSON_RESOURCE'
+        ? ACTIVE_VIDEO_JOB_STATUSES
+        : (['PLANNING', 'STORYBOARD_READY', 'QUEUED', 'SYNTHESIZING', 'RENDERING'] as const);
     return this.db.videoGenerationJob.findFirst({
-      where: { requestedById: requesterId, status: { in: [...ACTIVE_VIDEO_JOB_STATUSES] } },
+      where: { requestedById: requesterId, purpose, status: { in: [...statuses] } },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getTraineeVideoLimit(userId: string): Promise<number> {
+    const [platform, memberships] = await Promise.all([
+      this.db.platformSettings.findFirst({ select: { traineeVideoDailyLimit: true } }),
+      this.db.groupMember.findMany({
+        where: { userId, group: { status: 'ACTIVE', deletedAt: null, trainerId: { not: null } } },
+        select: { group: { select: { trainer: { select: { traineeVideoDailyLimit: true } } } } },
+      }),
+    ]);
+    const platformLimit = platform?.traineeVideoDailyLimit ?? 3;
+    const trainerLimits = memberships.flatMap((membership) => {
+      const limit = membership.group.trainer?.traineeVideoDailyLimit;
+      return typeof limit === 'number' ? [limit] : [];
+    });
+    return effectiveTraineeVideoLimit(platformLimit, trainerLimits);
+  }
+
+  countTraineeVideosCreatedBetween(userId: string, start: Date, end: Date) {
+    return this.db.videoGenerationJob.count({
+      where: {
+        requestedById: userId,
+        purpose: 'TRAINEE_EXPLANATION',
+        createdAt: { gte: start, lt: end },
+      },
+    });
+  }
+
+  findOwnedTraineeJob(jobId: string, userId: string) {
+    return this.db.videoGenerationJob.findFirst({
+      where: { id: jobId, requestedById: userId, purpose: 'TRAINEE_EXPLANATION' },
+      include: { publishedResource: true },
+    });
+  }
+
+  findOwnedTraineeJobs(jobIds: string[], userId: string) {
+    return this.db.videoGenerationJob.findMany({
+      where: { id: { in: jobIds }, requestedById: userId, purpose: 'TRAINEE_EXPLANATION' },
+    });
+  }
+
+  cancelOwnedTraineeJobs(jobIds: string[], userId: string) {
+    return this.db.videoGenerationJob.updateMany({
+      where: { id: { in: jobIds }, requestedById: userId, purpose: 'TRAINEE_EXPLANATION' },
+      data: {
+        status: 'CANCELLED',
+        completedAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      },
     });
   }
 
@@ -82,6 +169,8 @@ export class VideoGenerationRepository extends BaseRepository {
       data: {
         lessonId: input.lessonId,
         requestedById: input.requesterId,
+        ...(input.purpose ? { purpose: input.purpose } : {}),
+        ...(input.aiMessageId ? { aiMessageId: input.aiMessageId } : {}),
         sourceContentVersion: input.sourceContentVersion,
         sourceFingerprint: input.sourceFingerprint,
         selectedResourceIds: input.selectedResourceIds,

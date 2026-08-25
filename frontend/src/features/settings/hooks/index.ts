@@ -11,6 +11,7 @@ const SETTINGS_QUERY_KEY = 'settings';
 const NOTIFICATION_PREFERENCES_QUERY_KEY = 'settings-notification-preferences';
 const PLATFORM_SETTINGS_QUERY_KEY = 'settings-platform';
 const AVATAR_BLOB_QUERY_KEY = 'settings-avatar-blob';
+const TRAINER_VIDEO_LIMIT_QUERY_KEY = 'settings-trainer-video-limit';
 
 /* -------------------------------------------------------------------------- */
 /* Queries                                                                     */
@@ -39,6 +40,13 @@ export function usePlatformSettingsQuery() {
   return useQuery({
     queryKey: [PLATFORM_SETTINGS_QUERY_KEY],
     queryFn: () => settingsApi.getPlatformSettings(),
+  });
+}
+
+export function useTrainerVideoLimitQuery() {
+  return useQuery({
+    queryKey: [TRAINER_VIDEO_LIMIT_QUERY_KEY],
+    queryFn: () => settingsApi.getTrainerVideoLimit(),
   });
 }
 
@@ -159,6 +167,16 @@ export function useUpdatePlatformSettingsMutation() {
     mutationFn: (payload: UpdatePlatformSettingsPayload) => settingsApi.updatePlatformSettings(payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [PLATFORM_SETTINGS_QUERY_KEY] });
+    },
+  });
+}
+
+export function useUpdateTrainerVideoLimitMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dailyLimit: number | null) => settingsApi.updateTrainerVideoLimit(dailyLimit),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [TRAINER_VIDEO_LIMIT_QUERY_KEY] });
     },
   });
 }

@@ -29,5 +29,11 @@ export interface PlatformSettingsResult {
   platformName: string;
   supportEmail: string | null;
   maintenanceMode: boolean;
+  traineeVideoDailyLimit: number;
   updatedAt: Date;
+}
+
+export interface TrainerVideoLimitResult {
+  dailyLimit: number | null;
+  platformMaximum: number;
 }

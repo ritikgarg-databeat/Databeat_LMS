@@ -95,6 +95,7 @@ export const env = {
   VIDEO_GENERATION_ENABLED: readOptionalEnv('VIDEO_GENERATION_ENABLED', 'false') === 'true',
   VIDEO_STORYBOARD_MODEL: readOptionalEnv('VIDEO_STORYBOARD_MODEL', 'gpt-4o-mini'),
   VIDEO_TTS_MODEL: readOptionalEnv('VIDEO_TTS_MODEL', 'gpt-4o-mini-tts'),
+  VIDEO_TRANSCRIPTION_MODEL: readOptionalEnv('VIDEO_TRANSCRIPTION_MODEL', 'whisper-1'),
   VIDEO_RENDER_CONCURRENCY: Number(readOptionalEnv('VIDEO_RENDER_CONCURRENCY', '1')),
   VIDEO_FRAME_CONCURRENCY: readVideoFrameConcurrency(),
   VIDEO_MAX_DURATION_SECONDS: Number(readOptionalEnv('VIDEO_MAX_DURATION_SECONDS', '480')),

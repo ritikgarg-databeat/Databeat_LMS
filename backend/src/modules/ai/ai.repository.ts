@@ -27,7 +27,11 @@ export class AiRepository extends BaseRepository {
     return this.db.aiConversation.findUnique({
       where: { id },
       include: {
-        messages: { orderBy: { createdAt: 'desc' }, take: AI_CONVERSATION_MESSAGES_MAX },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: AI_CONVERSATION_MESSAGES_MAX,
+          include: { videoGenerationJob: true },
+        },
       },
     });
   }
@@ -64,6 +68,26 @@ export class AiRepository extends BaseRepository {
 
   createMessage(data: Prisma.AiMessageCreateInput) {
     return this.db.aiMessage.create({ data });
+  }
+
+  deleteMessages(ids: string[]) {
+    return this.db.aiMessage.deleteMany({ where: { id: { in: ids } } });
+  }
+
+  async findTraineeVideoJobIdsForConversation(conversationId: string, userId: string) {
+    const messages = await this.db.aiMessage.findMany({
+      where: { conversationId, conversation: { userId }, videoGenerationJob: { isNot: null } },
+      select: { videoGenerationJob: { select: { id: true } } },
+    });
+    return messages.flatMap((message) => message.videoGenerationJob?.id ?? []);
+  }
+
+  async findTraineeVideoJobIdsForUser(userId: string) {
+    const messages = await this.db.aiMessage.findMany({
+      where: { conversation: { userId }, videoGenerationJob: { isNot: null } },
+      select: { videoGenerationJob: { select: { id: true } } },
+    });
+    return messages.flatMap((message) => message.videoGenerationJob?.id ?? []);
   }
 
   /**

@@ -63,4 +63,12 @@ router.patch(
   controller.updatePlatformSettings,
 );
 
+router.get('/trainer-video-limit', requireRole(Role.TRAINER), controller.getTrainerVideoLimit);
+router.patch(
+  '/trainer-video-limit',
+  requireRole(Role.TRAINER),
+  settingsValidation.updateTrainerVideoLimit,
+  controller.updateTrainerVideoLimit,
+);
+
 export default router;

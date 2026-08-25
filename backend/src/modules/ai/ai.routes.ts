@@ -19,6 +19,31 @@ const controller = new AiController();
 router.use(authenticate);
 
 router.post('/chat', aiRateLimiter, aiValidation.chat, controller.chat);
+router.post(
+  '/video-generations',
+  requireRole(Role.TRAINEE),
+  aiRateLimiter,
+  aiValidation.createVideo,
+  controller.createVideo,
+);
+router.get(
+  '/video-generations/:jobId',
+  requireRole(Role.TRAINEE),
+  aiValidation.videoJob,
+  controller.getVideo,
+);
+router.get(
+  '/video-generations/:jobId/preview',
+  requireRole(Role.TRAINEE),
+  aiValidation.videoJob,
+  controller.previewVideo,
+);
+router.post(
+  '/video-generations/:jobId/retry',
+  requireRole(Role.TRAINEE),
+  aiValidation.videoJob,
+  controller.retryVideo,
+);
 router.get('/history', aiValidation.listHistory, controller.listHistory);
 // Staff-only org-wide aggregates for the trainer dashboard's "AI usage overview" widget.
 router.get('/usage', requireRole(Role.TRAINER, Role.SUPER_ADMIN), controller.getUsage);
