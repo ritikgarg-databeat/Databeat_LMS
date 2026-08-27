@@ -1,6 +1,9 @@
 /* Tailwind v4 entrypoint. All utility classes are generated from this file. */
 @import 'tailwindcss';
 
+/* Follow the app's explicit theme toggle instead of the operating-system color preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * Design tokens (single source of truth for spacing, color, radius, typography).
  * Exposed as CSS variables so both Tailwind utilities (`bg-background`, `text-foreground`, ...)

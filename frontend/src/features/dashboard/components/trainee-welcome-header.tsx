@@ -26,7 +26,7 @@ function TraineeWelcomeHeader({ welcome }: TraineeWelcomeHeaderProps) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome back, {welcome.name}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome, {welcome.name}</h1>
         {subtitle ? <p className="text-muted-foreground">{subtitle}</p> : null}
       </div>
       <div className="flex flex-col items-start gap-2 sm:items-end">

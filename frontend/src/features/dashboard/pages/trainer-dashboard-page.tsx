@@ -7,6 +7,7 @@ import { AiUsageOverviewCard } from '@/features/ai/components';
 import { useTrainerDashboardQuery } from '@/features/analytics/hooks';
 import type { GroupAnalyticsRow, TrainerDashboard } from '@/features/analytics/types';
 import { TrainerQnaWidget } from '@/features/qna/components';
+import { useAuth } from '@/hooks/use-auth';
 
 import { DeferredDashboardSection } from '../components/deferred-dashboard-section';
 import type { RecentActivityItem } from '../components/recent-activity-widget';
@@ -88,6 +89,7 @@ function buildTrainerActivityItems(data: TrainerDashboard): RecentActivityItem[]
  * stay in the codebase for admin surfaces, just no longer imported here.
  */
 function TrainerDashboardPage() {
+  const { user } = useAuth();
   const { data, isLoading, isError, refetch } = useTrainerDashboardQuery();
   const shouldReduceMotion = useReducedMotion();
 
@@ -111,7 +113,7 @@ function TrainerDashboardPage() {
   return (
     <motion.div {...containerMotionProps} className="space-y-4">
       <motion.div {...itemMotionProps}>
-        <h1 className="text-2xl font-semibold tracking-tight">Trainer Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Welcome, {user?.fullName ?? 'Trainer'}</h1>
         <p className="text-muted-foreground">Your groups, trainees, and performance at a glance.</p>
       </motion.div>
 
