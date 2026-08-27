@@ -19,6 +19,8 @@ import { useTheme } from '@/hooks/use-theme';
 export interface HeaderProps {
   onMenuClick?: () => void;
   breadcrumbArea?: React.ReactNode;
+  /** Optional content centered in the desktop header independently of left/right controls. */
+  centerArea?: React.ReactNode;
   /** Display name supplied by the authenticated dashboard layout. */
   userLabel?: string;
   /** The current user's `avatar` field (a relative storage path, not a directly-fetchable URL). */
@@ -32,7 +34,14 @@ interface InstallPromptEvent extends Event {
 }
 
 /** Top app bar: mobile menu toggle, breadcrumb slot, notifications, theme toggle, user menu. */
-function Header({ onMenuClick, breadcrumbArea, userLabel = 'Guest', avatarPath, onLogout }: HeaderProps) {
+function Header({
+  onMenuClick,
+  breadcrumbArea,
+  centerArea,
+  userLabel = 'Guest',
+  avatarPath,
+  onLogout,
+}: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { url: avatarUrl } = useAuthenticatedAvatarUrl(avatarPath);
@@ -53,7 +62,7 @@ function Header({ onMenuClick, breadcrumbArea, userLabel = 'Guest', avatarPath, 
   }, []);
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4">
+    <header className="relative flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4">
       <Button
         variant="ghost"
         size="icon"
@@ -65,6 +74,12 @@ function Header({ onMenuClick, breadcrumbArea, userLabel = 'Guest', avatarPath, 
       </Button>
 
       <div className="min-w-0 flex-1">{breadcrumbArea}</div>
+
+      {centerArea ? (
+        <div className="absolute left-1/2 hidden w-[46vw] max-w-3xl -translate-x-1/2 lg:block">
+          {centerArea}
+        </div>
+      ) : null}
 
       {installPrompt ? (
         <Button

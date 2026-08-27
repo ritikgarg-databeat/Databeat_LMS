@@ -5,3 +5,4 @@ export * from './mobile-nav';
 export * from './header';
 export * from './breadcrumbs';
 export * from './footer';
+export * from './motivational-message';

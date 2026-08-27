@@ -1,7 +1,14 @@
 import { Suspense } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 
-import { Sidebar, MobileNav, Header, Footer, type SidebarNavItem } from '@/components/layout';
+import {
+  Sidebar,
+  MobileNav,
+  Header,
+  Footer,
+  MotivationalMessage,
+  type SidebarNavItem,
+} from '@/components/layout';
 import { LoadingScreen } from '@/components/shared';
 import { ROUTES } from '@/constants/routes';
 import { useAuth } from '@/hooks/use-auth';
@@ -40,6 +47,11 @@ function DashboardLayout({ navItems, brand, breadcrumbArea }: DashboardLayoutPro
         <Header
           onMenuClick={openMobileNav}
           breadcrumbArea={breadcrumbArea}
+          centerArea={
+            user ? (
+              <MotivationalMessage userId={user.id} role={user.role} loginMarker={user.lastLogin} />
+            ) : null
+          }
           userLabel={user?.fullName}
           avatarPath={user?.avatar}
           onLogout={() => void handleLogout()}
