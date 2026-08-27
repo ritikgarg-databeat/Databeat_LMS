@@ -1,4 +1,9 @@
-import { AuditLogRepository, type AuditLogListFilters, type AuditLogSortField, type SortOrder } from '@/repositories/audit-log.repository';
+import {
+  AuditLogRepository,
+  type AuditLogListFilters,
+  type AuditLogSortField,
+  type SortOrder,
+} from '@/repositories/audit-log.repository';
 import { BaseService } from '@/services/base.service';
 import type { PaginatedData } from '@/types/common';
 import { buildPaginationMeta } from '@/utils/pagination.util';
@@ -20,7 +25,13 @@ export class AuditLogService extends BaseService {
     sortBy: AuditLogSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<AuditLogEntryView>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(
+      filters,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+      sortOrder,
+    );
     return { items: items.map(this.toEntryView), meta: buildPaginationMeta(page, pageSize, total) };
   }
 

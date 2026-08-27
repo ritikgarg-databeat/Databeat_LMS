@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   BookOpen,
   Building2,
   CalendarDays,
@@ -28,6 +29,7 @@ const TRAINER_NAV_ITEMS: SidebarNavItem[] = [
   { label: 'Groups', href: ROUTES.TRAINER.GROUPS, icon: Layers },
   { label: 'Calendar', href: ROUTES.TRAINER.CALENDAR, icon: CalendarDays },
   { label: 'Q&A', href: ROUTES.TRAINER.QNA, icon: MessagesSquare },
+  { label: 'Team Performance', href: ROUTES.TRAINER.LIVE_ANALYSIS, icon: BarChart3 },
   { label: 'Reports', href: ROUTES.TRAINER.REPORTS, icon: FileDown },
   { label: 'Timing Observations', href: ROUTES.TRAINER.TIMING_OBSERVATIONS, icon: Timer },
   { label: 'Impact Metrics', href: ROUTES.TRAINER.IMPACT_METRICS, icon: TrendingUp },
@@ -36,9 +38,7 @@ const TRAINER_NAV_ITEMS: SidebarNavItem[] = [
 
 /** Trainer area shell. */
 function TrainerLayout() {
-  return (
-    <DashboardLayout navItems={TRAINER_NAV_ITEMS} brand={<BrandLogo label="Trainer" />} />
-  );
+  return <DashboardLayout navItems={TRAINER_NAV_ITEMS} brand={<BrandLogo label="Trainer" />} />;
 }
 
 export { TrainerLayout };

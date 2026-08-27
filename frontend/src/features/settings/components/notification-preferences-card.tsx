@@ -10,10 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { getErrorMessage } from '@/utils/error';
 
-import {
-  useNotificationPreferencesQuery,
-  useUpdateNotificationPreferencesMutation,
-} from '../hooks';
+import { useNotificationPreferencesQuery, useUpdateNotificationPreferencesMutation } from '../hooks';
 import type { NotificationType } from '../types';
 
 /** All 8 backend notification types, with clear, spec-aligned copy for this settings list. */

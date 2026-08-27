@@ -27,7 +27,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { getErrorMessage } from '@/utils/error';
 
 import { useQuestionQuery, useUpdateQuestionMutation } from '../hooks';
-import type { Question, QuestionCategory, QuestionDifficulty, QuestionType, UpdateQuestionPayload } from '../types';
+import type {
+  Question,
+  QuestionCategory,
+  QuestionDifficulty,
+  QuestionType,
+  UpdateQuestionPayload,
+} from '../types';
 
 import { QuestionTypeBadge } from './question-type-badge';
 
@@ -58,7 +64,11 @@ const QUESTION_CATEGORY_LABEL: Record<QuestionCategory, string> = {
   GENERAL: 'General',
 };
 
-const QUESTION_DIFFICULTY_VALUES = ['EASY', 'MEDIUM', 'HARD'] as const satisfies readonly QuestionDifficulty[];
+const QUESTION_DIFFICULTY_VALUES = [
+  'EASY',
+  'MEDIUM',
+  'HARD',
+] as const satisfies readonly QuestionDifficulty[];
 
 const QUESTION_DIFFICULTY_LABEL: Record<QuestionDifficulty, string> = {
   EASY: 'Easy',
@@ -106,7 +116,11 @@ function getDefaultAnswersForType(type: QuestionType): { value: string }[] {
 
 const questionFormSchema = z
   .object({
-    title: z.string().trim().min(1, 'Title is required.').max(4000, 'Title must be 4000 characters or fewer.'),
+    title: z
+      .string()
+      .trim()
+      .min(1, 'Title is required.')
+      .max(4000, 'Title must be 4000 characters or fewer.'),
     type: z.string().min(1, 'Type is required.'),
     category: z.string().min(1, 'Category is required.'),
     difficulty: z.string().min(1, 'Difficulty is required.'),
@@ -391,162 +405,162 @@ function EditQuestionForm({ question, onOpenChange }: EditQuestionFormProps) {
       </div>
 
       {isOptionType(question.type) ? (
-              <div className="space-y-2">
-                <Label>Options</Label>
-                <div className="space-y-2">
-                  {optionsFieldArray.fields.map((field, index) => {
-                    const textError = errors.options?.[index]?.text?.message;
-                    return (
-                      <div key={field.id} className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          {isMultipleCorrect ? (
-                            <input
-                              type="checkbox"
-                              className="size-4 shrink-0"
-                              disabled={isSubmitting}
-                              aria-label={`Mark option ${index + 1} as correct`}
-                              {...register(`options.${index}.isCorrect`)}
-                            />
-                          ) : (
-                            <input
-                              type="radio"
-                              name="edit-question-correct-option"
-                              className="size-4 shrink-0"
-                              disabled={isSubmitting}
-                              aria-label={`Mark option ${index + 1} as correct`}
-                              checked={Boolean(watchedOptions?.[index]?.isCorrect)}
-                              onChange={() => selectSingleCorrectOption(index)}
-                            />
-                          )}
-                          {isFixedTrueFalse ? (
-                            <span className="flex-1 text-sm font-medium">{index === 0 ? 'True' : 'False'}</span>
-                          ) : (
-                            <Input
-                              className="flex-1"
-                              placeholder={`Option ${index + 1}`}
-                              disabled={isSubmitting}
-                              {...register(`options.${index}.text`)}
-                            />
-                          )}
-                          {!isFixedTrueFalse ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              disabled={isSubmitting || optionsFieldArray.fields.length <= MIN_OPTIONS}
-                              aria-label={`Remove option ${index + 1}`}
-                              onClick={() => optionsFieldArray.remove(index)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          ) : null}
-                        </div>
-                        {textError ? <p className="pl-6 text-sm text-destructive">{textError}</p> : null}
-                      </div>
-                    );
-                  })}
+        <div className="space-y-2">
+          <Label>Options</Label>
+          <div className="space-y-2">
+            {optionsFieldArray.fields.map((field, index) => {
+              const textError = errors.options?.[index]?.text?.message;
+              return (
+                <div key={field.id} className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    {isMultipleCorrect ? (
+                      <input
+                        type="checkbox"
+                        className="size-4 shrink-0"
+                        disabled={isSubmitting}
+                        aria-label={`Mark option ${index + 1} as correct`}
+                        {...register(`options.${index}.isCorrect`)}
+                      />
+                    ) : (
+                      <input
+                        type="radio"
+                        name="edit-question-correct-option"
+                        className="size-4 shrink-0"
+                        disabled={isSubmitting}
+                        aria-label={`Mark option ${index + 1} as correct`}
+                        checked={Boolean(watchedOptions?.[index]?.isCorrect)}
+                        onChange={() => selectSingleCorrectOption(index)}
+                      />
+                    )}
+                    {isFixedTrueFalse ? (
+                      <span className="flex-1 text-sm font-medium">{index === 0 ? 'True' : 'False'}</span>
+                    ) : (
+                      <Input
+                        className="flex-1"
+                        placeholder={`Option ${index + 1}`}
+                        disabled={isSubmitting}
+                        {...register(`options.${index}.text`)}
+                      />
+                    )}
+                    {!isFixedTrueFalse ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={isSubmitting || optionsFieldArray.fields.length <= MIN_OPTIONS}
+                        aria-label={`Remove option ${index + 1}`}
+                        onClick={() => optionsFieldArray.remove(index)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  {textError ? <p className="pl-6 text-sm text-destructive">{textError}</p> : null}
                 </div>
+              );
+            })}
+          </div>
 
-                {!isFixedTrueFalse ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={isSubmitting || optionsFieldArray.fields.length >= MAX_OPTIONS}
-                    onClick={() => optionsFieldArray.append({ text: '', isCorrect: false })}
-                  >
-                    <Plus className="size-4" />
-                    Add option
-                  </Button>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    True/False questions always have exactly these two options.
-                  </p>
-                )}
+          {!isFixedTrueFalse ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSubmitting || optionsFieldArray.fields.length >= MAX_OPTIONS}
+              onClick={() => optionsFieldArray.append({ text: '', isCorrect: false })}
+            >
+              <Plus className="size-4" />
+              Add option
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              True/False questions always have exactly these two options.
+            </p>
+          )}
 
-                <p className="text-sm text-muted-foreground">
-                  {isMultipleCorrect ? 'Check every option that is correct.' : 'Select the one correct option.'}
-                </p>
+          <p className="text-sm text-muted-foreground">
+            {isMultipleCorrect ? 'Check every option that is correct.' : 'Select the one correct option.'}
+          </p>
 
-                {optionsError ? <p className="text-sm text-destructive">{optionsError}</p> : null}
-              </div>
-            ) : null}
+          {optionsError ? <p className="text-sm text-destructive">{optionsError}</p> : null}
+        </div>
+      ) : null}
 
-            {isAnswerListType(question.type) ? (
-              <div className="space-y-2">
-                <Label>Accepted answers</Label>
-                <div className="space-y-2">
-                  {answersFieldArray.fields.map((field, index) => {
-                    const valueError = errors.correctAnswers?.[index]?.value?.message;
-                    return (
-                      <div key={field.id} className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <Input
-                            className="flex-1"
-                            placeholder={`Accepted answer ${index + 1}`}
-                            disabled={isSubmitting}
-                            {...register(`correctAnswers.${index}.value`)}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            disabled={isSubmitting || answersFieldArray.fields.length <= 1}
-                            aria-label={`Remove accepted answer ${index + 1}`}
-                            onClick={() => answersFieldArray.remove(index)}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                        {valueError ? <p className="text-sm text-destructive">{valueError}</p> : null}
-                      </div>
-                    );
-                  })}
+      {isAnswerListType(question.type) ? (
+        <div className="space-y-2">
+          <Label>Accepted answers</Label>
+          <div className="space-y-2">
+            {answersFieldArray.fields.map((field, index) => {
+              const valueError = errors.correctAnswers?.[index]?.value?.message;
+              return (
+                <div key={field.id} className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      className="flex-1"
+                      placeholder={`Accepted answer ${index + 1}`}
+                      disabled={isSubmitting}
+                      {...register(`correctAnswers.${index}.value`)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={isSubmitting || answersFieldArray.fields.length <= 1}
+                      aria-label={`Remove accepted answer ${index + 1}`}
+                      onClick={() => answersFieldArray.remove(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  {valueError ? <p className="text-sm text-destructive">{valueError}</p> : null}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isSubmitting}
-                  onClick={() => answersFieldArray.append({ value: '' })}
-                >
-                  <Plus className="size-4" />
-                  Or accept another answer
-                </Button>
-                {answersError ? <p className="text-sm text-destructive">{answersError}</p> : null}
-              </div>
-            ) : null}
+              );
+            })}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isSubmitting}
+            onClick={() => answersFieldArray.append({ value: '' })}
+          >
+            <Plus className="size-4" />
+            Or accept another answer
+          </Button>
+          {answersError ? <p className="text-sm text-destructive">{answersError}</p> : null}
+        </div>
+      ) : null}
 
-            {isCodeSnippetType(question.type) ? (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2 space-y-2">
-                  <Label htmlFor="edit-starterCode">Starter code (optional)</Label>
-                  <Textarea
-                    id="edit-starterCode"
-                    rows={6}
-                    className="font-mono text-sm"
-                    disabled={isSubmitting}
-                    {...register('starterCode')}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-language">Language (optional)</Label>
-                  <Input
-                    id="edit-language"
-                    placeholder="e.g. python"
-                    disabled={isSubmitting}
-                    {...register('language')}
-                  />
-                  {errors.language ? <p className="text-sm text-destructive">{errors.language.message}</p> : null}
-                </div>
-              </div>
-            ) : null}
+      {isCodeSnippetType(question.type) ? (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2 space-y-2">
+            <Label htmlFor="edit-starterCode">Starter code (optional)</Label>
+            <Textarea
+              id="edit-starterCode"
+              rows={6}
+              className="font-mono text-sm"
+              disabled={isSubmitting}
+              {...register('starterCode')}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-language">Language (optional)</Label>
+            <Input
+              id="edit-language"
+              placeholder="e.g. python"
+              disabled={isSubmitting}
+              {...register('language')}
+            />
+            {errors.language ? <p className="text-sm text-destructive">{errors.language.message}</p> : null}
+          </div>
+        </div>
+      ) : null}
 
-            <div className="space-y-2">
-              <Label htmlFor="edit-explanation">Explanation (optional)</Label>
-              <Textarea id="edit-explanation" rows={3} disabled={isSubmitting} {...register('explanation')} />
-              {errors.explanation ? <p className="text-sm text-destructive">{errors.explanation.message}</p> : null}
-            </div>
+      <div className="space-y-2">
+        <Label htmlFor="edit-explanation">Explanation (optional)</Label>
+        <Textarea id="edit-explanation" rows={3} disabled={isSubmitting} {...register('explanation')} />
+        {errors.explanation ? <p className="text-sm text-destructive">{errors.explanation.message}</p> : null}
+      </div>
 
       <DialogFooter>
         <Button type="submit" disabled={isSubmitting}>

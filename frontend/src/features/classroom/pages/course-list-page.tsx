@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, EmptyState, ErrorScreen, SearchBox } from '@/components/shared';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -25,7 +26,7 @@ import { useDebounce } from '@/hooks/use-debounce';
 import { formatDate } from '@/utils/date';
 import { getErrorMessage } from '@/utils/error';
 
-import { CourseStatusBadge, DifficultyBadge } from '../components';
+import { AssignGroupsDialog, CourseStatusBadge, DifficultyBadge } from '../components';
 import { CreateCourseDialog } from '../components/create-course-dialog';
 import { DuplicateCourseDialog } from '../components/duplicate-course-dialog';
 import { EditCourseDialog } from '../components/edit-course-dialog';
@@ -71,6 +72,7 @@ function CourseListPage() {
   const [editingCourse, setEditingCourse] = useState<CourseSummary | null>(null);
   const [duplicatingCourse, setDuplicatingCourse] = useState<CourseSummary | null>(null);
   const [deletingCourse, setDeletingCourse] = useState<CourseSummary | null>(null);
+  const [assigningCourse, setAssigningCourse] = useState<CourseSummary | null>(null);
 
   const { data, isLoading, isError, refetch } = useCoursesQuery({
     page,
@@ -90,7 +92,11 @@ function CourseListPage() {
     try {
       await updateStatus.mutateAsync({ id: course.id, payload: { status: nextStatus } });
       const verb =
-        nextStatus === 'PUBLISHED' ? 'published' : course.status === 'ARCHIVED' ? 'restored to draft' : 'unpublished';
+        nextStatus === 'PUBLISHED'
+          ? 'published'
+          : course.status === 'ARCHIVED'
+            ? 'restored to draft'
+            : 'unpublished';
       toast.success(`${course.title} ${verb}.`);
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -126,8 +132,10 @@ function CourseListPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Classroom</h1>
-          <p className="text-muted-foreground">Manage courses.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Course Pool</h1>
+          <p className="text-muted-foreground">
+            Reuse published courses across your groups or create your own.
+          </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus />
@@ -238,6 +246,7 @@ function CourseListPage() {
                   </TableCell>
                   <TableCell>
                     <CourseStatusBadge status={course.status} />
+                    {course.isMandatory ? <Badge variant="outline">Mandatory by default</Badge> : null}
                   </TableCell>
                   <TableCell>
                     <DifficultyBadge difficulty={course.difficulty} />
@@ -255,24 +264,39 @@ function CourseListPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingCourse(course)}>Edit</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void handleToggleStatus(course)}>
-                          {course.status === 'DRAFT'
-                            ? 'Publish'
-                            : course.status === 'PUBLISHED'
-                              ? 'Unpublish'
-                              : 'Restore to Draft'}
-                        </DropdownMenuItem>
-                        {course.status !== 'ARCHIVED' ? (
-                          <DropdownMenuItem onClick={() => void handleArchive(course)}>Archive</DropdownMenuItem>
+                        {course.canAssign ? (
+                          <DropdownMenuItem onClick={() => setAssigningCourse(course)}>
+                            Assign to Groups
+                          </DropdownMenuItem>
                         ) : null}
-                        <DropdownMenuItem onClick={() => setDuplicatingCourse(course)}>Duplicate</DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeletingCourse(course)}
-                        >
-                          Delete
+                        {course.canEdit ? (
+                          <>
+                            <DropdownMenuItem onClick={() => setEditingCourse(course)}>Edit</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void handleToggleStatus(course)}>
+                              {course.status === 'DRAFT'
+                                ? 'Publish'
+                                : course.status === 'PUBLISHED'
+                                  ? 'Unpublish'
+                                  : 'Restore to Draft'}
+                            </DropdownMenuItem>
+                            {course.status !== 'ARCHIVED' ? (
+                              <DropdownMenuItem onClick={() => void handleArchive(course)}>
+                                Archive
+                              </DropdownMenuItem>
+                            ) : null}
+                          </>
+                        ) : null}
+                        <DropdownMenuItem onClick={() => setDuplicatingCourse(course)}>
+                          Duplicate
                         </DropdownMenuItem>
+                        {course.canEdit ? (
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeletingCourse(course)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -299,7 +323,9 @@ function CourseListPage() {
                 <PaginationNext
                   aria-disabled={page * COURSES_PAGE_SIZE >= data.meta.total}
                   className={
-                    page * COURSES_PAGE_SIZE >= data.meta.total ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                    page * COURSES_PAGE_SIZE >= data.meta.total
+                      ? 'pointer-events-none opacity-50'
+                      : 'cursor-pointer'
                   }
                   onClick={() => setPage((p) => p + 1)}
                 />
@@ -317,6 +343,15 @@ function CourseListPage() {
         course={duplicatingCourse}
         onOpenChange={(open) => !open && setDuplicatingCourse(null)}
       />
+
+      {assigningCourse ? (
+        <AssignGroupsDialog
+          courseId={assigningCourse.id}
+          open
+          defaultMandatory={assigningCourse.isMandatory}
+          onOpenChange={(open) => !open && setAssigningCourse(null)}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={deletingCourse !== null}

@@ -12,5 +12,6 @@ Exportable reports built on top of analytics aggregates.
 - `utils/` — pure helper functions specific to this feature.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
-Implemented reporting offers role-scoped progress, assessment, group, and course-completion CSV
-exports backed by the same data contracts used by analytics.
+Implemented reporting offers role-scoped progress, assessment, group, course-completion, and
+mandatory-compliance CSV exports. The compliance export distinguishes compliant, in-progress,
+and not-started trainees and checks current lesson content versions.

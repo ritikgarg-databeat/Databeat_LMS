@@ -52,7 +52,10 @@ function matchesMagic(bytes: Buffer, mimeType: string): boolean {
     case 'image/gif':
       return ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'));
     case 'image/webp':
-      return bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+      return (
+        bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+      );
     case 'video/mp4':
       return bytes.subarray(4, 8).toString('ascii') === 'ftyp';
     case 'application/zip':

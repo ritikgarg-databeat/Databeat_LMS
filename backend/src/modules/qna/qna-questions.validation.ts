@@ -1,7 +1,12 @@
 import { QnaQuestionStatus, QnaVisibility } from '@prisma/client';
 import { body, param, query } from 'express-validator';
 
-import { MAX_QNA_QUESTION_DESCRIPTION_LENGTH, MAX_QNA_QUESTION_TITLE_LENGTH, MAX_QNA_TAG_NAME_LENGTH, MAX_QNA_TAGS_PER_QUESTION } from '@/constants/qna';
+import {
+  MAX_QNA_QUESTION_DESCRIPTION_LENGTH,
+  MAX_QNA_QUESTION_TITLE_LENGTH,
+  MAX_QNA_TAG_NAME_LENGTH,
+  MAX_QNA_TAGS_PER_QUESTION,
+} from '@/constants/qna';
 import { VALIDATION_MESSAGES } from '@/constants/validation-messages';
 import { paginationQueryValidators } from '@/validators/common.validators';
 
@@ -33,18 +38,40 @@ const tagItemChain = body('tags.*')
   .trim()
   .isLength({ min: 1, max: MAX_QNA_TAG_NAME_LENGTH })
   .withMessage(`Each tag must be at most ${MAX_QNA_TAG_NAME_LENGTH} characters.`);
-const groupIdChain = body('groupId').optional({ values: 'null' }).isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'));
+const groupIdChain = body('groupId')
+  .optional({ values: 'null' })
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'));
 const departmentIdChain = body('departmentId')
   .optional({ values: 'null' })
   .isUUID()
   .withMessage(VALIDATION_MESSAGES.INVALID_ID('departmentId'));
-const courseIdChain = body('courseId').optional({ values: 'null' }).isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('courseId'));
-const moduleIdChain = body('moduleId').optional({ values: 'null' }).isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('moduleId'));
-const lessonIdChain = body('lessonId').optional({ values: 'null' }).isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('lessonId'));
+const courseIdChain = body('courseId')
+  .optional({ values: 'null' })
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('courseId'));
+const moduleIdChain = body('moduleId')
+  .optional({ values: 'null' })
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('moduleId'));
+const lessonIdChain = body('lessonId')
+  .optional({ values: 'null' })
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('lessonId'));
 
-const attachmentIdParamValidator = param('attachmentId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('attachmentId'));
+const attachmentIdParamValidator = param('attachmentId')
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('attachmentId'));
 
-const relationFieldChains = [tagsChain, tagItemChain, groupIdChain, departmentIdChain, courseIdChain, moduleIdChain, lessonIdChain];
+const relationFieldChains = [
+  tagsChain,
+  tagItemChain,
+  groupIdChain,
+  departmentIdChain,
+  courseIdChain,
+  moduleIdChain,
+  lessonIdChain,
+];
 
 // express-validator chains for the qna-questions module's routes, keyed by handler name. The
 // `:id` param itself is validated at the routing layer via the shared `idParamValidator`
@@ -65,7 +92,12 @@ export const qnaQuestionsValidation = {
 
   create: [titleChain(), descriptionChain(), visibilityChain(), ...relationFieldChains],
 
-  update: [titleChain().optional(), descriptionChain().optional(), visibilityChain().optional(), ...relationFieldChains],
+  update: [
+    titleChain().optional(),
+    descriptionChain().optional(),
+    visibilityChain().optional(),
+    ...relationFieldChains,
+  ],
 
   updateStatus: [body('status').isIn(Object.values(QnaQuestionStatus)).withMessage('status must be valid.')],
 

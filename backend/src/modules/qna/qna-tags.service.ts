@@ -1,3 +1,5 @@
+import type { Role } from '@prisma/client';
+
 import { BaseService } from '@/services/base.service';
 
 import { QnaTagsRepository } from './qna-tags.repository';
@@ -9,8 +11,8 @@ export class QnaTagsService extends BaseService {
     super();
   }
 
-  async list(filters: TagListFilters): Promise<TagListItem[]> {
-    const tags = await this.repository.findMany(filters);
+  async list(filters: TagListFilters, actor: { id: string; role: Role }): Promise<TagListItem[]> {
+    const tags = await this.repository.findMany(filters, actor);
     return tags.map((tag) => ({ id: tag.id, name: tag.name, questionCount: tag._count.questions }));
   }
 }

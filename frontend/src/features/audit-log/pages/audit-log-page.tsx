@@ -164,7 +164,9 @@ function AuditLogPage() {
                         {entry.actor ? `${entry.actor.firstName} ${entry.actor.lastName}` : '—'}
                       </TableCell>
                       <TableCell>
-                        {entry.targetUser ? `${entry.targetUser.firstName} ${entry.targetUser.lastName}` : '—'}
+                        {entry.targetUser
+                          ? `${entry.targetUser.firstName} ${entry.targetUser.lastName}`
+                          : '—'}
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {entry.ipAddress ?? '—'}
@@ -203,7 +205,9 @@ function AuditLogPage() {
               <PaginationItem>
                 <PaginationNext
                   aria-disabled={page * PAGE_SIZE >= data.meta.total}
-                  className={page * PAGE_SIZE >= data.meta.total ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                  className={
+                    page * PAGE_SIZE >= data.meta.total ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                  }
                   onClick={() => setPage((p) => p + 1)}
                 />
               </PaginationItem>

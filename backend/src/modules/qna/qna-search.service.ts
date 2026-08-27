@@ -20,7 +20,7 @@ export class QnaSearchService extends BaseService {
     // Four independent categories — run concurrently rather than sequentially.
     const [questions, tags, courses, lessons] = await Promise.all([
       this.repository.findQuestions(q, limit, actor),
-      this.repository.findTags(q, limit),
+      this.repository.findTags(q, limit, actor),
       this.repository.findCourses(q, limit, actor),
       this.repository.findLessons(q, limit, actor),
     ]);

@@ -14,3 +14,5 @@ In-app notification center and per-user notification preferences.
 
 Implemented notification center includes unread counts, read/read-all/delete actions, assignment,
 deadline, Q&A, announcement, and released-result navigation plus per-type preferences.
+The background worker also creates weekly-deduplicated reminders for incomplete mandatory
+training; the notification UI uses the existing course-assignment navigation behavior.

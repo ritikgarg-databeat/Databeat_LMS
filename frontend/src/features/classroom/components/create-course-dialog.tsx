@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useActiveDepartmentsOptions, useActiveExperienceLevelsOptions } from '@/features/groups/hooks';
 import { getErrorMessage } from '@/utils/error';
@@ -38,8 +39,12 @@ const createCourseSchema = z.object({
   estimatedDurationMinutes: z
     .string()
     .optional()
-    .refine((value) => !value || /^[1-9]\d*$/.test(value), 'Estimated duration must be a positive whole number.'),
+    .refine(
+      (value) => !value || /^[1-9]\d*$/.test(value),
+      'Estimated duration must be a positive whole number.',
+    ),
   difficulty: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']),
+  isMandatory: z.boolean(),
 });
 type CreateCourseFormValues = z.infer<typeof createCourseSchema>;
 
@@ -71,7 +76,7 @@ function CreateCourseDialog({ open, onOpenChange }: CreateCourseDialogProps) {
     formState: { errors, isSubmitting },
   } = useForm<CreateCourseFormValues>({
     resolver: zodResolver(createCourseSchema),
-    defaultValues: { difficulty: 'BEGINNER' },
+    defaultValues: { difficulty: 'BEGINNER', isMandatory: false },
   });
 
   const onSubmit = async (values: CreateCourseFormValues) => {
@@ -83,8 +88,11 @@ function CreateCourseDialog({ open, onOpenChange }: CreateCourseDialogProps) {
         description: values.description || undefined,
         departmentId: values.departmentId || undefined,
         experienceLevelId: values.experienceLevelId || undefined,
-        estimatedDurationMinutes: values.estimatedDurationMinutes ? Number(values.estimatedDurationMinutes) : undefined,
+        estimatedDurationMinutes: values.estimatedDurationMinutes
+          ? Number(values.estimatedDurationMinutes)
+          : undefined,
         difficulty: values.difficulty,
+        isMandatory: values.isMandatory,
       });
       toast.success('Course created — now add modules, lessons, and material.');
       reset();
@@ -219,6 +227,27 @@ function CreateCourseDialog({ open, onOpenChange }: CreateCourseDialogProps) {
               />
             </div>
           </div>
+
+          <Controller
+            name="isMandatory"
+            control={control}
+            render={({ field }) => (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-4">
+                <div>
+                  <Label htmlFor="isMandatory">Mandatory by default</Label>
+                  <p className="text-sm text-muted-foreground">
+                    New group assignments start mandatory; each trainer can change it per group.
+                  </p>
+                </div>
+                <Switch
+                  id="isMandatory"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={isSubmitting}
+                />
+              </div>
+            )}
+          />
 
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>

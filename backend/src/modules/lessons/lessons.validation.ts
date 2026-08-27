@@ -26,7 +26,8 @@ const estimatedDurationChain = body('estimatedDurationMinutes')
   .optional({ values: 'null' })
   .isInt({ min: MIN_ESTIMATED_DURATION_MINUTES, max: MAX_ESTIMATED_DURATION_MINUTES })
   .toInt();
-const typeChain = () => body('type').isIn(Object.values(ResourceType)).withMessage('type must be a valid resource type.');
+const typeChain = () =>
+  body('type').isIn(Object.values(ResourceType)).withMessage('type must be a valid resource type.');
 
 export const lessonsValidation = {
   list: [query('moduleId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('moduleId'))],

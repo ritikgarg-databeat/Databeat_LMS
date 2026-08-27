@@ -63,7 +63,8 @@ export class ProgressService extends BaseService {
       completedContentVersion: progress.completedContentVersion,
       currentContentVersion: lesson.contentVersion,
       hasNewContent:
-        (progress.completedContentVersion !== null && progress.completedContentVersion < lesson.contentVersion) ||
+        (progress.completedContentVersion !== null &&
+          progress.completedContentVersion < lesson.contentVersion) ||
         hasNewLessonContent(latestResource?.createdAt, progress.lastViewedAt),
     };
   }
@@ -87,6 +88,21 @@ export class ProgressService extends BaseService {
       status === LessonProgressStatus.COMPLETED &&
       (!completedAt || completedContentVersion !== lesson.contentVersion)
     ) {
+      const isMandatory =
+        actor.role === 'TRAINEE' &&
+        (await this.repository.isCourseMandatoryForUser(actor.id, lesson.module.courseId));
+      if (isMandatory) {
+        const resources = await this.repository.findResourceCompletionState(lessonId, actor.id);
+        const incomplete = resources.filter((resource) => {
+          const progress = resource.progress[0];
+          return (
+            progress?.status !== 'COMPLETED' || progress.completedContentVersion !== resource.contentVersion
+          );
+        });
+        if (incomplete.length > 0) {
+          throw new ForbiddenError('Complete every lesson resource before starting the completion quiz.');
+        }
+      }
       // Throws (403) if this lesson has quiz-worthy content and the trainee hasn't submitted
       // it yet — generates the quiz on first ask, closing the "never open the quiz UI" bypass.
       // See modules/lesson-quiz/README.md § The completion gate.
@@ -161,10 +177,7 @@ export class ProgressService extends BaseService {
     if (isStaff) {
       const course = await this.repository.findCourseById(courseId);
       if (!course) throw new NotFoundError('Course not found.');
-      if (
-        actor.role === 'TRAINER' &&
-        !(await this.repository.isCourseInTrainerScope(actor.id, courseId))
-      ) {
+      if (actor.role === 'TRAINER' && !(await this.repository.isCourseInTrainerScope(actor.id, courseId))) {
         throw new ForbiddenError("You don't have permission to view this course's progress.");
       }
     } else {
@@ -172,7 +185,11 @@ export class ProgressService extends BaseService {
       if (!accessible) throw new ForbiddenError("You don't have permission to view this course's progress.");
     }
 
-    const modules = await this.repository.findPublishedModulesWithLessons(courseId);
+    const [course, modules, effectiveMandatory] = await Promise.all([
+      this.repository.findCourseById(courseId),
+      this.repository.findPublishedModulesWithLessons(courseId),
+      isStaff ? Promise.resolve(false) : this.repository.isCourseMandatoryForUser(actor.id, courseId),
+    ]);
     const lessonIds = modules.flatMap((courseModule) => courseModule.lessons.map((lesson) => lesson.id));
 
     // A Trainer/Super-Admin previewing their own course has no learner progress of their own —
@@ -180,19 +197,61 @@ export class ProgressService extends BaseService {
     const progressRows = isStaff ? [] : await this.repository.findProgressForLessons(actor.id, lessonIds);
     const progressByLessonId = new Map(progressRows.map((row) => [row.lessonId, row]));
 
+    const orderedLessons = modules.flatMap((courseModule) => courseModule.lessons);
+    const orderedLessonIds = orderedLessons.map((lesson) => lesson.id);
+    const firstIncompleteIndex = orderedLessons.findIndex((lesson) => {
+      const progress = progressByLessonId.get(lesson.id);
+      return (
+        progress?.status !== LessonProgressStatus.COMPLETED ||
+        progress.completedContentVersion !== lesson.contentVersion
+      );
+    });
+    const resourceStates = isStaff
+      ? new Map<string, { required: number; completed: number }>()
+      : new Map(
+          await Promise.all(
+            orderedLessonIds.map(async (lessonId) => {
+              const resources = await this.repository.findResourceCompletionState(lessonId, actor.id);
+              const completed = resources.filter((resource) => {
+                const progress = resource.progress[0];
+                return (
+                  progress?.status === 'COMPLETED' &&
+                  progress.completedContentVersion === resource.contentVersion
+                );
+              }).length;
+              return [lessonId, { required: resources.length, completed }] as const;
+            }),
+          ),
+        );
+
     const moduleBreakdowns: CourseModuleProgress[] = modules.map((courseModule) => {
       const lessons = courseModule.lessons.map((lesson) => {
         const progress = progressByLessonId.get(lesson.id);
+        const progressIsCurrent = progress?.completedContentVersion === lesson.contentVersion;
+        const effectiveStatus =
+          progress?.status === LessonProgressStatus.COMPLETED && !progressIsCurrent
+            ? LessonProgressStatus.IN_PROGRESS
+            : (progress?.status ?? LessonProgressStatus.NOT_STARTED);
+        const lessonIndex = orderedLessonIds.indexOf(lesson.id);
+        const isLocked = Boolean(
+          effectiveMandatory && firstIncompleteIndex >= 0 && lessonIndex > firstIncompleteIndex,
+        );
+        const resourceState = resourceStates.get(lesson.id) ?? { required: 0, completed: 0 };
         return {
           lessonId: lesson.id,
           title: lesson.title,
-          status: progress?.status ?? LessonProgressStatus.NOT_STARTED,
+          status: effectiveStatus,
           timeSpentSeconds: progress?.timeSpentSeconds ?? 0,
           hasNewContent: progress
             ? (progress.completedContentVersion !== null &&
                 progress.completedContentVersion < lesson.contentVersion) ||
               hasNewLessonContent(lesson.resources[0]?.createdAt, progress.lastViewedAt)
             : false,
+          isLocked,
+          lockReason: isLocked ? 'Complete the previous mandatory lesson first.' : null,
+          requiredResourceCount: resourceState.required,
+          completedResourceCount: resourceState.completed,
+          canStartQuiz: !isLocked && resourceState.completed === resourceState.required,
         };
       });
       const completedCount = lessons.filter(
@@ -212,7 +271,16 @@ export class ProgressService extends BaseService {
     );
     const overallPercentage = totalLessons === 0 ? 0 : Math.round((totalCompleted / totalLessons) * 100);
 
-    return { courseId, overallPercentage, modules: moduleBreakdowns };
+    return {
+      courseId,
+      isMandatory: isStaff ? (course?.isMandatory ?? false) : effectiveMandatory,
+      overallPercentage,
+      modules: moduleBreakdowns,
+    };
+  }
+
+  async assertLessonAvailableForLearning(lessonId: string, actor: Actor): Promise<void> {
+    await this.assertLessonAccessible(lessonId, actor);
   }
 
   /**
@@ -243,6 +311,19 @@ export class ProgressService extends BaseService {
     const courseAccessible = await this.repository.isCourseAccessibleToUser(actor.id, lesson.module.courseId);
     if (!courseAccessible) {
       throw new ForbiddenError("You don't have permission to access this lesson.");
+    }
+
+    const isMandatory = await this.repository.isCourseMandatoryForUser(actor.id, lesson.module.courseId);
+    if (isMandatory) {
+      const sequence = await this.repository.findPublishedCourseSequence(lesson.module.courseId, actor.id);
+      const currentIndex = sequence.findIndex((entry) => entry.id === lessonId);
+      const firstIncompleteIndex = sequence.findIndex((entry) => {
+        const progress = entry.progress[0];
+        return progress?.status !== 'COMPLETED' || progress.completedContentVersion !== entry.contentVersion;
+      });
+      if (currentIndex >= 0 && firstIncompleteIndex >= 0 && currentIndex > firstIncompleteIndex) {
+        throw new ForbiddenError('Complete the previous mandatory lesson before opening this lesson.');
+      }
     }
 
     return lesson;

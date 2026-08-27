@@ -1,4 +1,14 @@
-import { Archive, Code2, FileText, FileType, FileType2, Image, Link, Presentation, Video } from 'lucide-react';
+import {
+  Archive,
+  Code2,
+  FileText,
+  FileType,
+  FileType2,
+  Image,
+  Link,
+  Presentation,
+  Video,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import type { ResourceType } from '../types';

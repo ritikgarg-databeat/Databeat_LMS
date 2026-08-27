@@ -13,4 +13,6 @@ AI tutor chat, lesson summarization, and content generation features.
 - `constants/` — feature-scoped constant values (enums, option lists, etc).
 
 Implemented pages/components include tutor chat, bounded conversation history, lesson entry
-prompts, explanation-depth controls, guarded refusal rendering, and delete-history actions.
+prompts, explanation-depth controls, guarded refusal rendering, delete-history actions, and an
+answer-language selector for English, Hindi, Spanish, French, German, Portuguese, and Japanese.
+Language selection applies to chat answers only and does not weaken lesson/domain guardrails.

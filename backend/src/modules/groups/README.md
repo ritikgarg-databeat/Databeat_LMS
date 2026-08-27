@@ -4,8 +4,8 @@ Group creation and trainee-to-group assignment.
 
 Layering: `groups.routes.ts` → `groups.controller.ts` → `groups.service.ts` → `groups.repository.ts`
 (see ARCHITECTURE.md §3.1). `groups.dto.ts` defines request/response shapes, `groups.types.ts`
-defines internal domain shapes, `groups.interfaces.ts` defines the contracts controllers/services
-depend on, and `groups.validation.ts` holds the express-validator chains for this module's routes.
+defines internal domain shapes, and `groups.validation.ts` holds the express-validator chains for
+this module's routes.
 
 Implemented lifecycle management includes create/edit, archive/restore, trainer assignment,
 capacity, stats, and nested roster operations. `ACTIVE` plus `deletedAt: null` is the single

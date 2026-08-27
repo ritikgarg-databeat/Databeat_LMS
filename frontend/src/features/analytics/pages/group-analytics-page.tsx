@@ -34,7 +34,8 @@ function formatShortDate(isoDate: string): string {
   return `${monthLabel} ${Number(day)}`;
 }
 
-type SortKey = 'completionPercentage' | 'averageScore' | 'lessonsCompleted' | 'assessmentsTaken' | 'performanceScore';
+type SortKey =
+  'completionPercentage' | 'averageScore' | 'lessonsCompleted' | 'assessmentsTaken' | 'performanceScore';
 
 interface SortState {
   key: SortKey;
@@ -103,12 +104,14 @@ function GroupAnalyticsPage() {
 
   const timelineTableView = useMemo(() => {
     if (!data) return { headers: [], rows: [] };
-    const rows = data.activityTimeline.slice(-TIMELINE_TABLE_DAYS).map((point) => [
-      formatShortDate(point.date),
-      point.lessonsCompleted,
-      point.assessmentsSubmitted,
-      point.logins,
-    ]);
+    const rows = data.activityTimeline
+      .slice(-TIMELINE_TABLE_DAYS)
+      .map((point) => [
+        formatShortDate(point.date),
+        point.lessonsCompleted,
+        point.assessmentsSubmitted,
+        point.logins,
+      ]);
     return { headers: ['Date', 'Lessons Completed', 'Assessments Submitted', 'Logins'], rows };
   }, [data]);
 
@@ -194,7 +197,11 @@ function GroupAnalyticsPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Trainees" value={summary.traineeCount} icon={Users} />
-        <StatCard label="Avg Completion" value={formatPercent(summary.completionPercentage)} icon={CheckCircle2} />
+        <StatCard
+          label="Avg Completion"
+          value={formatPercent(summary.completionPercentage)}
+          icon={CheckCircle2}
+        />
         <StatCard
           label="Avg Score"
           value={summary.averageScore === null ? '—' : formatPercent(summary.averageScore)}
@@ -204,11 +211,7 @@ function GroupAnalyticsPage() {
         <StatCard label="Total Time" value={formatHours(summary.totalTimeSpentSeconds)} icon={Clock} />
       </div>
 
-      <ChartCard
-        title="Activity Timeline"
-        description="Last 30 days"
-        tableView={timelineTableView}
-      >
+      <ChartCard title="Activity Timeline" description="Last 30 days" tableView={timelineTableView}>
         <AnalyticsLineChart
           data={timelineData}
           xKey="label"
@@ -227,7 +230,12 @@ function GroupAnalyticsPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
-              <SortableHead label="Completion" sortKey="completionPercentage" sort={sort} onSort={handleSort} />
+              <SortableHead
+                label="Completion"
+                sortKey="completionPercentage"
+                sort={sort}
+                onSort={handleSort}
+              />
               <SortableHead label="Avg Score" sortKey="averageScore" sort={sort} onSort={handleSort} />
               <SortableHead label="Lessons" sortKey="lessonsCompleted" sort={sort} onSort={handleSort} />
               <SortableHead label="Assessments" sortKey="assessmentsTaken" sort={sort} onSort={handleSort} />
@@ -264,7 +272,9 @@ function GroupAnalyticsPage() {
                 <TableCell className="text-muted-foreground">
                   {member.lastActivityAt ? formatRelativeTime(member.lastActivityAt) : '—'}
                 </TableCell>
-                <TableCell className="text-right font-semibold tabular-nums">{member.performanceScore}</TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {member.performanceScore}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

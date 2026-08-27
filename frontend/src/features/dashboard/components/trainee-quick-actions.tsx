@@ -58,7 +58,9 @@ function TraineeQuickActions({ continueLearning }: TraineeQuickActionsProps) {
     ? {}
     : { initial: 'hidden', animate: 'visible', variants: containerVariants };
   const itemMotionProps = shouldReduceMotion ? {} : { variants: itemVariants };
-  const hoverMotionProps = shouldReduceMotion ? {} : { whileHover: { scale: 1.02 }, whileTap: { scale: 0.98 } };
+  const hoverMotionProps = shouldReduceMotion
+    ? {}
+    : { whileHover: { scale: 1.02 }, whileTap: { scale: 0.98 } };
 
   return (
     <div className="space-y-3">
@@ -74,7 +76,9 @@ function TraineeQuickActions({ continueLearning }: TraineeQuickActionsProps) {
                 <span
                   className={cn(
                     'flex size-10 items-center justify-center rounded-lg',
-                    action.isAiFlavored ? 'bg-brand-accent/15 text-brand-accent' : 'bg-primary/10 text-primary',
+                    action.isAiFlavored
+                      ? 'bg-brand-accent/15 text-brand-accent'
+                      : 'bg-primary/10 text-primary',
                   )}
                 >
                   <action.icon className="size-5" aria-hidden />

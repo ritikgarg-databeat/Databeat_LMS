@@ -27,9 +27,21 @@ const canManage = requireRole(Role.TRAINER, Role.SUPER_ADMIN);
 router.use(authenticate);
 
 router.get('/', controller.list);
-router.post('/upload', canManage, upload.single('file'), resourcesValidation.upload, controller.uploadResource);
+router.post(
+  '/upload',
+  canManage,
+  upload.single('file'),
+  resourcesValidation.upload,
+  controller.uploadResource,
+);
 router.post('/text', canManage, resourcesValidation.createText, controller.createTextResource);
 router.delete('/:resourceId', canManage, resourcesValidation.remove, controller.remove);
+router.post(
+  '/:resourceId/progress',
+  requireRole(Role.TRAINEE),
+  resourcesValidation.progress,
+  controller.recordProgress,
+);
 router.get('/:resourceId/download', resourcesValidation.download, controller.download);
 
 export default router;

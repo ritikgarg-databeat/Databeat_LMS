@@ -26,9 +26,24 @@ function GroupStatsCards() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Total Groups" value={data?.totalGroups ?? 0} icon={Layers} isLoading={isLoading} />
         <StatCard label="Active Groups" value={data?.activeGroups ?? 0} icon={Users} isLoading={isLoading} />
-        <StatCard label="Archived Groups" value={data?.archivedGroups ?? 0} icon={Archive} isLoading={isLoading} />
-        <StatCard label="Departments" value={data?.totalDepartments ?? 0} icon={Building2} isLoading={isLoading} />
-        <StatCard label="Trainees" value={data?.totalTrainees ?? 0} icon={GraduationCap} isLoading={isLoading} />
+        <StatCard
+          label="Archived Groups"
+          value={data?.archivedGroups ?? 0}
+          icon={Archive}
+          isLoading={isLoading}
+        />
+        <StatCard
+          label="Departments"
+          value={data?.totalDepartments ?? 0}
+          icon={Building2}
+          isLoading={isLoading}
+        />
+        <StatCard
+          label="Trainees"
+          value={data?.totalTrainees ?? 0}
+          icon={GraduationCap}
+          isLoading={isLoading}
+        />
       </div>
 
       {data && data.recentGroups.length > 0 ? (
@@ -38,8 +53,7 @@ function GroupStatsCards() {
             {data.recentGroups.map((group) => (
               <li key={group.id} className="flex items-center justify-between text-sm">
                 <Link to={`${groupsBasePath}/${group.id}`} className="hover:underline">
-                  {group.name}{' '}
-                  <span className="text-muted-foreground">({group.code})</span>
+                  {group.name} <span className="text-muted-foreground">({group.code})</span>
                 </Link>
                 <span className="text-muted-foreground">{formatDate(group.createdAt)}</span>
               </li>

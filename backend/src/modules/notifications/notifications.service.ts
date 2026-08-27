@@ -182,6 +182,67 @@ export class NotificationsService extends BaseService {
 
     return { assessmentsChecked: assessments.length, notificationsSent };
   }
+
+  /** Sends at most one reminder per trainee/course every seven days until current-version completion. */
+  async runScheduledMandatoryTrainingReminders(): Promise<{
+    coursesChecked: number;
+    notificationsSent: number;
+  }> {
+    const courses = await this.repository.findMandatoryCoursesForReminders();
+    let notificationsSent = 0;
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    for (const course of courses) {
+      const lessons = course.modules.flatMap((module) => module.lessons);
+      const lessonVersions = new Map(lessons.map((lesson) => [lesson.id, lesson.contentVersion]));
+      const candidateUserIds = [
+        ...new Set(
+          course.groupAssignments.flatMap((assignment) =>
+            assignment.group.members.map((member) => member.userId),
+          ),
+        ),
+      ];
+      if (candidateUserIds.length === 0) continue;
+
+      const progressRows = await this.repository.findMandatoryLessonProgress(
+        candidateUserIds,
+        lessons.map((lesson) => lesson.id),
+      );
+      const completedByUser = new Map<string, Set<string>>();
+      for (const progress of progressRows) {
+        if (
+          progress.status !== 'COMPLETED' ||
+          progress.completedContentVersion !== lessonVersions.get(progress.lessonId)
+        ) {
+          continue;
+        }
+        const completed = completedByUser.get(progress.userId) ?? new Set<string>();
+        completed.add(progress.lessonId);
+        completedByUser.set(progress.userId, completed);
+      }
+
+      const incompleteUserIds = candidateUserIds.filter(
+        (userId) => lessons.length === 0 || completedByUser.get(userId)?.size !== lessons.length,
+      );
+      const recentlyReminded = await this.repository.findRecentlyRemindedUserIds(
+        incompleteUserIds,
+        course.id,
+        since,
+      );
+      const toNotify = incompleteUserIds.filter((userId) => !recentlyReminded.has(userId));
+      if (toNotify.length === 0) continue;
+
+      notificationsSent += await this.notifyMany(toNotify, {
+        type: 'COURSE_ASSIGNED',
+        title: 'Mandatory training reminder',
+        message: `Please complete the required training course "${course.title}". Your current progress is available in My Classroom.`,
+        relatedEntityType: 'course',
+        relatedEntityId: course.id,
+      });
+    }
+
+    return { coursesChecked: courses.length, notificationsSent };
+  }
 }
 
 export const notificationsService = new NotificationsService();

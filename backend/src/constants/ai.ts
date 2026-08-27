@@ -31,3 +31,14 @@ export const AI_DOCUMENT_TEXT_CACHE_MAX_ENTRIES = 100;
  * billed LLM request, so /ai/chat gets its own tighter, per-user budget. */
 export const AI_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 export const AI_RATE_LIMIT_MAX_REQUESTS = 30;
+
+/** Deliberately whitelisted so client text can never become a free-form system instruction. */
+export const AI_RESPONSE_LANGUAGES = [
+  'English',
+  'Hindi',
+  'Spanish',
+  'French',
+  'German',
+  'Portuguese',
+  'Japanese',
+] as const;

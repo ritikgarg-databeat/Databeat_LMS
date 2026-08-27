@@ -15,7 +15,11 @@ import type {
   UpdateQnaQuestionDto,
   UpdateQnaQuestionStatusDto,
 } from './qna-questions.dto';
-import { QnaQuestionsRepository, type QnaQuestionDetail, type QnaQuestionListItem } from './qna-questions.repository';
+import {
+  QnaQuestionsRepository,
+  type QnaQuestionDetail,
+  type QnaQuestionListItem,
+} from './qna-questions.repository';
 import type { QnaQuestionListFilters, QnaQuestionSortField } from './qna-questions.types';
 
 interface Actor {
@@ -30,8 +34,6 @@ interface VisibilityInput {
   departmentId?: string | null;
 }
 
-const STAFF_ROLES: Role[] = ['TRAINER', 'SUPER_ADMIN'];
-
 // Business logic for the qna-questions module. Controllers call into this layer only.
 export class QnaQuestionsService extends BaseService {
   constructor(protected readonly repository: QnaQuestionsRepository = new QnaQuestionsRepository()) {
@@ -45,8 +47,17 @@ export class QnaQuestionsService extends BaseService {
     pageSize: number,
     sortBy: QnaQuestionSortField,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findManyForActor(filters, actor, (page - 1) * pageSize, pageSize, sortBy);
-    return { items: items.map((item) => this.toListItemDto(item)), meta: buildPaginationMeta(page, pageSize, total) };
+    const { items, total } = await this.repository.findManyForActor(
+      filters,
+      actor,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+    );
+    return {
+      items: items.map((item) => this.toListItemDto(item)),
+      meta: buildPaginationMeta(page, pageSize, total),
+    };
   }
 
   /**
@@ -76,7 +87,7 @@ export class QnaQuestionsService extends BaseService {
       { visibility: dto.visibility, groupId: dto.groupId, departmentId: dto.departmentId },
       actor,
     );
-    await this.assertLinkedEntitiesExist(dto);
+    await this.assertLinkedEntitiesExist(dto, actor);
 
     const created = await this.repository.createWithTags(
       {
@@ -106,7 +117,8 @@ export class QnaQuestionsService extends BaseService {
   async update(id: string, dto: UpdateQnaQuestionDto, actor: Actor, ipAddress?: string | null) {
     const existing = await this.findOwnedOrThrow(id, actor);
 
-    const visibilityChanged = dto.visibility !== undefined || dto.groupId !== undefined || dto.departmentId !== undefined;
+    const visibilityChanged =
+      dto.visibility !== undefined || dto.groupId !== undefined || dto.departmentId !== undefined;
     if (visibilityChanged) {
       await this.assertVisibilityRules(
         {
@@ -118,19 +130,34 @@ export class QnaQuestionsService extends BaseService {
       );
     }
 
-    await this.assertLinkedEntitiesExist(dto);
+    await this.assertLinkedEntitiesExist(
+      {
+        courseId: dto.courseId !== undefined ? dto.courseId : existing.courseId,
+        moduleId: dto.moduleId !== undefined ? dto.moduleId : existing.moduleId,
+        lessonId: dto.lessonId !== undefined ? dto.lessonId : existing.lessonId,
+      },
+      actor,
+    );
 
     const data: Prisma.QnaQuestionUpdateInput = {
       ...(dto.title !== undefined ? { title: dto.title } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.visibility !== undefined ? { visibility: dto.visibility } : {}),
-      ...(dto.groupId !== undefined ? { group: dto.groupId ? { connect: { id: dto.groupId } } : { disconnect: true } } : {}),
+      ...(dto.groupId !== undefined
+        ? { group: dto.groupId ? { connect: { id: dto.groupId } } : { disconnect: true } }
+        : {}),
       ...(dto.departmentId !== undefined
         ? { department: dto.departmentId ? { connect: { id: dto.departmentId } } : { disconnect: true } }
         : {}),
-      ...(dto.courseId !== undefined ? { course: dto.courseId ? { connect: { id: dto.courseId } } : { disconnect: true } } : {}),
-      ...(dto.moduleId !== undefined ? { module: dto.moduleId ? { connect: { id: dto.moduleId } } : { disconnect: true } } : {}),
-      ...(dto.lessonId !== undefined ? { lesson: dto.lessonId ? { connect: { id: dto.lessonId } } : { disconnect: true } } : {}),
+      ...(dto.courseId !== undefined
+        ? { course: dto.courseId ? { connect: { id: dto.courseId } } : { disconnect: true } }
+        : {}),
+      ...(dto.moduleId !== undefined
+        ? { module: dto.moduleId ? { connect: { id: dto.moduleId } } : { disconnect: true } }
+        : {}),
+      ...(dto.lessonId !== undefined
+        ? { lesson: dto.lessonId ? { connect: { id: dto.lessonId } } : { disconnect: true } }
+        : {}),
     };
 
     await this.repository.update(id, data);
@@ -194,7 +221,7 @@ export class QnaQuestionsService extends BaseService {
       entityType: 'qna-attachments',
     });
 
-    return this.repository.createAttachment({
+    const created = await this.repository.createAttachment({
       question: { connect: { id: questionId } },
       fileName: file.originalname,
       filePath: relativePath,
@@ -202,6 +229,9 @@ export class QnaQuestionsService extends BaseService {
       fileSizeBytes: file.size,
       uploadedBy: { connect: { id: actor.id } },
     });
+    const { filePath: internalPath, ...safeAttachment } = created;
+    void internalPath;
+    return safeAttachment;
   }
 
   async removeAttachment(questionId: string, attachmentId: string, actor: Actor): Promise<void> {
@@ -210,15 +240,17 @@ export class QnaQuestionsService extends BaseService {
     if (!attachment || attachment.questionId !== questionId) throw new NotFoundError('Attachment not found.');
 
     const isAuthor = question.authorId === actor.id;
-    if (!isAuthor && !STAFF_ROLES.includes(actor.role)) {
-      throw new ForbiddenError("You don't have permission to remove this attachment.");
-    }
+    if (!isAuthor) await this.assertQuestionReadable(questionId, actor);
 
     try {
       await storageProvider.delete({ relativePath: attachment.filePath });
     } catch (error) {
       // Best-effort — a file already missing on disk must not block the row from being deleted.
-      logger.error('Failed to delete qna attachment file from storage', { error, attachmentId, filePath: attachment.filePath });
+      logger.error('Failed to delete qna attachment file from storage', {
+        error,
+        attachmentId,
+        filePath: attachment.filePath,
+      });
     }
 
     await this.repository.deleteAttachment(attachmentId);
@@ -244,22 +276,26 @@ export class QnaQuestionsService extends BaseService {
    * making an invalid choice — always a generic 400.
    */
   private async assertVisibilityRules(input: VisibilityInput, actor: Actor): Promise<void> {
-    const isStaff = STAFF_ROLES.includes(actor.role);
-
     if (input.visibility === 'ORGANIZATION') {
       if (input.groupId || input.departmentId) {
-        throw new BadRequestError('groupId and departmentId must not be set when visibility is ORGANIZATION.');
+        throw new BadRequestError(
+          'groupId and departmentId must not be set when visibility is ORGANIZATION.',
+        );
       }
       return;
     }
 
     if (input.visibility === 'GROUP') {
-      if (input.departmentId) throw new BadRequestError('departmentId must not be set when visibility is GROUP.');
+      if (input.departmentId)
+        throw new BadRequestError('departmentId must not be set when visibility is GROUP.');
       if (!input.groupId) throw new BadRequestError('groupId is required when visibility is GROUP.');
 
-      if (isStaff) {
+      if (actor.role === 'SUPER_ADMIN') {
         const group = await this.repository.findGroupById(input.groupId);
         if (!group) throw new BadRequestError('Group not found.');
+      } else if (actor.role === 'TRAINER') {
+        const manageable = await this.repository.isGroupManagedByTrainer(input.groupId, actor.id);
+        if (!manageable) throw new BadRequestError('Group not found or outside your scope.');
       } else {
         const isMember = await this.repository.isGroupMember(input.groupId, actor.id);
         if (!isMember) throw new BadRequestError('You are not a member of the selected group.');
@@ -269,11 +305,15 @@ export class QnaQuestionsService extends BaseService {
 
     // DEPARTMENT
     if (input.groupId) throw new BadRequestError('groupId must not be set when visibility is DEPARTMENT.');
-    if (!input.departmentId) throw new BadRequestError('departmentId is required when visibility is DEPARTMENT.');
+    if (!input.departmentId)
+      throw new BadRequestError('departmentId is required when visibility is DEPARTMENT.');
 
-    if (isStaff) {
+    if (actor.role === 'SUPER_ADMIN') {
       const department = await this.repository.findDepartmentById(input.departmentId);
       if (!department) throw new BadRequestError('Department not found.');
+    } else if (actor.role === 'TRAINER') {
+      const accessible = await this.repository.isDepartmentInTrainerScope(input.departmentId, actor.id);
+      if (!accessible) throw new BadRequestError('Department not found or outside your scope.');
     } else {
       const user = await this.repository.findUserDepartmentId(actor.id);
       if (!user?.departmentId || user.departmentId !== input.departmentId) {
@@ -288,19 +328,30 @@ export class QnaQuestionsService extends BaseService {
    * Prisma P2025 on `connect` (a 500), not a 4xx. Nulls mean "clear the link" and skip the
    * check.
    */
-  private async assertLinkedEntitiesExist(dto: {
-    courseId?: string | null;
-    moduleId?: string | null;
-    lessonId?: string | null;
-  }): Promise<void> {
-    if (dto.courseId && !(await this.repository.findCourseById(dto.courseId))) {
-      throw new BadRequestError('Course not found.');
+  private async assertLinkedEntitiesExist(
+    dto: {
+      courseId?: string | null;
+      moduleId?: string | null;
+      lessonId?: string | null;
+    },
+    actor: Actor,
+  ): Promise<void> {
+    const [course, module, lesson] = await Promise.all([
+      dto.courseId ? this.repository.findCourseById(dto.courseId, actor) : Promise.resolve(null),
+      dto.moduleId ? this.repository.findModuleById(dto.moduleId, actor) : Promise.resolve(null),
+      dto.lessonId ? this.repository.findLessonById(dto.lessonId, actor) : Promise.resolve(null),
+    ]);
+    if (dto.courseId && !course) throw new BadRequestError('Course not found or outside your scope.');
+    if (dto.moduleId && !module) throw new BadRequestError('Module not found or outside your scope.');
+    if (dto.lessonId && !lesson) throw new BadRequestError('Lesson not found or outside your scope.');
+    if (course && module && module.courseId !== course.id) {
+      throw new BadRequestError('The selected module does not belong to the selected course.');
     }
-    if (dto.moduleId && !(await this.repository.findModuleById(dto.moduleId))) {
-      throw new BadRequestError('Module not found.');
+    if (module && lesson && lesson.moduleId !== module.id) {
+      throw new BadRequestError('The selected lesson does not belong to the selected module.');
     }
-    if (dto.lessonId && !(await this.repository.findLessonById(dto.lessonId))) {
-      throw new BadRequestError('Lesson not found.');
+    if (course && lesson && lesson.module.courseId !== course.id) {
+      throw new BadRequestError('The selected lesson does not belong to the selected course.');
     }
   }
 
@@ -309,7 +360,7 @@ export class QnaQuestionsService extends BaseService {
     const question = await this.repository.findDetailById(id);
     if (!question) throw new NotFoundError('Question not found.');
 
-    if (!STAFF_ROLES.includes(actor.role)) {
+    if (actor.role !== 'SUPER_ADMIN') {
       const accessible = await this.repository.isQuestionAccessibleToUser(id, actor.id, actor.role);
       if (!accessible) throw new ForbiddenError("You don't have permission to view this question.");
     }
@@ -326,19 +377,23 @@ export class QnaQuestionsService extends BaseService {
   /** Author or Trainer/Super-Admin only — used by update/remove/updateStatus. */
   private async findOwnedOrThrow(id: string, actor: Actor) {
     const question = await this.findOrThrow(id);
-    if (question.authorId !== actor.id && !STAFF_ROLES.includes(actor.role)) {
+    if (question.authorId === actor.id || actor.role === 'SUPER_ADMIN') return question;
+    if (actor.role !== 'TRAINER') {
       throw new ForbiddenError("You don't have permission to modify this question.");
     }
+    const accessible = await this.repository.isQuestionAccessibleToUser(id, actor.id, actor.role);
+    if (!accessible) throw new ForbiddenError("You don't have permission to modify this question.");
     return question;
   }
 
   /** Shared by `downloadAttachment` — Trainer/Super-Admin always allowed; anyone else must pass the visibility check. */
   private async assertQuestionReadable(questionId: string, actor: Actor): Promise<void> {
     await this.findOrThrow(questionId);
-    if (STAFF_ROLES.includes(actor.role)) return;
+    if (actor.role === 'SUPER_ADMIN') return;
 
     const accessible = await this.repository.isQuestionAccessibleToUser(questionId, actor.id, actor.role);
-    if (!accessible) throw new ForbiddenError("You don't have permission to access this question's attachments.");
+    if (!accessible)
+      throw new ForbiddenError("You don't have permission to access this question's attachments.");
   }
 
   private assertAcceptedMimeType(mimeType: string): void {
@@ -349,7 +404,9 @@ export class QnaQuestionsService extends BaseService {
 
   private assertFileSizeWithinLimit(sizeBytes: number): void {
     if (sizeBytes > MAX_QNA_ATTACHMENT_SIZE_BYTES) {
-      throw new BadRequestError(`File exceeds the maximum allowed size of ${MAX_QNA_ATTACHMENT_SIZE_BYTES} bytes.`);
+      throw new BadRequestError(
+        `File exceeds the maximum allowed size of ${MAX_QNA_ATTACHMENT_SIZE_BYTES} bytes.`,
+      );
     }
   }
 

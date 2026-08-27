@@ -27,11 +27,22 @@ function StatCard({ label, value, icon: Icon, isLoading, className, accentColor 
       <CardContent className="flex items-center justify-between gap-4 p-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">{label}</p>
-          {isLoading ? <Skeleton className="h-7 w-12" /> : <p className="text-2xl font-semibold tracking-tight">{value}</p>}
+          {isLoading ? (
+            <Skeleton className="h-7 w-12" />
+          ) : (
+            <p className="text-2xl font-semibold tracking-tight">{value}</p>
+          )}
         </div>
         <div
-          className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', !accentColor && 'bg-muted')}
-          style={accentColor ? { backgroundColor: `color-mix(in oklch, ${accentColor} 16%, transparent)` } : undefined}
+          className={cn(
+            'flex size-9 shrink-0 items-center justify-center rounded-lg',
+            !accentColor && 'bg-muted',
+          )}
+          style={
+            accentColor
+              ? { backgroundColor: `color-mix(in oklch, ${accentColor} 16%, transparent)` }
+              : undefined
+          }
         >
           <Icon
             className={cn('size-5', !accentColor && 'text-muted-foreground')}

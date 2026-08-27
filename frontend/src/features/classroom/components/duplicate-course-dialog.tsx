@@ -74,8 +74,8 @@ function DuplicateCourseDialog({ course, onOpenChange }: DuplicateCourseDialogPr
         <DialogHeader>
           <DialogTitle>Duplicate {course.title}</DialogTitle>
           <DialogDescription>
-            Creates a new draft copy with the same modules and lessons. Learner assignments and
-            progress are never copied.
+            Creates a new draft copy with the same modules and lessons. Learner assignments and progress are
+            never copied.
           </DialogDescription>
         </DialogHeader>
 

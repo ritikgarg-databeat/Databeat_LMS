@@ -56,7 +56,8 @@ function CommentThread({
                   <span className="font-medium text-foreground">
                     {comment.author.firstName} {comment.author.lastName}
                   </span>{' '}
-                  {comment.content} <span className="whitespace-nowrap">· {formatRelativeTime(comment.createdAt)}</span>
+                  {comment.content}{' '}
+                  <span className="whitespace-nowrap">· {formatRelativeTime(comment.createdAt)}</span>
                 </p>
                 {canDelete ? (
                   <button

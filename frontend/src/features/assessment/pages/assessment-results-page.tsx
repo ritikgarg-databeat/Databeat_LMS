@@ -18,6 +18,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/hooks/use-auth';
 import { formatDateTime } from '@/utils/date';
 
 import { useAssessmentQuery, useAttemptsQuery } from '../hooks';
@@ -42,6 +43,7 @@ const STATUS_LABEL: Record<AssessmentAttemptStatus, string> = {
 };
 
 function AssessmentResultsPage() {
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const isAdminRoute = useLocation().pathname.startsWith('/admin');
   const basePath = isAdminRoute ? '/admin' : '/trainer';
@@ -86,9 +88,11 @@ function AssessmentResultsPage() {
             <p className="text-muted-foreground">Passing score: {assessment.passingPercentage}%</p>
           ) : null}
         </div>
-        <Button asChild variant="outline">
-          <Link to={`${basePath}/assessments/${id}/analytics`}>View Analytics</Link>
-        </Button>
+        {isAdminRoute || assessment?.createdById === user?.id ? (
+          <Button asChild variant="outline">
+            <Link to={`${basePath}/assessments/${id}/analytics`}>View Analytics</Link>
+          </Button>
+        ) : null}
       </div>
 
       <Tabs
@@ -112,7 +116,9 @@ function AssessmentResultsPage() {
         </div>
       ) : !attempts.items.length ? (
         <EmptyState
-          title={filter === 'PENDING_REVIEW' ? 'Nothing needs grading' : 'No one has attempted this assessment yet'}
+          title={
+            filter === 'PENDING_REVIEW' ? 'Nothing needs grading' : 'No one has attempted this assessment yet'
+          }
           description={
             filter === 'PENDING_REVIEW'
               ? 'Every submitted attempt has already been fully graded.'
@@ -136,13 +142,18 @@ function AssessmentResultsPage() {
               {attempts.items.map((attempt) => (
                 <TableRow key={attempt.id}>
                   <TableCell className="font-medium">
-                    <Link to={`${basePath}/assessments/${id}/results/${attempt.id}`} className="hover:underline">
+                    <Link
+                      to={`${basePath}/assessments/${id}/results/${attempt.id}`}
+                      className="hover:underline"
+                    >
                       {attempt.user.firstName} {attempt.user.lastName}
                     </Link>
                   </TableCell>
                   <TableCell>{attempt.user.email}</TableCell>
                   <TableCell>
-                    <Badge variant={STATUS_BADGE_VARIANT[attempt.status]}>{STATUS_LABEL[attempt.status]}</Badge>
+                    <Badge variant={STATUS_BADGE_VARIANT[attempt.status]}>
+                      {STATUS_LABEL[attempt.status]}
+                    </Badge>
                   </TableCell>
                   <TableCell>{attempt.submittedAt ? formatDateTime(attempt.submittedAt) : '—'}</TableCell>
                   <TableCell>

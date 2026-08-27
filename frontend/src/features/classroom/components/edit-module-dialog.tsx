@@ -26,7 +26,10 @@ const editModuleSchema = z.object({
   estimatedDurationMinutes: z
     .string()
     .optional()
-    .refine((value) => !value || /^[1-9]\d*$/.test(value), 'Estimated duration must be a positive whole number.'),
+    .refine(
+      (value) => !value || /^[1-9]\d*$/.test(value),
+      'Estimated duration must be a positive whole number.',
+    ),
 });
 type EditModuleFormValues = z.infer<typeof editModuleSchema>;
 
@@ -63,7 +66,9 @@ function EditModuleDialog({ module, onOpenChange }: EditModuleDialogProps) {
         payload: {
           title: values.title,
           description: values.description || null,
-          estimatedDurationMinutes: values.estimatedDurationMinutes ? Number(values.estimatedDurationMinutes) : null,
+          estimatedDurationMinutes: values.estimatedDurationMinutes
+            ? Number(values.estimatedDurationMinutes)
+            : null,
         },
       });
       toast.success('Module updated successfully.');
@@ -90,8 +95,15 @@ function EditModuleDialog({ module, onOpenChange }: EditModuleDialogProps) {
 
           <div className="space-y-2">
             <Label htmlFor="edit-module-description">Description</Label>
-            <Textarea id="edit-module-description" rows={3} disabled={isSubmitting} {...register('description')} />
-            {errors.description ? <p className="text-sm text-destructive">{errors.description.message}</p> : null}
+            <Textarea
+              id="edit-module-description"
+              rows={3}
+              disabled={isSubmitting}
+              {...register('description')}
+            />
+            {errors.description ? (
+              <p className="text-sm text-destructive">{errors.description.message}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">

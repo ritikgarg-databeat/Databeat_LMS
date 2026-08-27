@@ -1,6 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
 
-import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
+import { activeGroupScope } from '@/policies/group-access.policy';
+import { qnaQuestionAccessScope } from '@/policies/qna-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const questionSearchInclude = {
@@ -13,13 +14,13 @@ const questionSearchInclude = {
 
 export type QnaQuestionSearchRow = Prisma.QnaQuestionGetPayload<{ include: typeof questionSearchInclude }>;
 
-const tagSearchInclude = {
+const _tagSearchInclude = {
   // QnaQuestionTag rows survive question soft-delete (softDelete never unlinks tags), so the
   // count must look through to the question's own deletedAt — mirrors qna-tags.repository.ts.
   _count: { select: { questions: { where: { question: { deletedAt: null } } } } },
 } satisfies Prisma.QnaTagInclude;
 
-export type QnaTagSearchRow = Prisma.QnaTagGetPayload<{ include: typeof tagSearchInclude }>;
+export type QnaTagSearchRow = Prisma.QnaTagGetPayload<{ include: typeof _tagSearchInclude }>;
 
 // Data-access layer for the qna-search module. Only this class may query Prisma directly
 // (see ARCHITECTURE.md §3.1) — services must go through it, never Prisma directly.
@@ -31,28 +32,20 @@ export class QnaSearchRepository extends BaseRepository {
    * never surface a GROUP/DEPARTMENT question's title/description to someone who couldn't open
    * it via `GET /qna/questions/:id` anyway.
    */
-  async findQuestions(q: string, take: number, actor: { id: string; role: Role }): Promise<QnaQuestionSearchRow[]> {
+  async findQuestions(
+    q: string,
+    take: number,
+    actor: { id: string; role: Role },
+  ): Promise<QnaQuestionSearchRow[]> {
     const where: Prisma.QnaQuestionWhereInput = {
       deletedAt: null,
-      OR: [{ title: { contains: q, mode: 'insensitive' } }, { description: { contains: q, mode: 'insensitive' } }],
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+      ],
     };
 
-    if (actor.role !== 'TRAINER' && actor.role !== 'SUPER_ADMIN') {
-      const [user, memberships] = await Promise.all([
-        this.db.user.findUnique({ where: { id: actor.id }, select: { departmentId: true } }),
-        this.db.groupMember.findMany({
-          where: activeGroupMembershipWhere(actor.id),
-          select: { groupId: true },
-        }),
-      ]);
-      const groupIds = memberships.map((membership) => membership.groupId);
-
-      const accessOr: Prisma.QnaQuestionWhereInput[] = [{ visibility: 'ORGANIZATION' }];
-      if (user?.departmentId) accessOr.push({ visibility: 'DEPARTMENT', departmentId: user.departmentId });
-      if (groupIds.length > 0) accessOr.push({ visibility: 'GROUP', groupId: { in: groupIds } });
-
-      where.AND = [{ OR: accessOr }];
-    }
+    where.AND = [qnaQuestionAccessScope(actor.id, actor.role, true)];
 
     return this.db.qnaQuestion.findMany({
       where,
@@ -62,10 +55,16 @@ export class QnaSearchRepository extends BaseRepository {
     });
   }
 
-  findTags(q: string, take: number): Promise<QnaTagSearchRow[]> {
+  findTags(q: string, take: number, actor: { id: string; role: Role }): Promise<QnaTagSearchRow[]> {
+    const questionScope = qnaQuestionAccessScope(actor.id, actor.role, true);
     return this.db.qnaTag.findMany({
-      where: { name: { contains: q, mode: 'insensitive' } },
-      include: tagSearchInclude,
+      where: {
+        name: { contains: q, mode: 'insensitive' },
+        questions: { some: { question: questionScope } },
+      },
+      include: {
+        _count: { select: { questions: { where: { question: questionScope } } } },
+      },
       take,
       orderBy: { name: 'asc' },
     });
@@ -87,7 +86,12 @@ export class QnaSearchRepository extends BaseRepository {
         some: { group: activeGroupScope({ members: { some: { userId: actor.id } } }) },
       };
     }
-    return this.db.course.findMany({ where, select: { id: true, title: true }, take, orderBy: { title: 'asc' } });
+    return this.db.course.findMany({
+      where,
+      select: { id: true, title: true },
+      take,
+      orderBy: { title: 'asc' },
+    });
   }
 
   /**
@@ -115,6 +119,11 @@ export class QnaSearchRepository extends BaseRepository {
         },
       },
     };
-    return this.db.lesson.findMany({ where, select: { id: true, title: true }, take, orderBy: { title: 'asc' } });
+    return this.db.lesson.findMany({
+      where,
+      select: { id: true, title: true },
+      take,
+      orderBy: { title: 'asc' },
+    });
   }
 }

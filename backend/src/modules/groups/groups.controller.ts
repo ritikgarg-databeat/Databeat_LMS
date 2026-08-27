@@ -81,7 +81,12 @@ export class GroupsController extends BaseController {
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const group = await this.service.update(req.params.id as string, req.body as UpdateGroupDto, req.user, req.ip);
+    const group = await this.service.update(
+      req.params.id as string,
+      req.body as UpdateGroupDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, group, 'Group updated successfully.');
   };
 

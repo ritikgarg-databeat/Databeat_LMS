@@ -4,7 +4,7 @@ import { EmptyState, ErrorScreen } from '@/components/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { CourseStatusBadge, DifficultyBadge } from '../components';
+import { CourseStatusBadge, DifficultyBadge, MandatoryCourseBadge } from '../components';
 import { ContinueLearningSection } from '../components/continue-learning-section';
 import { CourseProgressBar } from '../components/course-progress-bar';
 import { useMyCoursesQuery } from '../hooks';
@@ -49,6 +49,7 @@ function MyClassroomPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <CourseStatusBadge status={course.status} />
                       <DifficultyBadge difficulty={course.difficulty} />
+                      {course.isMandatory ? <MandatoryCourseBadge /> : null}
                     </div>
                     <CardTitle className="text-base">{course.title}</CardTitle>
                   </CardHeader>

@@ -3,8 +3,7 @@
  * one lowercase, one digit, and one special character. Mirrored on the frontend in
  * `features/auth/utils/password-policy.ts` — keep both in sync if this changes.
  */
-export const PASSWORD_POLICY_REGEX =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+export const PASSWORD_POLICY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 export const PASSWORD_POLICY_DESCRIPTION =
   'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character.';

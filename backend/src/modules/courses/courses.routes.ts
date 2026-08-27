@@ -33,11 +33,30 @@ router.get('/stats', canManage, controller.stats);
 router.get('/mine', controller.mine);
 router.get('/:id', idParamValidator, controller.getById);
 router.patch('/:id', canManage, idParamValidator, coursesValidation.update, controller.update);
-router.patch('/:id/status', canManage, idParamValidator, coursesValidation.updateStatus, controller.updateStatus);
+router.patch(
+  '/:id/status',
+  canManage,
+  idParamValidator,
+  coursesValidation.updateStatus,
+  controller.updateStatus,
+);
 router.post('/:id/duplicate', canManage, idParamValidator, coursesValidation.duplicate, controller.duplicate);
 router.delete('/:id', canManage, idParamValidator, controller.remove);
 router.get('/:id/assignments', canManage, idParamValidator, controller.listAssignments);
-router.post('/:id/assignments', canManage, idParamValidator, coursesValidation.assignGroup, controller.assignGroup);
+router.post(
+  '/:id/assignments',
+  canManage,
+  idParamValidator,
+  coursesValidation.assignGroup,
+  controller.assignGroup,
+);
+router.patch(
+  '/:id/assignments/:groupId',
+  canManage,
+  idParamValidator,
+  coursesValidation.updateAssignment,
+  controller.updateAssignment,
+);
 router.delete(
   '/:id/assignments/:groupId',
   canManage,

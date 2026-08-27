@@ -1,5 +1,15 @@
 import type { LucideIcon } from 'lucide-react';
-import { AlignLeft, CheckSquare, CircleDot, Code2, Database, FileUp, ListChecks, MessageSquare, PenLine } from 'lucide-react';
+import {
+  AlignLeft,
+  CheckSquare,
+  CircleDot,
+  Code2,
+  Database,
+  FileUp,
+  ListChecks,
+  MessageSquare,
+  PenLine,
+} from 'lucide-react';
 
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';

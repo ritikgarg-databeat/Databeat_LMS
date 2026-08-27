@@ -35,7 +35,13 @@ router.post('/', canManage, lessonsValidation.create, controller.create);
 router.patch('/reorder', canManage, lessonsValidation.reorder, controller.reorder);
 router.get('/:id', idParamValidator, controller.getById);
 router.patch('/:id', canManage, idParamValidator, lessonsValidation.update, controller.update);
-router.patch('/:id/status', canManage, idParamValidator, lessonsValidation.updateStatus, controller.updateStatus);
+router.patch(
+  '/:id/status',
+  canManage,
+  idParamValidator,
+  lessonsValidation.updateStatus,
+  controller.updateStatus,
+);
 router.delete('/:id', canManage, idParamValidator, controller.remove);
 
 router.get('/:id/progress', idParamValidator, progressController.getForLesson);

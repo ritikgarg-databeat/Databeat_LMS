@@ -1,11 +1,10 @@
-# docs/
+# Documentation
 
-See [`VIDEO_GENERATION.md`](VIDEO_GENERATION.md) for the trainer video studio, grounded storyboard,
-TTS/Remotion pipeline, private draft lifecycle, publication rules, and configuration.
+Supplementary documentation that does not belong in the root [`README.md`](../README.md) or the
+full system design document:
 
-Supplementary documentation that doesn't belong in the root [`README.md`](../README.md) or the
-full system design doc:
-
+- [`BUSINESS_FEATURES.md`](BUSINESS_FEATURES.md) — business-facing feature catalogue, role
+  outcomes, executive metrics, compliance workflow, and honest product boundaries.
 - [`AI_WORKFLOW.md`](AI_WORKFLOW.md) — how every AI feature actually works: the real system
   prompts (quoted verbatim), the lesson-context builder, the AI-provider abstraction, error/
   fallback behavior, and rate limiting.
@@ -13,6 +12,8 @@ full system design doc:
   and frontend, plus a post-deploy checklist and a troubleshooting table.
 - [`OPERATIONS.md`](OPERATIONS.md) — the API/worker process model, health endpoints, persistent
   uploads, backups, retention cleanup, and operational checks.
+- [`VIDEO_GENERATION.md`](VIDEO_GENERATION.md) — Trainer and Trainee video workflows, grounded
+  storyboards, TTS/Remotion rendering, draft lifecycle, publication, limits, and configuration.
 - [`GIT_WORKFLOW.md`](GIT_WORKFLOW.md) — branch strategy, commit convention, PR expectations,
   and versioning strategy.
 - [`TESTING_CHECKLIST.md`](TESTING_CHECKLIST.md) — automated checks plus the manual QA checklist,

@@ -69,8 +69,18 @@ router.get('/questions', qnaQuestionsValidation.list, questions.list);
 router.get('/questions/:id', idParamValidator, questions.getById);
 router.put('/questions/:id', idParamValidator, qnaQuestionsValidation.update, questions.update);
 router.delete('/questions/:id', idParamValidator, questions.remove);
-router.patch('/questions/:id/status', idParamValidator, qnaQuestionsValidation.updateStatus, questions.updateStatus);
-router.post('/questions/:id/attachments', idParamValidator, qnaUpload.single('file'), questions.uploadAttachment);
+router.patch(
+  '/questions/:id/status',
+  idParamValidator,
+  qnaQuestionsValidation.updateStatus,
+  questions.updateStatus,
+);
+router.post(
+  '/questions/:id/attachments',
+  idParamValidator,
+  qnaUpload.single('file'),
+  questions.uploadAttachment,
+);
 router.delete(
   '/questions/:id/attachments/:attachmentId',
   idParamValidator,

@@ -21,7 +21,13 @@ function isFullyGraded(response: MyAttemptResponse): response is GradedAttemptRe
   return response.attempt.status === 'GRADED' && response.attempt.percentage !== null;
 }
 
-function QuestionResultCard({ question, maxMarksLabel }: { question: GradedAttemptQuestion; maxMarksLabel?: number }) {
+function QuestionResultCard({
+  question,
+  maxMarksLabel,
+}: {
+  question: GradedAttemptQuestion;
+  maxMarksLabel?: number;
+}) {
   const Icon = question.isCorrect === true ? CheckCircle2 : question.isCorrect === false ? XCircle : Circle;
   const iconClass =
     question.isCorrect === true
@@ -61,7 +67,9 @@ function QuestionResultCard({ question, maxMarksLabel }: { question: GradedAttem
                 >
                   {wasSelected ? <span className="text-xs font-medium">(your answer)</span> : null}
                   <span>{option.text}</span>
-                  {option.isCorrect ? <CheckCircle2 className="ml-auto size-4 text-success" aria-hidden /> : null}
+                  {option.isCorrect ? (
+                    <CheckCircle2 className="ml-auto size-4 text-success" aria-hidden />
+                  ) : null}
                 </li>
               );
             })}
@@ -75,7 +83,9 @@ function QuestionResultCard({ question, maxMarksLabel }: { question: GradedAttem
           <div className="space-y-2">
             <p>
               <span className="font-medium">Your answer: </span>
-              {question.yourAnswer?.textAnswer || <span className="text-muted-foreground">No answer given</span>}
+              {question.yourAnswer?.textAnswer || (
+                <span className="text-muted-foreground">No answer given</span>
+              )}
             </p>
             {question.snapshotCorrectAnswers && question.snapshotCorrectAnswers.length > 0 ? (
               <p>

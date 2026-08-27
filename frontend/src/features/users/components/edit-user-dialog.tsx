@@ -4,13 +4,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -95,9 +89,7 @@ function EditUserDialog({ user, onOpenChange, showExperienceLevel }: EditUserDia
             <div className="space-y-2">
               <Label htmlFor="edit-lastName">Last name</Label>
               <Input id="edit-lastName" disabled={isSubmitting} {...register('lastName')} />
-              {errors.lastName ? (
-                <p className="text-sm text-destructive">{errors.lastName.message}</p>
-              ) : null}
+              {errors.lastName ? <p className="text-sm text-destructive">{errors.lastName.message}</p> : null}
             </div>
           </div>
 

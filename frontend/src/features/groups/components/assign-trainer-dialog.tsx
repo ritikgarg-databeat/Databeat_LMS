@@ -29,7 +29,7 @@ export interface AssignTrainerDialogProps {
 
 function AssignTrainerDialog({ group, onOpenChange }: AssignTrainerDialogProps) {
   const assignTrainer = useAssignTrainerMutation();
-  const { data: trainers } = useTrainersOptions();
+  const { data: trainers } = useTrainersOptions(Boolean(group));
 
   const {
     control,

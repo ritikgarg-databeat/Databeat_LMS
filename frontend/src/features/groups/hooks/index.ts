@@ -78,11 +78,12 @@ export function useActiveExperienceLevelsOptions() {
   });
 }
 
-export function useTrainersOptions() {
+export function useTrainersOptions(enabled = true) {
   return useQuery({
     queryKey: [TRAINER_OPTIONS_QUERY_KEY],
     queryFn: trainerOptionsApi.list,
     staleTime: 5 * 60_000,
+    enabled,
   });
 }
 
@@ -133,7 +134,8 @@ export function useUpdateGroupMutation() {
   const invalidateList = useInvalidateGroupsList();
   const invalidateGroup = useInvalidateGroup();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateGroupPayload }) => groupsApi.update(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateGroupPayload }) =>
+      groupsApi.update(id, payload),
     onSuccess: (_data, variables) => {
       invalidateList();
       invalidateGroup(variables.id);

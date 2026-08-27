@@ -164,7 +164,17 @@ enum AssessmentSubmissionReason {
   LEARNER
   TIME_EXPIRED
   DUE_DATE_REACHED
+  INTEGRITY_VIOLATION
   ADMIN
+}
+
+enum AssessmentIntegrityEventType {
+  FULLSCREEN_EXIT
+  TAB_HIDDEN
+  WINDOW_BLUR
+  SCREENSHOT_ATTEMPT
+  PRINT_ATTEMPT
+  COPY_ATTEMPT
 }
 
 enum CalendarEventType {
@@ -299,11 +309,13 @@ model User {
   assignedCourseGroups     CourseGroupAssignment[]     @relation("CourseGroupAssignedBy")
   createdLessonResources   LessonResource[]            @relation("LessonResourceCreatedBy")
   lessonProgress           LessonProgress[]
+  lessonResourceProgress   LessonResourceProgress[]
   lessonQuizAttempts       LessonQuizAttempt[]
   createdQuestions         Question[]                  @relation("QuestionCreatedBy")
   createdAssessments       Assessment[]                @relation("AssessmentCreatedBy")
   assignedAssessmentGroups AssessmentGroupAssignment[] @relation("AssessmentGroupAssignedBy")
   assessmentAttempts       AssessmentAttempt[]
+  assessmentIntegrityEvents AssessmentIntegrityEvent[]
   gradedAssessmentAnswers  AssessmentAnswer[]          @relation("AssessmentAnswerGradedBy")
   createdCalendarEvents    CalendarEvent[]             @relation("CalendarEventCreatedBy")
   calendarEventAssignments CalendarEventAssignment[]   @relation("CalendarEventAssignmentUser")
@@ -525,6 +537,7 @@ model Course {
   experienceLevel          ExperienceLevel? @relation(fields: [experienceLevelId], references: [id])
   estimatedDurationMinutes Int?
   difficulty               CourseDifficulty @default(BEGINNER)
+  isMandatory              Boolean          @default(false)
   status                   CourseStatus     @default(DRAFT)
   createdById              String?
   createdBy                User?            @relation("CourseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -617,9 +630,40 @@ model LessonResource {
   videoGeneration  VideoGenerationJob? @relation("PublishedVideoResource")
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+  contentVersion   Int                 @default(1)
 
+  progress         LessonResourceProgress[]
   @@index([lessonId])
   @@map("lesson_resources")
+}
+
+/// Per-trainee evidence that a specific current resource was consumed. Resource content
+/// versions let a newly-added or edited resource reopen only the affected evidence while the
+/// lesson-level content version continues to require a fresh completion quiz.
+model LessonResourceProgress {
+  id                       String               @id @default(uuid())
+  userId                   String
+  user                     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resourceId               String
+  resource                 LessonResource       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  status                   LessonProgressStatus @default(NOT_STARTED)
+  completedContentVersion  Int?
+  activeTimeSeconds        Int                  @default(0)
+  furthestVideoSecond      Float                @default(0)
+  videoDurationSeconds     Float?
+  watchedIntervals         Json?
+  maxScrollPercentage      Int                  @default(0)
+  openedAt                 DateTime?
+  acknowledgedAt           DateTime?
+  completedAt              DateTime?
+  lastEventAt              DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+
+  @@unique([userId, resourceId])
+  @@index([userId])
+  @@index([resourceId])
+  @@map("lesson_resource_progress")
 }
 
 /// Asynchronous, source-grounded video work. Draft artifacts remain private until an explicit
@@ -686,10 +730,14 @@ model CourseGroupAssignment {
   assignedById String?
   assignedBy   User?    @relation("CourseGroupAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
   assignedAt   DateTime @default(now())
+  /// Delivery rule for this group. The same shared course may be optional for one group and
+  /// mandatory for another without mutating the master catalogue record.
+  isMandatory  Boolean  @default(false)
 
   @@unique([courseId, groupId])
   @@index([courseId])
   @@index([groupId])
+  @@index([courseId, isMandatory])
   @@map("course_group_assignments")
 }
 
@@ -922,14 +970,34 @@ model AssessmentAttempt {
   percentage       Float?
   passed           Boolean?
   timeSpentSeconds Int                         @default(0)
+  integrityViolationCount Int                  @default(0)
 
-  answers AssessmentAnswer[]
+  answers         AssessmentAnswer[]
+  integrityEvents AssessmentIntegrityEvent[]
 
   @@unique([assessmentId, userId])
   @@index([assessmentId])
   @@index([userId])
   @@index([expiresAt])
   @@map("assessment_attempts")
+}
+
+/// Best-effort browser integrity evidence for an assessment attempt. The server counts distinct
+/// events and finalizes the attempt when the configured three-violation limit is reached.
+model AssessmentIntegrityEvent {
+  id                String                       @id @default(uuid())
+  attemptId         String
+  attempt           AssessmentAttempt            @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              AssessmentIntegrityEventType
+  countsAsViolation Boolean                      @default(true)
+  clientOccurredAt  DateTime?
+  createdAt         DateTime                     @default(now())
+
+  @@index([attemptId, createdAt])
+  @@index([userId, createdAt])
+  @@map("assessment_integrity_events")
 }
 
 /// One row per question per attempt. `isCorrect`/`marksAwarded` stay null until graded — set

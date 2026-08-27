@@ -26,7 +26,12 @@ import type {
   UpdateAssessmentStatusDto,
 } from './assessments.dto';
 import { AssessmentsRepository, type AssessmentDetail } from './assessments.repository';
-import type { AssessmentListFilters, AssessmentSortField, AssessmentStats, SortOrder } from './assessments.types';
+import type {
+  AssessmentListFilters,
+  AssessmentSortField,
+  AssessmentStats,
+  SortOrder,
+} from './assessments.types';
 
 interface Actor {
   id: string;
@@ -64,13 +69,14 @@ export class AssessmentsService extends BaseService {
 
   async getStats(actor: Actor): Promise<AssessmentStats> {
     const trainerId = actor.role === 'TRAINER' ? actor.id : undefined;
-    const [totalAssessments, publishedAssessments, draftAssessments, pendingGradingCount, upcomingCount] = await Promise.all([
-      this.repository.countAll(trainerId),
-      this.repository.countByStatus('PUBLISHED', trainerId),
-      this.repository.countByStatus('DRAFT', trainerId),
-      this.repository.countPendingGrading(trainerId),
-      this.repository.countUpcoming(trainerId),
-    ]);
+    const [totalAssessments, publishedAssessments, draftAssessments, pendingGradingCount, upcomingCount] =
+      await Promise.all([
+        this.repository.countAll(trainerId),
+        this.repository.countByStatus('PUBLISHED', trainerId),
+        this.repository.countByStatus('DRAFT', trainerId),
+        this.repository.countPendingGrading(trainerId),
+        this.repository.countUpcoming(trainerId),
+      ]);
     return { totalAssessments, publishedAssessments, draftAssessments, pendingGradingCount, upcomingCount };
   }
 
@@ -101,7 +107,12 @@ export class AssessmentsService extends BaseService {
         questionCount: _count.questions,
         maxMarks,
         myAttempt: attempt
-          ? { status: attempt.status, percentage: attempt.percentage, passed: attempt.passed, submittedAt: attempt.submittedAt }
+          ? {
+              status: attempt.status,
+              percentage: attempt.percentage,
+              passed: attempt.passed,
+              submittedAt: attempt.submittedAt,
+            }
           : null,
       };
     });
@@ -117,12 +128,12 @@ export class AssessmentsService extends BaseService {
       // A Trainee only needs to know THEY have access — the identity of every other group this
       // assessment happens to be assigned to is management-only information (which cohorts share
       // this assessment isn't this endpoint's business to reveal to a learner).
-      return this.toDetailDto(assessment, false);
+      return this.toDetailDto(assessment, actor);
     }
 
     if (!assessment) throw new NotFoundError('Assessment not found.');
-    await this.assertAssessmentInScope(id, actor);
-    return this.toDetailDto(assessment, true);
+    await this.assertAssessmentReadable(id, actor);
+    return this.toDetailDto(assessment, actor);
   }
 
   async create(dto: CreateAssessmentDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
@@ -156,7 +167,12 @@ export class AssessmentsService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateAssessmentDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
+  async update(
+    id: string,
+    dto: UpdateAssessmentDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Assessment> {
     const existing = await this.findOrThrow(id);
     await this.assertAssessmentInScope(id, actor);
 
@@ -176,11 +192,15 @@ export class AssessmentsService extends BaseService {
 
     const negativeMarkingEnabled = dto.negativeMarkingEnabled ?? existing.negativeMarkingEnabled;
     const negativeMarksPerWrongAnswer =
-      dto.negativeMarksPerWrongAnswer !== undefined ? dto.negativeMarksPerWrongAnswer : existing.negativeMarksPerWrongAnswer;
+      dto.negativeMarksPerWrongAnswer !== undefined
+        ? dto.negativeMarksPerWrongAnswer
+        : existing.negativeMarksPerWrongAnswer;
     this.assertNegativeMarkingRule(negativeMarkingEnabled, negativeMarksPerWrongAnswer);
 
-    const effectiveAvailableFrom = dto.availableFrom !== undefined ? dto.availableFrom : (existing.availableFrom?.toISOString() ?? null);
-    const effectiveDueDate = dto.dueDate !== undefined ? dto.dueDate : (existing.dueDate?.toISOString() ?? null);
+    const effectiveAvailableFrom =
+      dto.availableFrom !== undefined ? dto.availableFrom : (existing.availableFrom?.toISOString() ?? null);
+    const effectiveDueDate =
+      dto.dueDate !== undefined ? dto.dueDate : (existing.dueDate?.toISOString() ?? null);
     this.assertDateRange(effectiveAvailableFrom, effectiveDueDate);
 
     const updated = await this.repository.update(id, {
@@ -188,13 +208,21 @@ export class AssessmentsService extends BaseService {
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.durationMinutes !== undefined ? { durationMinutes: dto.durationMinutes } : {}),
       ...(dto.passingPercentage !== undefined ? { passingPercentage: dto.passingPercentage } : {}),
-      ...(dto.availableFrom !== undefined ? { availableFrom: dto.availableFrom ? new Date(dto.availableFrom) : null } : {}),
+      ...(dto.availableFrom !== undefined
+        ? { availableFrom: dto.availableFrom ? new Date(dto.availableFrom) : null }
+        : {}),
       ...(dto.dueDate !== undefined ? { dueDate: dto.dueDate ? new Date(dto.dueDate) : null } : {}),
       ...(dto.instructions !== undefined ? { instructions: dto.instructions } : {}),
-      ...(dto.negativeMarkingEnabled !== undefined ? { negativeMarkingEnabled: dto.negativeMarkingEnabled } : {}),
-      ...(dto.negativeMarksPerWrongAnswer !== undefined ? { negativeMarksPerWrongAnswer: dto.negativeMarksPerWrongAnswer } : {}),
+      ...(dto.negativeMarkingEnabled !== undefined
+        ? { negativeMarkingEnabled: dto.negativeMarkingEnabled }
+        : {}),
+      ...(dto.negativeMarksPerWrongAnswer !== undefined
+        ? { negativeMarksPerWrongAnswer: dto.negativeMarksPerWrongAnswer }
+        : {}),
       ...(dto.randomizeQuestions !== undefined ? { randomizeQuestions: dto.randomizeQuestions } : {}),
-      ...(dto.showResultImmediately !== undefined ? { showResultImmediately: dto.showResultImmediately } : {}),
+      ...(dto.showResultImmediately !== undefined
+        ? { showResultImmediately: dto.showResultImmediately }
+        : {}),
     });
 
     await auditLogService.record({
@@ -207,7 +235,12 @@ export class AssessmentsService extends BaseService {
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateAssessmentStatusDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
+  async updateStatus(
+    id: string,
+    dto: UpdateAssessmentStatusDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Assessment> {
     const existing = await this.findOrThrow(id);
     await this.assertAssessmentInScope(id, actor);
     if (existing.status === dto.status) {
@@ -285,9 +318,14 @@ export class AssessmentsService extends BaseService {
     });
   }
 
-  async duplicate(id: string, dto: DuplicateAssessmentDto, actor: Actor, ipAddress?: string | null): Promise<Assessment> {
+  async duplicate(
+    id: string,
+    dto: DuplicateAssessmentDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Assessment> {
     await this.findOrThrow(id);
-    await this.assertAssessmentInScope(id, actor);
+    await this.assertAssessmentReadable(id, actor);
 
     const created = await this.repository.duplicate(id, dto.title, actor.id);
 
@@ -303,8 +341,11 @@ export class AssessmentsService extends BaseService {
 
   async listAssignments(assessmentId: string, actor: Actor) {
     await this.findOrThrow(assessmentId);
-    await this.assertAssessmentInScope(assessmentId, actor);
-    const assignments = await this.repository.listAssignments(assessmentId);
+    await this.assertAssessmentReadable(assessmentId, actor);
+    const assignments = await this.repository.listAssignments(
+      assessmentId,
+      actor.role === 'TRAINER' ? actor.id : undefined,
+    );
     return assignments.map((assignment) => ({
       id: assignment.group.id,
       name: assignment.group.name,
@@ -315,7 +356,7 @@ export class AssessmentsService extends BaseService {
 
   async assignGroup(assessmentId: string, dto: AssignGroupDto, actor: Actor, ipAddress?: string | null) {
     const assessment = await this.findOrThrow(assessmentId);
-    await this.assertAssessmentInScope(assessmentId, actor);
+    await this.assertAssessmentReadable(assessmentId, actor);
     const group = await this.groupsRepository.findById(dto.groupId);
     if (!group) throw new BadRequestError('Group not found.');
     if (actor.role === 'TRAINER' && group.trainerId !== actor.id) {
@@ -342,7 +383,11 @@ export class AssessmentsService extends BaseService {
           relatedEntityId: assessment.id,
         })
         .catch((error: unknown) => {
-          logger.error('Failed to send assessment-assigned notifications', { error, assessmentId, groupId: dto.groupId });
+          logger.error('Failed to send assessment-assigned notifications', {
+            error,
+            assessmentId,
+            groupId: dto.groupId,
+          });
         });
     }
 
@@ -356,9 +401,14 @@ export class AssessmentsService extends BaseService {
     return created;
   }
 
-  async unassignGroup(assessmentId: string, groupId: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+  async unassignGroup(
+    assessmentId: string,
+    groupId: string,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<void> {
     await this.findOrThrow(assessmentId);
-    await this.assertAssessmentInScope(assessmentId, actor);
+    await this.assertAssessmentReadable(assessmentId, actor);
     const group = await this.groupsRepository.findById(groupId);
     if (actor.role === 'TRAINER' && group?.trainerId !== actor.id) {
       throw new ForbiddenError("You don't have permission to unassign this group.");
@@ -378,17 +428,26 @@ export class AssessmentsService extends BaseService {
 
   async listQuestions(assessmentId: string, actor: Actor): Promise<AssessmentQuestion[]> {
     await this.findOrThrow(assessmentId);
-    await this.assertAssessmentInScope(assessmentId, actor);
+    await this.assertAssessmentReadable(assessmentId, actor);
     return this.repository.listQuestions(assessmentId);
   }
 
-  async addQuestion(assessmentId: string, dto: AddAssessmentQuestionDto, actor: Actor, ipAddress?: string | null) {
+  async addQuestion(
+    assessmentId: string,
+    dto: AddAssessmentQuestionDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ) {
     await this.findOrThrow(assessmentId);
     await this.assertAssessmentInScope(assessmentId, actor);
     await this.assertDefinitionIsEditable(assessmentId);
 
     const bankQuestion = await this.questionsRepository.findByIdWithOptions(dto.questionId);
-    if (!bankQuestion || bankQuestion.deletedAt !== null || (actor.role === 'TRAINER' && bankQuestion.createdById !== actor.id)) {
+    if (
+      !bankQuestion ||
+      bankQuestion.deletedAt !== null ||
+      (actor.role === 'TRAINER' && bankQuestion.createdById !== actor.id)
+    ) {
       throw new BadRequestError('Question not found.');
     }
 
@@ -396,7 +455,12 @@ export class AssessmentsService extends BaseService {
 
     const snapshotOptions =
       bankQuestion.options.length > 0
-        ? bankQuestion.options.map((option) => ({ id: option.id, text: option.text, isCorrect: option.isCorrect, order: option.order }))
+        ? bankQuestion.options.map((option) => ({
+            id: option.id,
+            text: option.text,
+            isCorrect: option.isCorrect,
+            order: option.order,
+          }))
         : undefined;
 
     const created = await this.repository.createQuestion({
@@ -417,7 +481,12 @@ export class AssessmentsService extends BaseService {
       action: 'ASSESSMENT_QUESTION_ADDED',
       actorId: actor.id,
       ipAddress,
-      metadata: { assessmentId, assessmentQuestionId: created.id, questionId: dto.questionId, marks: dto.marks },
+      metadata: {
+        assessmentId,
+        assessmentQuestionId: created.id,
+        questionId: dto.questionId,
+        marks: dto.marks,
+      },
     });
 
     return created;
@@ -448,13 +517,23 @@ export class AssessmentsService extends BaseService {
       action: 'ASSESSMENT_UPDATED',
       actorId: actor.id,
       ipAddress,
-      metadata: { assessmentId, assessmentQuestionId, marksChangedFrom: existing.marks, marksChangedTo: dto.marks },
+      metadata: {
+        assessmentId,
+        assessmentQuestionId,
+        marksChangedFrom: existing.marks,
+        marksChangedTo: dto.marks,
+      },
     });
 
     return updated;
   }
 
-  async removeQuestion(assessmentId: string, assessmentQuestionId: string, actor: Actor, ipAddress?: string | null): Promise<void> {
+  async removeQuestion(
+    assessmentId: string,
+    assessmentQuestionId: string,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<void> {
     await this.findOrThrow(assessmentId);
     await this.assertAssessmentInScope(assessmentId, actor);
     const existing = await this.repository.findQuestion(assessmentId, assessmentQuestionId);
@@ -533,20 +612,37 @@ export class AssessmentsService extends BaseService {
   }
 
   private async assertAssessmentInScope(id: string, actor: Actor): Promise<void> {
-    if (actor.role === 'TRAINER' && !(await this.repository.isInTrainerScope(id, actor.id))) {
+    if (actor.role === 'TRAINER' && !(await this.repository.isOwnedByTrainer(id, actor.id))) {
       throw new ForbiddenError("You don't have permission to manage this assessment.");
     }
   }
 
-  private async toDetailDto(assessment: AssessmentDetail, revealAssignedGroups: boolean) {
+  private async assertAssessmentReadable(id: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isInTrainerScope(id, actor.id))) {
+      throw new ForbiddenError("You don't have permission to access this assessment.");
+    }
+  }
+
+  private async toDetailDto(assessment: AssessmentDetail, actor: Actor) {
     const { _count, groupAssignments, ...rest } = assessment;
     const maxMarks = await this.repository.sumMarks(assessment.id);
+
+    const visibleAssignments =
+      actor.role === 'SUPER_ADMIN'
+        ? groupAssignments
+        : actor.role === 'TRAINER'
+          ? groupAssignments.filter((assignment) => assignment.group.trainerId === actor.id)
+          : [];
 
     return {
       ...rest,
       questionCount: _count.questions,
       maxMarks,
-      assignedGroups: revealAssignedGroups ? groupAssignments.map((assignment) => assignment.group) : [],
+      assignedGroups: visibleAssignments.map((assignment) => ({
+        id: assignment.group.id,
+        name: assignment.group.name,
+        code: assignment.group.code,
+      })),
     };
   }
 
@@ -558,10 +654,14 @@ export class AssessmentsService extends BaseService {
 
   private assertNegativeMarkingRule(enabled: boolean, value: number | null | undefined): void {
     if (enabled && (value === undefined || value === null)) {
-      throw new BadRequestError('negativeMarksPerWrongAnswer is required when negativeMarkingEnabled is true.');
+      throw new BadRequestError(
+        'negativeMarksPerWrongAnswer is required when negativeMarkingEnabled is true.',
+      );
     }
     if (!enabled && value !== undefined && value !== null) {
-      throw new BadRequestError('negativeMarksPerWrongAnswer must not be set when negativeMarkingEnabled is false.');
+      throw new BadRequestError(
+        'negativeMarksPerWrongAnswer must not be set when negativeMarkingEnabled is false.',
+      );
     }
   }
 

@@ -26,7 +26,11 @@ export type ImpactConfidence = 'validated' | 'measured' | 'insufficient';
  */
 export function classifyConfidence(n: number, distinctActors: number, spanDays: number): ImpactConfidence {
   if (n === 0) return 'insufficient';
-  if (n >= MIN_N_FOR_VALIDATED && distinctActors >= MIN_DISTINCT_TRAINERS_FOR_VALIDATED && spanDays >= MIN_PILOT_DAYS_FOR_VALIDATED) {
+  if (
+    n >= MIN_N_FOR_VALIDATED &&
+    distinctActors >= MIN_DISTINCT_TRAINERS_FOR_VALIDATED &&
+    spanDays >= MIN_PILOT_DAYS_FOR_VALIDATED
+  ) {
     return 'validated';
   }
   return 'measured';

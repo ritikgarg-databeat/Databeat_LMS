@@ -4,9 +4,9 @@ In-app notification delivery, preferences, announcements, and scheduled reminder
 email/webhook delivery lives in `services/password-reset-delivery.service.ts`, not this module.
 
 Layering: `notifications.routes.ts` → `notifications.controller.ts` → `notifications.service.ts` → `notifications.repository.ts`
-(see ARCHITECTURE.md §3.1). `notifications.dto.ts` defines request/response shapes, `notifications.types.ts`
-defines internal domain shapes, `notifications.interfaces.ts` defines the contracts controllers/services
-depend on, and `notifications.validation.ts` holds the express-validator chains for this module's routes.
+(see ARCHITECTURE.md §3.1). `notifications.dto.ts` defines request/response shapes,
+`notifications.types.ts` defines internal domain shapes, and `notifications.validation.ts` holds
+the express-validator chains for this module's routes.
 
 Every route is scoped to the current user's own notifications (list/unread-count/mark-read/mark-all-read) — there is no admin surface for managing another user's notifications.
 
@@ -16,6 +16,14 @@ The important export for OTHER modules is `notificationsService` (a singleton, e
 worker. It performs a startup catch-up and a non-overlapping daily run; entity/user deduplication
 prevents a second reminder for the same assessment. Notification list requests are read-only and
 never run the reminder scan, keeping the portal header fast and predictable.
+
+The worker also scans published courses with mandatory group assignments daily and reminds only
+incomplete active trainees in those mandatory groups. A learner who receives the same course as
+optional through another group remains mandatory when any active assignment requires it.
+An exact-title/entity dedupe window ensures no learner receives more than one reminder for the
+same course within seven days. Completion is checked against every lesson's current content
+version. This lightweight implementation reuses the preference-aware `COURSE_ASSIGNED` channel,
+so no additional notification enum or migration is required.
 
 ## Prompt 9 additions
 

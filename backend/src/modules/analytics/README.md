@@ -1,4 +1,4 @@
-# Analytics Module (Prompt 8 — Learning Progress Engine)
+# Analytics Module
 
 Performance aggregation for trainee/trainer/admin dashboards: per-user performance snapshots,
 group rollups, the leaderboard, course funnels, assessment question stats, and daily-activity
@@ -27,8 +27,6 @@ analytics.routes.ts → analytics.controller.ts → analytics.service.ts ─┬�
   feature-local copy of the course-accessibility rule (reference copy:
   `progress.repository.ts#findAccessibleCourseIds`).
 
-`analytics.interfaces.ts` was dropped, matching the other Prompt 7+ modules.
-
 ## Cache tables + TTL design
 
 `UserDailyActivity`, `UserPerformanceSnapshot`, `CourseAnalyticsSnapshot`, and
@@ -54,9 +52,9 @@ off the request path; the stale-while-refresh guards remain a request-path safet
 - **TRAINEE** sees only their own data via `GET /analytics/me` (or `/users/:id` with their own
   id — `/users/:id` has no route-level role gate; the service enforces self-or-visible).
 
-The same trainer ownership policy is now shared across content, dashboards, reports, progress,
-and assessment grading. Course/assessment analytics also require creator or active assigned-group
-scope; personal-performance data never becomes staff-wide merely because the actor is a trainer.
+The same trainer ownership policy is shared across content, dashboards, reports, progress, and
+assessment grading. Organization-wide course/assessment snapshots require the content owner or
+Super Admin; Trainers use Team Performance for analytics limited to their own groups.
 
 ## performanceScore
 
@@ -71,16 +69,17 @@ leaderboard's primary sort key (ties: completionPercentage desc, then name asc).
 
 ## Endpoints (`/api/v1/analytics`)
 
-| Route                                                      | Access                                      |
-| ---------------------------------------------------------- | ------------------------------------------- |
-| `GET /groups?departmentId=`                                | staff (trainer-scoped)                      |
-| `GET /groups/:id`                                          | staff (403 if not the group's trainer)      |
-| `GET /users/:id`                                           | self, SUPER_ADMIN, or the trainee's trainer |
-| `GET /me`                                                  | any authenticated user                      |
-| `GET /leaderboard?groupId=&departmentId=&courseId=&limit=` | staff (trainer-scoped population)           |
-| `GET /courses/:id`                                         | staff (content-level)                       |
-| `GET /assessments/:id`                                     | staff (content-level)                       |
-| `POST /refresh`                                            | SUPER_ADMIN                                 |
+| Route                                                                     | Access                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------ |
+| `GET /overview?rangeDays=&departmentId=&groupId=&courseId=&assessmentId=` | staff (trainer-scoped, 60-second response cache) |
+| `GET /groups?departmentId=`                                               | staff (trainer-scoped)                           |
+| `GET /groups/:id`                                                         | staff (403 if not the group's trainer)           |
+| `GET /users/:id`                                                          | self, SUPER_ADMIN, or the trainee's trainer      |
+| `GET /me`                                                                 | any authenticated user                           |
+| `GET /leaderboard?groupId=&departmentId=&courseId=&limit=`                | staff (trainer-scoped population)                |
+| `GET /courses/:id`                                                        | content owner or SUPER_ADMIN                     |
+| `GET /assessments/:id`                                                    | content owner or SUPER_ADMIN                     |
+| `POST /refresh`                                                           | SUPER_ADMIN                                      |
 
 ## Known simplifications
 

@@ -64,7 +64,9 @@ function TraineeContinueLearning({ items }: TraineeContinueLearningProps) {
                       <StatusIcon className="size-3" aria-hidden />
                       {STATUS_LABEL[item.status]}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">{formatHours(item.timeSpentSeconds)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatHours(item.timeSpentSeconds)}
+                    </span>
                   </div>
 
                   <Button asChild size="sm" className="w-full">

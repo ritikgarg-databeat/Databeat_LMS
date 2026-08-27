@@ -22,7 +22,9 @@ export class QnaVotesService extends BaseService {
       throw new BadRequestError('Provide exactly one of questionId or answerId.');
     }
 
-    const targetQuestionId = answerId ? await this.resolveQuestionIdFromAnswer(answerId) : (questionId as string);
+    const targetQuestionId = answerId
+      ? await this.resolveQuestionIdFromAnswer(answerId)
+      : (questionId as string);
     await this.assertQuestionAccessible(targetQuestionId, actor);
 
     const target: VoteTarget = questionId ? { questionId } : { answerId: answerId as string };

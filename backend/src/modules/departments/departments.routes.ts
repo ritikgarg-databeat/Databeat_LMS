@@ -24,6 +24,12 @@ router.get('/', departmentsValidation.list, controller.list);
 router.post('/', adminOnly, departmentsValidation.create, controller.create);
 router.get('/:id', idParamValidator, controller.getById);
 router.patch('/:id', adminOnly, idParamValidator, departmentsValidation.update, controller.update);
-router.patch('/:id/status', adminOnly, idParamValidator, departmentsValidation.updateStatus, controller.updateStatus);
+router.patch(
+  '/:id/status',
+  adminOnly,
+  idParamValidator,
+  departmentsValidation.updateStatus,
+  controller.updateStatus,
+);
 
 export default router;

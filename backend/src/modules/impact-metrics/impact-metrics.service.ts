@@ -25,7 +25,9 @@ function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2 : (sorted[mid] as number);
+  return sorted.length % 2 === 0
+    ? ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2
+    : (sorted[mid] as number);
 }
 
 /** Number of distinct calendar dates (UTC) a set of timestamps spans — a proxy for "how many
@@ -129,7 +131,7 @@ export class ImpactMetricsService extends BaseService {
     const dateRange = { from: query.from, to: query.to };
 
     const [timingStats, autoGrading, aiQuizGen, csvImport] = await Promise.all([
-      this.timingObservationsService.stats({ createdAtFrom: query.from, createdAtTo: query.to }),
+      this.timingObservationsService.stats({ createdAtFrom: query.from, createdAtTo: query.to }, actor),
       this.repository.findAutoGradedLatencies(query.from, query.to),
       this.repository.findAiQuizGenLatencies(query.from, query.to),
       this.repository.findCsvImportDurations(query.from, query.to),
@@ -164,8 +166,12 @@ export class ImpactMetricsService extends BaseService {
             `across ${timingStats.distinctTrainers} trainer(s), ${timingStats.distinctLessons} lesson(s).`,
     });
 
-    sections.push(this.usageSection('auto_grading_latency', 'Auto-grading turnaround', autoGrading, dateRange));
-    sections.push(this.usageSection('ai_quiz_gen_latency', 'AI quiz generation latency', aiQuizGen, dateRange));
+    sections.push(
+      this.usageSection('auto_grading_latency', 'Auto-grading turnaround', autoGrading, dateRange),
+    );
+    sections.push(
+      this.usageSection('ai_quiz_gen_latency', 'AI quiz generation latency', aiQuizGen, dateRange),
+    );
     sections.push(this.usageSection('csv_import_speed', 'Bulk CSV import speed', csvImport, dateRange));
 
     if (pilotDashboard) {
@@ -202,7 +208,11 @@ export class ImpactMetricsService extends BaseService {
   ): ImpactReportSection {
     const report = this.summarize(samples, dateRange);
     const distinctActors = new Set(samples.map((sample) => sample.actorId)).size;
-    const confidence = classifyConfidence(report.n, distinctActors, spanDays(samples.map((sample) => sample.occurredAt)));
+    const confidence = classifyConfidence(
+      report.n,
+      distinctActors,
+      spanDays(samples.map((sample) => sample.occurredAt)),
+    );
 
     return {
       key,
@@ -214,7 +224,9 @@ export class ImpactMetricsService extends BaseService {
           ? 'insufficient data — not yet measured'
           : `Mean ${formatDuration(report.meanMs ?? 0)}, median ${formatDuration(report.medianMs ?? 0)} ` +
             `(range ${formatDuration(report.minMs ?? 0)}–${formatDuration(report.maxMs ?? 0)}), n=${report.n}` +
-            (report.dateRangeFrom && report.dateRangeTo ? `, ${report.dateRangeFrom.slice(0, 10)} to ${report.dateRangeTo.slice(0, 10)}` : '') +
+            (report.dateRangeFrom && report.dateRangeTo
+              ? `, ${report.dateRangeFrom.slice(0, 10)} to ${report.dateRangeTo.slice(0, 10)}`
+              : '') +
             (report.lowSampleWarning ? ' — low sample size.' : '.'),
     };
   }
@@ -223,8 +235,16 @@ export class ImpactMetricsService extends BaseService {
     const durations = samples.map((sample) => sample.durationMs);
     const occurredDates = samples.map((sample) => sample.occurredAt);
 
-    const effectiveFrom = query.from ?? (occurredDates.length ? new Date(Math.min(...occurredDates.map((d) => d.getTime()))).toISOString() : null);
-    const effectiveTo = query.to ?? (occurredDates.length ? new Date(Math.max(...occurredDates.map((d) => d.getTime()))).toISOString() : null);
+    const effectiveFrom =
+      query.from ??
+      (occurredDates.length
+        ? new Date(Math.min(...occurredDates.map((d) => d.getTime()))).toISOString()
+        : null);
+    const effectiveTo =
+      query.to ??
+      (occurredDates.length
+        ? new Date(Math.max(...occurredDates.map((d) => d.getTime()))).toISOString()
+        : null);
 
     return {
       n: durations.length,
@@ -263,11 +283,16 @@ export class ImpactMetricsService extends BaseService {
 
   private renderMarkdown(sections: ImpactReportSection[], dateRange: DateRangeQuery): string {
     const header = `# Impact Report\n\nGenerated from live application data${
-      dateRange.from || dateRange.to ? ` for the range ${dateRange.from ?? 'the beginning'} to ${dateRange.to ?? 'now'}` : ' (all time)'
+      dateRange.from || dateRange.to
+        ? ` for the range ${dateRange.from ?? 'the beginning'} to ${dateRange.to ?? 'now'}`
+        : ' (all time)'
     }.\n\nEvery figure below is labeled by how much confidence it has actually earned — **validated** only once enough\nreal, independent observations exist; **measured** when it's real but not yet broad enough; **insufficient data**\nwhen nothing has been observed yet. No figure here is a projection.\n`;
 
     const body = sections
-      .map((section) => `\n## ${section.label}\n\n**Confidence: ${section.confidence.toUpperCase()}** (n=${section.n})\n\n${section.summary}\n`)
+      .map(
+        (section) =>
+          `\n## ${section.label}\n\n**Confidence: ${section.confidence.toUpperCase()}** (n=${section.n})\n\n${section.summary}\n`,
+      )
       .join('\n');
 
     return header + body;

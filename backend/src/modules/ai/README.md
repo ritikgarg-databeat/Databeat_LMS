@@ -21,6 +21,8 @@ Frontend → ai.controller.ts → ai.service.ts → { prompt-manager, context-bu
   chat call — only the system prompt differs, selected here by `feature`
   (+ `explanationLevel` for EXPLAIN_TOPIC's Beginner/Detailed/Interview variants). One pipeline,
   not one bespoke code path per feature.
+  The optional `responseLanguage` is validated against a fixed language allowlist and changes
+  answer presentation only; it cannot override scope, evidence, or security instructions.
 - **`context-builder.ts`** — builds strict lesson evidence from title/description,
   MARKDOWN/CODE_SNIPPET content, and extracted PDF/DOCX/PPTX text. It also builds the main
   tutor's permitted department/course catalog. Document extraction is cached by resource id and

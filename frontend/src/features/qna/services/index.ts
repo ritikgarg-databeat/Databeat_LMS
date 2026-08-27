@@ -32,9 +32,12 @@ import type {
 
 export const qnaQuestionsApi = {
   async list(params: ListQuestionsParams): Promise<PaginatedData<QnaQuestionListItem>> {
-    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<QnaQuestionListItem>>>('/qna/questions', {
-      params,
-    });
+    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<QnaQuestionListItem>>>(
+      '/qna/questions',
+      {
+        params,
+      },
+    );
     return data.data;
   },
 
@@ -50,7 +53,10 @@ export const qnaQuestionsApi = {
 
   /** Partial update — any subset of fields. */
   async update(id: string, payload: UpdateQuestionPayload): Promise<QnaQuestionDetail> {
-    const { data } = await apiClient.put<ApiSuccessResponse<QnaQuestionDetail>>(`/qna/questions/${id}`, payload);
+    const { data } = await apiClient.put<ApiSuccessResponse<QnaQuestionDetail>>(
+      `/qna/questions/${id}`,
+      payload,
+    );
     return data.data;
   },
 

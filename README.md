@@ -39,10 +39,19 @@ what's actually here today: features, roles, setup, day-to-day development, and 
   after deactivation/role/password changes, and server-enforced authorization on every route.
 - **User, Department & Group management** — create/edit/deactivate users, organize them into
   departments and training groups, assign trainers, bulk-import members via CSV.
-- **Classroom** — Course → Module → Lesson hierarchy, file/markdown/link lesson resources,
-  per-trainee progress tracking, course-to-group assignment, optional deep course duplication,
-  and content versioning. Adding, editing, or removing lesson material reopens stale learner
+- **Shared course pool** — Course → Module → Lesson hierarchy, file/markdown/link lesson
+  resources, per-trainee progress tracking, course-to-group assignment, optional deep course
+  duplication, and content versioning. Every trainer can browse and assign the published
+  organization catalogue to groups they own; only the course creator or a Super Admin can change
+  the shared master content. Drafts remain private to their owner and Super Admins until published.
+  Adding, editing, or removing lesson material reopens stale learner
   completion and marks the lesson as updated until the learner revisits and completes it again.
+  Learners also see a concise course-completion summary and can download a print-ready certificate
+  after all current published lessons are complete.
+- **Mandatory training per group** — Admins and Trainers decide whether each course assignment is
+  mandatory or optional for each group. The same shared course can be required for Freshers and
+  optional for another team. Mandatory delivery unlocks lessons in sequence, requires active
+  review of every resource, verifies sequential video coverage, and requires a passing grounded quiz.
 - **AI lesson-completion gate** — readable lesson theory generates a versioned comprehension
   quiz. A trainee must score at least 70% and may retry until they pass. Opaque uploaded material
   requires readable text/transcript, and provider failure pauses completion with a clear message
@@ -50,21 +59,36 @@ what's actually here today: features, roles, setup, day-to-day development, and 
   complete without a quiz.
 - **Assessments** — a reusable question bank (multiple question types), timed assessments with
   auto- or manual grading, negative marking, group assignment, attempt tracking and results.
+  Published assessments can be reused by trainers for groups they own, while master-definition
+  changes remain restricted to the creator or a Super Admin. Attempt lists and grading stay scoped
+  to each trainer's assigned groups.
   Manually-graded question types (short/long answer, code snippet, file upload) queue for
   trainer review; fully auto-gradable attempts are scored the moment they're submitted. Timers
   are server-authoritative, expired abandoned attempts are finalized by the worker, assessment
   definitions lock once attempts exist, and withheld results can be released with learner
   notifications.
+  Protected attempts start in fullscreen, display a learner watermark, record browser integrity
+  events, warn twice, and submit automatically on the third counted violation.
 - **Calendar** — events assignable to a department, a group, or an individual user, each seeing
   it through their own calendar automatically.
 - **AI Tutor** — lesson-contextual AI chat with a swappable provider (OpenAI or Anthropic),
   conversation history, strict lesson/course-domain guardrails, evidence-id validation,
-  deterministic refusal of irrelevant questions, and redaction of common personal identifiers
+  deterministic refusal of irrelevant questions, selectable answer language (English, Hindi,
+  Spanish, French, German, Portuguese, or Japanese), and redaction of common personal identifiers
   and credentials before any text is sent to an external provider.
+- **AI lesson videos** — Trainers select grounded lesson sources, edit and approve a storyboard,
+  render a narrated Remotion video, review it privately, and publish it atomically as a lesson
+  resource. Trainees can request a short private lesson explainer from the Tutor, subject to daily
+  limits; it is auto-rendered into chat history and never changes shared lesson content.
 - **Q&A** — trainees ask questions (optionally scoped to a course/lesson/group), trainers and
-  peers answer, trainers can mark an answer verified.
-- **Analytics & Reports** — trainer/admin dashboards (completion, scores, engagement,
-  leaderboards), CSV exports.
+  peers answer, trainers can mark an answer verified. Organization, department, and group
+  visibility is enforced consistently for questions, answers, comments, votes, tags, search, and
+  attachments; linked course/module/lesson references are validated against the user's access.
+- **Executive, Manager & Compliance analytics** — organization-wide Executive Analysis for
+  Admins and group-scoped Team Performance for Trainers, with 7/30/90-day filters, workforce
+  reach and adoption, transparent ROI estimates, completion and assessment charts, mandatory
+  compliance, employees needing attention, integrity events, 60-second refresh/cache behavior,
+  drill-downs, and five CSV exports including an audit-ready mandatory-compliance report.
 - **Audit Log** — a Super-Admin-only, filterable, immutable history of platform events (logins,
   user/group/course changes, assessment submissions, and more) for accountability and
   troubleshooting.
@@ -75,23 +99,21 @@ what's actually here today: features, roles, setup, day-to-day development, and 
   (`backend/src/constants/impact-report.ts`) — otherwise the platform says "insufficient data,"
   never a placeholder number.
 - **Notifications** — in-app notifications for assignments, deadlines, released assessment
-  results, Q&A activity, and trainer announcements, with per-type mute preferences. A dedicated
-  worker runs catch-up checks on startup and non-overlapping schedules thereafter; notification
-  reads never run deadline-generation work.
+  results, Q&A activity, trainer announcements, and weekly-deduplicated incomplete mandatory
+  training reminders, with per-type mute preferences. A dedicated worker runs catch-up checks on
+  startup and non-overlapping schedules thereafter; notification reads never run reminder work.
 - **Operational safety** — request IDs, structured logs, liveness/readiness endpoints, graceful
   shutdown, a separate scheduler worker, shared PostgreSQL-backed production rate limits,
   upload magic-byte checks and root-boundary enforcement, plus physical file cleanup when a
-  resource, lesson, or course is deleted.
+  resource, lesson, or course is deleted. Client responses expose authenticated download URLs,
+  never internal resource or assessment-upload storage paths.
 - **Settings** — personal (avatar, theme, notification preferences) and platform-wide
   (Super Admin only) configuration, including a maintenance-mode switch that blocks all
   non-Super-Admin access platform-wide.
 - **Responsive, accessible UI** — desktop/tablet/mobile layouts, keyboard navigation, visible
-  focus states, `prefers-reduced-motion` respected throughout.
-
----
-
-- **Trainer AI lesson videos** - feature-flagged source selection, editable grounded storyboards,
-  per-scene narration, deterministic Remotion rendering, private review, and atomic publication.
+  focus states, `prefers-reduced-motion` respected throughout. The production SPA is installable
+  as a PWA; its service worker caches only the application shell/static assets and never caches
+  authenticated API traffic.
 
 ## Roles & Permissions
 
@@ -107,8 +129,10 @@ Three roles, enforced server-side on every route (not just hidden in the UI):
 | Create & assign assessments, grade attempts          |     ✅      |       ✅        |       —       |
 | Take courses, complete lessons, attempt assessments  |      —      |        —        |      ✅       |
 | Ask/answer Q&A                                       |     ✅      |       ✅        |      ✅       |
-| Use the AI Tutor                                     |     ✅      |       ✅        |      ✅       |
+| Use the AI Tutor API / current portal                |  API only   |    API only     |      ✅       |
 | View own analytics/progress                          |     ✅      | ✅ (own groups) | ✅ (own data) |
+| Export progress, results, and compliance evidence    |     ✅      | ✅ (own groups) |       —       |
+| Download a completed-course certificate              |      —      |        —        |      ✅       |
 | Log timing observations / view pilot dashboard       |     ✅      | ✅ (own groups) |       —       |
 
 A Super Admin account is provisioned once at seed time; every other account (Trainer or
@@ -149,38 +173,38 @@ ai-lms/
 
 ### Frontend (`frontend/src/`)
 
-| Folder                     | Purpose                                                                                                                                                                                                |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `components/ui/`           | Design-system primitives (Button, Input, Dialog, Select, Tabs, ...)                                                                                                                                    |
-| `components/shared/`       | Composite components (EmptyState, ConfirmDialog, LoadingScreen, ErrorScreen, ...)                                                                                                                      |
-| `components/layout/`       | Sidebar, Header, Breadcrumbs, MobileNav, Footer                                                                                                                                                        |
-| `config/`                  | Build-time env var access                                                                                                                                                                              |
-| `constants/`               | Roles, permissions, routes, file types, HTTP status, messages                                                                                                                                          |
-| `contexts/` / `providers/` | Auth/theme/query context + provider implementations                                                                                                                                                    |
-| `features/`                | Feature modules — `ai`, `analytics`, `assessment`, `auth`, `calendar`, `classroom`, `dashboard`, `departments`, `groups`, `landing`, `notifications`, `profile`, `qna`, `reports`, `settings`, `users` |
-| `hooks/`                   | Cross-feature hooks (`useAuth`, `useTheme`, `useDebounce`, ...)                                                                                                                                        |
-| `layouts/`                 | Admin/Trainer/Trainee/Auth/Public page shells                                                                                                                                                          |
-| `routes/`                  | React Router route tree (`React.lazy`-split page components), route guards                                                                                                                             |
-| `services/api/`            | Shared Axios client + auth-refresh interceptor                                                                                                                                                         |
-| `store/`                   | Zustand client-UI-state store (sidebar collapse, mobile nav, etc.)                                                                                                                                     |
-| `styles/`                  | Global stylesheet + design tokens (`globals.css`)                                                                                                                                                      |
-| `utils/`                   | Date/file/validation/permission/theme/error/notification helpers                                                                                                                                       |
+| Folder                     | Purpose                                                                                                                                                                                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/ui/`           | Design-system primitives (Button, Input, Dialog, Select, Tabs, ...)                                                                                                                                                                                             |
+| `components/shared/`       | Composite components (EmptyState, ConfirmDialog, LoadingScreen, ErrorScreen, ...)                                                                                                                                                                               |
+| `components/layout/`       | Sidebar, Header, Breadcrumbs, MobileNav, Footer                                                                                                                                                                                                                 |
+| `config/`                  | Build-time env var access                                                                                                                                                                                                                                       |
+| `constants/`               | Roles, routes, file types, HTTP status, messages                                                                                                                                                                                                                |
+| `contexts/` / `providers/` | Auth/theme/query context + provider implementations                                                                                                                                                                                                             |
+| `features/`                | 19 feature modules — `ai`, `analytics`, `assessment`, `audit-log`, `auth`, `calendar`, `classroom`, `dashboard`, `departments`, `groups`, `impact-metrics`, `landing`, `notifications`, `profile`, `qna`, `reports`, `settings`, `timing-observations`, `users` |
+| `hooks/`                   | Cross-feature hooks (`useAuth`, `useTheme`, `useDebounce`, ...)                                                                                                                                                                                                 |
+| `layouts/`                 | Admin/Trainer/Trainee/Auth/Public page shells                                                                                                                                                                                                                   |
+| `routes/`                  | React Router route tree (`React.lazy`-split page components), route guards                                                                                                                                                                                      |
+| `services/api/`            | Shared Axios client + auth-refresh interceptor                                                                                                                                                                                                                  |
+| `store/`                   | Zustand client-UI-state store (sidebar collapse, mobile nav, etc.)                                                                                                                                                                                              |
+| `styles/`                  | Global stylesheet + design tokens (`globals.css`)                                                                                                                                                                                                               |
+| `utils/`                   | Date, duration, file, storage, theme, and error helpers                                                                                                                                                                                                         |
 
 ### Backend (`backend/src/`)
 
-| Folder          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `config/`       | Env loading/validation, app config, CORS config, Prisma client setup                                                                                                                                                                                                                                                                                                                                                                                   |
-| `constants/`    | Roles, permissions, routes, file types, status, HTTP codes, messages                                                                                                                                                                                                                                                                                                                                                                                   |
-| `controllers/`  | `BaseController` — shared response-envelope helpers                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `jobs/`         | Non-overlapping worker schedules for deadline reminders, expired assessment finalization, and optional security-data retention                                                                                                                                                                                                                                                                                                                         |
-| `middleware/`   | Auth, RBAC, rate limiters (global/login/AI), request logger, error/404 handlers, force-password-change gate                                                                                                                                                                                                                                                                                                                                            |
-| `modules/`      | 26 domain modules, each with `controller/service/repository/validation/routes/types/dto` — `ai`, `analytics`, `assessment-attempts`, `assessments`, `audit-log`, `auth`, `calendar`, `courses`, `dashboard`, `departments`, `experience-levels`, `group-members`, `groups`, `impact-metrics`, `lesson-quiz`, `lessons`, `modules`, `notifications`, `progress`, `qna`, `questions`, `reports`, `resources`, `settings`, `timing-observations`, `users` |
-| `repositories/` | `BaseRepository` — shared Prisma client access (only repositories touch Prisma directly)                                                                                                                                                                                                                                                                                                                                                               |
-| `storage/`      | Storage abstraction (`StorageProvider` interface + `LocalStorageProvider`)                                                                                                                                                                                                                                                                                                                                                                             |
-| `docs/`         | [`ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) — the error-handling standard every module follows                                                                                                                                                                                                                                                                                                                                               |
-| `prisma/`       | `schema.prisma`, migrations, `seed.ts` (core), `seed-demo.ts` (optional sample data)                                                                                                                                                                                                                                                                                                                                                                   |
-| `logs/`         | Winston log output (gitignored)                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Folder          | Purpose                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/`       | Env loading/validation, app config, CORS config, Prisma client setup                                                                                                                                                                                                                                                                                                                                |
+| `constants/`    | Roles, routes, feature limits, file types, status, HTTP codes, and messages                                                                                                                                                                                                                                                                                                                         |
+| `controllers/`  | `BaseController` — shared response-envelope helpers                                                                                                                                                                                                                                                                                                                                                 |
+| `jobs/`         | Non-overlapping worker schedules for assessment deadlines, mandatory-training reminders, expired-attempt finalization, and optional security-data retention                                                                                                                                                                                                                                         |
+| `middleware/`   | Auth, RBAC, rate limiters (global/login/AI), request logger, error/404 handlers, force-password-change gate                                                                                                                                                                                                                                                                                         |
+| `modules/`      | 27 domain modules — `ai`, `analytics`, `assessment-attempts`, `assessments`, `audit-log`, `auth`, `calendar`, `courses`, `dashboard`, `departments`, `experience-levels`, `group-members`, `groups`, `impact-metrics`, `lesson-quiz`, `lessons`, `modules`, `notifications`, `progress`, `qna`, `questions`, `reports`, `resources`, `settings`, `timing-observations`, `users`, `video-generation` |
+| `repositories/` | `BaseRepository` and shared domain data-access code; infrastructure, bootstrap, seed, and invariant utilities also use Prisma where appropriate                                                                                                                                                                                                                                                     |
+| `storage/`      | Storage abstraction (`StorageProvider` interface + `LocalStorageProvider`)                                                                                                                                                                                                                                                                                                                          |
+| `docs/`         | [`ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) — the error-handling standard every module follows                                                                                                                                                                                                                                                                                            |
+| `prisma/`       | `schema.prisma`, migrations, `seed.ts` (core), `seed-demo.ts` (optional sample data)                                                                                                                                                                                                                                                                                                                |
+| `logs/`         | Winston log output (gitignored)                                                                                                                                                                                                                                                                                                                                                                     |
 
 Each module folder also carries its own `README.md` describing that module's specific design
 decisions — start there for implementation detail beyond what this file covers.
@@ -378,8 +402,9 @@ Each project also has its own scripts beyond these — see `frontend/package.jso
 - **Backend files:** `<name>.controller.ts`, `<name>.service.ts`, `<name>.repository.ts`,
   `<name>.routes.ts`, `<name>.validation.ts`, `<name>.dto.ts`, `<name>.types.ts` — one module
   folder per domain concept.
-- **Layering (backend):** `routes → controller → service → repository → Prisma`. Only the
-  repository layer imports the Prisma client.
+- **Layering (backend):** request-domain CRUD follows `routes → controller → service → repository
+→ Prisma`. Bootstrap, scheduled retention, seed/invariant tooling, the PostgreSQL rate-limit
+  store, and bounded AI context extraction are explicit infrastructure exceptions.
 - **State (frontend):** server data → TanStack Query; client/UI-only state → Zustand
   (`store/`) or local `useState`. Never duplicate server data into a store.
 - **API responses (backend):** always the standard envelope —
@@ -423,13 +448,14 @@ remain worthwhile follow-up work.
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | `README.md` (this file)                                            | Features, setup, and day-to-day development                                                                                     |
 | `ARCHITECTURE.md`                                                  | Full system design rationale                                                                                                    |
+| [`docs/BUSINESS_FEATURES.md`](docs/BUSINESS_FEATURES.md)           | Business-facing feature catalogue, value, role outcomes, and product boundaries                                                 |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                         | Production deployment, environment, and post-deploy checklist                                                                   |
 | [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md)                     | Branching, commits, and versioning strategy                                                                                     |
 | [`docs/TESTING_CHECKLIST.md`](docs/TESTING_CHECKLIST.md)           | Manual QA checklist by feature area                                                                                             |
 | [`docs/AI_WORKFLOW.md`](docs/AI_WORKFLOW.md)                       | How every AI feature actually works — real system prompts, context builder, provider abstraction, error handling, rate limiting |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md)                         | API/worker process model, health checks, storage, backups, retention, and production runbook                                    |
 | [`backend/docs/ERROR_HANDLING.md`](backend/docs/ERROR_HANDLING.md) | Backend error-handling standard (error classes, HTTP mapping, logging)                                                          |
-| `backend/src/modules/*/README.md`                                  | Per-module design notes (25 of 26 modules)                                                                                      |
+| `backend/src/modules/*/README.md`                                  | Per-module design notes (26 of 27 modules; `experience-levels` is intentionally small)                                          |
 
 ---
 

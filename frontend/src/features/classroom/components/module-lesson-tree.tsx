@@ -1,4 +1,11 @@
-import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -45,6 +52,7 @@ import { ResourceTypeIcon } from './resource-type-icon';
 export interface ModuleLessonTreeProps {
   courseId: string;
   modules: CourseModuleWithLessons[];
+  readOnly?: boolean;
 }
 
 /**
@@ -53,7 +61,7 @@ export interface ModuleLessonTreeProps {
  * lessons never drag across modules, matching `useReorderLessonsMutation`'s `moduleId`-scoped
  * payload).
  */
-function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
+function ModuleLessonTree({ courseId, modules, readOnly = false }: ModuleLessonTreeProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [addLessonModuleId, setAddLessonModuleId] = useState<string | null>(null);
   const [editingModule, setEditingModule] = useState<CourseModule | null>(null);
@@ -131,12 +139,16 @@ function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
   return (
     <>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleModuleDragEnd}>
-        <SortableContext items={sortedModules.map((module) => module.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={sortedModules.map((module) => module.id)}
+          strategy={verticalListSortingStrategy}
+        >
           <div className="space-y-2">
             {sortedModules.map((module) => (
               <SortableModuleRow
                 key={module.id}
                 module={module}
+                readOnly={readOnly}
                 isExpanded={expandedIds.has(module.id)}
                 onToggleExpand={() => toggleExpanded(module.id)}
                 onEdit={() => setEditingModule(module)}
@@ -145,7 +157,8 @@ function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
                   updateModuleStatus.mutate(
                     { id: module.id, payload: { isPublished: !module.isPublished } },
                     {
-                      onSuccess: () => toast.success(module.isPublished ? 'Module unpublished.' : 'Module published.'),
+                      onSuccess: () =>
+                        toast.success(module.isPublished ? 'Module unpublished.' : 'Module published.'),
                       onError: (error) => toast.error(getErrorMessage(error)),
                     },
                   )
@@ -157,7 +170,8 @@ function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
                   updateLessonStatus.mutate(
                     { id: lesson.id, payload: { isPublished: !lesson.isPublished } },
                     {
-                      onSuccess: () => toast.success(lesson.isPublished ? 'Lesson unpublished.' : 'Lesson published.'),
+                      onSuccess: () =>
+                        toast.success(lesson.isPublished ? 'Lesson unpublished.' : 'Lesson published.'),
                       onError: (error) => toast.error(getErrorMessage(error)),
                     },
                   )
@@ -185,7 +199,9 @@ function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
         <DrawerContent className="mx-auto h-[85vh] w-full max-w-3xl">
           <DrawerHeader>
             <DrawerTitle>Resources — {resourceLesson?.title}</DrawerTitle>
-            <DrawerDescription>Upload files or add text/link/code resources for this lesson.</DrawerDescription>
+            <DrawerDescription>
+              Upload files or add text/link/code resources for this lesson.
+            </DrawerDescription>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             {resourceLesson ? <LessonResourceManager lessonId={resourceLesson.id} /> : null}
@@ -211,7 +227,11 @@ function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
         open={deletingLesson !== null}
         onOpenChange={(open) => !open && setDeletingLesson(null)}
         title="Delete lesson"
-        description={deletingLesson ? `${deletingLesson.title} will be permanently deleted. This cannot be undone.` : undefined}
+        description={
+          deletingLesson
+            ? `${deletingLesson.title} will be permanently deleted. This cannot be undone.`
+            : undefined
+        }
         confirmLabel="Delete"
         destructive
         onConfirm={() => void handleDeleteLesson()}
@@ -222,6 +242,7 @@ function ModuleLessonTree({ courseId, modules }: ModuleLessonTreeProps) {
 
 interface SortableModuleRowProps {
   module: CourseModuleWithLessons;
+  readOnly: boolean;
   isExpanded: boolean;
   onToggleExpand: () => void;
   onEdit: () => void;
@@ -236,6 +257,7 @@ interface SortableModuleRowProps {
 
 function SortableModuleRow({
   module,
+  readOnly,
   isExpanded,
   onToggleExpand,
   onEdit,
@@ -247,21 +269,30 @@ function SortableModuleRow({
   onToggleLessonPublish,
   onManageResources,
 }: SortableModuleRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: module.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: module.id,
+    disabled: readOnly,
+  });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
-    <div ref={setNodeRef} style={style} className={cn('rounded-lg border bg-card', isDragging && 'opacity-50 shadow-lg')}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn('rounded-lg border bg-card', isDragging && 'opacity-50 shadow-lg')}
+    >
       <div className="flex flex-wrap items-center gap-2 p-3">
-        <button
-          type="button"
-          className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-          aria-label={`Drag to reorder ${module.title}`}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="size-4" />
-        </button>
+        {!readOnly ? (
+          <button
+            type="button"
+            className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+            aria-label={`Drag to reorder ${module.title}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-4" />
+          </button>
+        ) : null}
 
         <button
           type="button"
@@ -286,30 +317,37 @@ function SortableModuleRow({
           </p>
         </div>
 
-        <Button type="button" variant="outline" size="sm" onClick={onAddLesson}>
-          <Plus /> Add Lesson
-        </Button>
+        {!readOnly ? (
+          <Button type="button" variant="outline" size="sm" onClick={onAddLesson}>
+            <Plus /> Add Lesson
+          </Button>
+        ) : null}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${module.title}`}>
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
-            <DropdownMenuItem onClick={onTogglePublish}>{module.isPublished ? 'Unpublish' : 'Publish'}</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!readOnly ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${module.title}`}>
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
+              <DropdownMenuItem onClick={onTogglePublish}>
+                {module.isPublished ? 'Unpublish' : 'Publish'}
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
       {isExpanded ? (
         <div className="border-t px-3 py-2 pl-10">
           <LessonSortableList
             module={module}
+            readOnly={readOnly}
             onEdit={onEditLesson}
             onDelete={onDeleteLesson}
             onTogglePublish={onToggleLessonPublish}
@@ -323,20 +361,31 @@ function SortableModuleRow({
 
 interface LessonSortableListProps {
   module: CourseModuleWithLessons;
+  readOnly: boolean;
   onEdit: (lesson: Lesson) => void;
   onDelete: (lesson: Lesson) => void;
   onTogglePublish: (lesson: Lesson) => void;
   onManageResources: (lesson: Lesson) => void;
 }
 
-function LessonSortableList({ module, onEdit, onDelete, onTogglePublish, onManageResources }: LessonSortableListProps) {
+function LessonSortableList({
+  module,
+  readOnly,
+  onEdit,
+  onDelete,
+  onTogglePublish,
+  onManageResources,
+}: LessonSortableListProps) {
   const reorderLessons = useReorderLessonsMutation();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const sortedLessons = useMemo(() => [...module.lessons].sort((a, b) => a.order - b.order), [module.lessons]);
+  const sortedLessons = useMemo(
+    () => [...module.lessons].sort((a, b) => a.order - b.order),
+    [module.lessons],
+  );
 
   if (sortedLessons.length === 0) {
     return <p className="py-2 text-sm text-muted-foreground">No lessons yet. Add one to get started.</p>;
@@ -357,12 +406,16 @@ function LessonSortableList({ module, onEdit, onDelete, onTogglePublish, onManag
 
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={sortedLessons.map((lesson) => lesson.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext
+        items={sortedLessons.map((lesson) => lesson.id)}
+        strategy={verticalListSortingStrategy}
+      >
         <div className="space-y-1 py-1">
           {sortedLessons.map((lesson) => (
             <SortableLessonRow
               key={lesson.id}
               lesson={lesson}
+              readOnly={readOnly}
               onEdit={() => onEdit(lesson)}
               onDelete={() => onDelete(lesson)}
               onTogglePublish={() => onTogglePublish(lesson)}
@@ -377,31 +430,47 @@ function LessonSortableList({ module, onEdit, onDelete, onTogglePublish, onManag
 
 interface SortableLessonRowProps {
   lesson: Lesson;
+  readOnly: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onTogglePublish: () => void;
   onManageResources: () => void;
 }
 
-function SortableLessonRow({ lesson, onEdit, onDelete, onTogglePublish, onManageResources }: SortableLessonRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lesson.id });
+function SortableLessonRow({
+  lesson,
+  readOnly,
+  onEdit,
+  onDelete,
+  onTogglePublish,
+  onManageResources,
+}: SortableLessonRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: lesson.id,
+    disabled: readOnly,
+  });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={cn('flex flex-wrap items-center gap-2 rounded-md border bg-background p-2', isDragging && 'opacity-50 shadow-lg')}
+      className={cn(
+        'flex flex-wrap items-center gap-2 rounded-md border bg-background p-2',
+        isDragging && 'opacity-50 shadow-lg',
+      )}
     >
-      <button
-        type="button"
-        className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-        aria-label={`Drag to reorder ${lesson.title}`}
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="size-4" />
-      </button>
+      {!readOnly ? (
+        <button
+          type="button"
+          className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+          aria-label={`Drag to reorder ${lesson.title}`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      ) : null}
 
       <ResourceTypeIcon type={lesson.type} className="size-4 shrink-0 text-muted-foreground" />
 
@@ -418,21 +487,25 @@ function SortableLessonRow({ lesson, onEdit, onDelete, onTogglePublish, onManage
         </p>
       </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${lesson.title}`}>
-            <MoreHorizontal className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
-          <DropdownMenuItem onClick={onTogglePublish}>{lesson.isPublished ? 'Unpublish' : 'Publish'}</DropdownMenuItem>
-          <DropdownMenuItem onClick={onManageResources}>Manage Resources</DropdownMenuItem>
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {!readOnly ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${lesson.title}`}>
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onEdit}>Edit</DropdownMenuItem>
+            <DropdownMenuItem onClick={onTogglePublish}>
+              {lesson.isPublished ? 'Unpublish' : 'Publish'}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onManageResources}>Manage Resources</DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onDelete}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }

@@ -181,4 +181,66 @@ export class NotificationsRepository extends BaseRepository {
     });
     return new Set(existing.map((row) => row.userId));
   }
+
+  /** Published mandatory courses with their active trainee audience and current lesson versions. */
+  findMandatoryCoursesForReminders() {
+    return this.db.course.findMany({
+      where: {
+        status: 'PUBLISHED',
+        deletedAt: null,
+        groupAssignments: { some: { isMandatory: true, group: activeGroupScope() } },
+      },
+      select: {
+        id: true,
+        title: true,
+        modules: {
+          where: { isPublished: true },
+          select: {
+            lessons: {
+              where: { isPublished: true },
+              select: { id: true, contentVersion: true },
+            },
+          },
+        },
+        groupAssignments: {
+          where: { isMandatory: true, group: activeGroupScope() },
+          select: {
+            group: {
+              select: {
+                members: {
+                  where: { user: { role: 'TRAINEE', isActive: true } },
+                  select: { userId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  findMandatoryLessonProgress(userIds: string[], lessonIds: string[]) {
+    if (userIds.length === 0 || lessonIds.length === 0) return Promise.resolve([]);
+    return this.db.lessonProgress.findMany({
+      where: { userId: { in: userIds }, lessonId: { in: lessonIds } },
+      select: { userId: true, lessonId: true, status: true, completedContentVersion: true },
+    });
+  }
+
+  /** Weekly reminder dedupe without adding another notification enum/schema migration. */
+  async findRecentlyRemindedUserIds(userIds: string[], courseId: string, since: Date): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await this.db.notification.findMany({
+      where: {
+        userId: { in: userIds },
+        type: 'COURSE_ASSIGNED',
+        title: 'Mandatory training reminder',
+        relatedEntityType: 'course',
+        relatedEntityId: courseId,
+        createdAt: { gte: since },
+      },
+      select: { userId: true },
+    });
+    return new Set(rows.map((row) => row.userId));
+  }
 }

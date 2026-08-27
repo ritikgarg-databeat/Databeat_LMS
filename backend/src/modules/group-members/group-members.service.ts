@@ -201,7 +201,9 @@ export class GroupMembersService extends BaseService {
         trim: true,
       }) as Record<string, string>[];
     } catch {
-      throw new BadRequestError('Could not parse the CSV file. Ensure it has a header row with an "email" column.');
+      throw new BadRequestError(
+        'Could not parse the CSV file. Ensure it has a header row with an "email" column.',
+      );
     }
 
     if (rows.length > MAX_MEMBER_IMPORT_ROWS) {

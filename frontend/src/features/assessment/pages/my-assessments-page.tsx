@@ -83,7 +83,8 @@ function AssessmentAction({ assessment }: { assessment: MyAssessmentSummary }) {
       return (
         <div className="flex items-center gap-2">
           <Badge variant={attempt.passed ? 'success' : 'destructive'}>
-            {attempt.percentage !== null ? `${attempt.percentage}%` : '—'} · {attempt.passed ? 'Pass' : 'Fail'}
+            {attempt.percentage !== null ? `${attempt.percentage}%` : '—'} ·{' '}
+            {attempt.passed ? 'Pass' : 'Fail'}
           </Badge>
           <Button asChild size="sm" variant="outline">
             <Link to={resultHref}>View Result</Link>

@@ -18,7 +18,11 @@ const controller = new ImpactMetricsController();
 router.use(authenticate, requireRole(Role.TRAINER, Role.SUPER_ADMIN));
 
 router.get('/reports/auto-grading-latency', impactMetricsValidation.dateRange, controller.autoGradingLatency);
-router.get('/reports/ai-quiz-generation-latency', impactMetricsValidation.dateRange, controller.aiQuizGenLatency);
+router.get(
+  '/reports/ai-quiz-generation-latency',
+  impactMetricsValidation.dateRange,
+  controller.aiQuizGenLatency,
+);
 router.get('/reports/csv-import-speed', impactMetricsValidation.dateRange, controller.csvImportSpeed);
 router.get('/pilot-dashboard', impactMetricsValidation.pilotDashboard, controller.pilotDashboard);
 router.get('/impact-report', impactMetricsValidation.impactReport, controller.impactReport);

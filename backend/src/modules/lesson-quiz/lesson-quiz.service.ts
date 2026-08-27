@@ -12,13 +12,24 @@ import {
 } from '@/constants/lesson-quiz';
 import { aiProvider } from '@/modules/ai';
 import { BaseService } from '@/services/base.service';
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from '@/utils/app-error';
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from '@/utils/app-error';
 import { logger } from '@/utils/logger';
 import { redactSensitiveText } from '@/utils/pii-redaction.util';
 
 import type { SubmitLessonQuizDto } from './lesson-quiz.dto';
 import { LessonQuizRepository } from './lesson-quiz.repository';
-import type { LessonQuizResult, LessonQuizView, SanitizedQuizQuestion, StoredQuizQuestion } from './lesson-quiz.types';
+import type {
+  LessonQuizResult,
+  LessonQuizView,
+  SanitizedQuizQuestion,
+  StoredQuizQuestion,
+} from './lesson-quiz.types';
 
 interface Actor {
   id: string;
@@ -28,7 +39,7 @@ interface Actor {
 type RawQuizPayload = { questions: { text: string; options: string[]; correctIndex: number }[] };
 
 const QUIZ_SYSTEM_PROMPT =
-  'You are a quiz generator embedded in an LMS. You will be given a lesson\'s title and its ' +
+  "You are a quiz generator embedded in an LMS. You will be given a lesson's title and its " +
   'theory content. Generate a short multiple-choice quiz that tests understanding of THAT ' +
   `content only — never invent facts not present in it. Produce between ${LESSON_QUIZ_MIN_QUESTIONS} ` +
   `and ${LESSON_QUIZ_MAX_QUESTIONS} questions, each with exactly ${LESSON_QUIZ_OPTION_COUNT} ` +
@@ -89,14 +100,21 @@ export class LessonQuizService extends BaseService {
     }
 
     const questions = attempt.questions as unknown as StoredQuizQuestion[];
-    const selectedOptionByQuestionId = new Map(dto.answers.map((answer) => [answer.questionId, answer.selectedOptionId]));
+    const selectedOptionByQuestionId = new Map(
+      dto.answers.map((answer) => [answer.questionId, answer.selectedOptionId]),
+    );
 
     let correctCount = 0;
     const results = questions.map((question) => {
       const selectedOptionId = selectedOptionByQuestionId.get(question.id) ?? null;
       const isCorrect = selectedOptionId === question.correctOptionId;
       if (isCorrect) correctCount += 1;
-      return { questionId: question.id, selectedOptionId, correctOptionId: question.correctOptionId, isCorrect };
+      return {
+        questionId: question.id,
+        selectedOptionId,
+        correctOptionId: question.correctOptionId,
+        isCorrect,
+      };
     });
 
     const percentage = Math.round((correctCount / questions.length) * 100);
@@ -162,7 +180,7 @@ export class LessonQuizService extends BaseService {
 
     if (await this.repository.isLessonAlreadyCompleted(lessonId, userId, lesson.contentVersion)) return null;
 
-    const lessonContent = await this.repository.findLessonContentForQuiz(lessonId);
+    const lessonContent = await this.repository.findLessonContentForQuiz(lessonId, userId);
     if (!lessonContent) throw new NotFoundError('Lesson not found.');
 
     const combinedContent = [lessonContent.lessonDescription, lessonContent.content]
@@ -172,6 +190,11 @@ export class LessonQuizService extends BaseService {
 
     // Not enough real content to honestly quiz on — mirrors today's direct-complete behavior.
     if (combinedContent.length < LESSON_QUIZ_MIN_CONTENT_CHARS) {
+      if (lessonContent.isMandatory) {
+        throw new ConflictError(
+          'This mandatory lesson needs more readable text or a transcript before its required quiz can be generated.',
+        );
+      }
       if (lessonContent.hasOpaqueFileContent) {
         throw new ConflictError(
           'This lesson needs readable text or a transcript before its completion quiz can be generated.',
@@ -210,7 +233,10 @@ export class LessonQuizService extends BaseService {
    * returns `null` rather than throwing, so "Mark as complete" degrades to its pre-existing
    * direct-complete behavior instead of permanently blocking every trainee.
    */
-  private async generateQuestions(lessonTitle: string, content: string): Promise<StoredQuizQuestion[] | null> {
+  private async generateQuestions(
+    lessonTitle: string,
+    content: string,
+  ): Promise<StoredQuizQuestion[] | null> {
     const baseMessage = redactSensitiveText(`Lesson title: ${lessonTitle}\n\nLesson content:\n${content}`);
 
     for (let attemptNumber = 0; attemptNumber < 2; attemptNumber += 1) {
@@ -224,7 +250,10 @@ export class LessonQuizService extends BaseService {
         const output = await aiProvider.chat({ systemPrompt: QUIZ_SYSTEM_PROMPT, history: [], userMessage });
         rawContent = output.content;
       } catch (error) {
-        logger.warn('Lesson quiz AI generation unavailable, falling back to no quiz.', { error, lessonTitle });
+        logger.warn('Lesson quiz AI generation unavailable, falling back to no quiz.', {
+          error,
+          lessonTitle,
+        });
         return null;
       }
 
@@ -265,7 +294,8 @@ export class LessonQuizService extends BaseService {
     if (typeof data !== 'object' || data === null || !('questions' in data)) return false;
     const questions = (data as { questions: unknown }).questions;
     if (!Array.isArray(questions)) return false;
-    if (questions.length < LESSON_QUIZ_MIN_QUESTIONS || questions.length > LESSON_QUIZ_MAX_QUESTIONS) return false;
+    if (questions.length < LESSON_QUIZ_MIN_QUESTIONS || questions.length > LESSON_QUIZ_MAX_QUESTIONS)
+      return false;
 
     return questions.every((question) => {
       if (typeof question !== 'object' || question === null) return false;

@@ -15,6 +15,7 @@ import type {
   DuplicateCoursePayload,
   ReorderLessonsPayload,
   ReorderModulesPayload,
+  RecordResourceProgressPayload,
   SubmitLessonQuizPayload,
   UpdateCoursePayload,
   UpdateCourseStatusPayload,
@@ -329,6 +330,22 @@ export function useUnassignGroupMutation() {
   });
 }
 
+export function useUpdateCourseAssignmentMutation() {
+  const invalidate = useInvalidateCourseAssignments();
+  return useMutation({
+    mutationFn: ({
+      courseId,
+      groupId,
+      isMandatory,
+    }: {
+      courseId: string;
+      groupId: string;
+      isMandatory: boolean;
+    }) => coursesApi.updateAssignment(courseId, groupId, { isMandatory }),
+    onSuccess: (_data, variables) => invalidate(variables.courseId),
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* Module mutations                                                            */
 /* -------------------------------------------------------------------------- */
@@ -529,6 +546,20 @@ export function useRemoveResourceMutation() {
       invalidateResources(variables.lessonId);
       invalidateLesson(variables.lessonId);
     },
+  });
+}
+
+export function useRecordResourceProgressMutation() {
+  return useMutation({
+    mutationFn: ({
+      lessonId,
+      resourceId,
+      payload,
+    }: {
+      lessonId: string;
+      resourceId: string;
+      payload: RecordResourceProgressPayload;
+    }) => resourcesApi.recordProgress(lessonId, resourceId, payload),
   });
 }
 

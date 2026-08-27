@@ -27,7 +27,10 @@ const createModuleSchema = z.object({
   estimatedDurationMinutes: z
     .string()
     .optional()
-    .refine((value) => !value || /^[1-9]\d*$/.test(value), 'Estimated duration must be a positive whole number.'),
+    .refine(
+      (value) => !value || /^[1-9]\d*$/.test(value),
+      'Estimated duration must be a positive whole number.',
+    ),
 });
 type CreateModuleFormValues = z.infer<typeof createModuleSchema>;
 
@@ -53,7 +56,9 @@ function CreateModuleDialog({ courseId, open, onOpenChange }: CreateModuleDialog
         courseId,
         title: values.title,
         description: values.description || undefined,
-        estimatedDurationMinutes: values.estimatedDurationMinutes ? Number(values.estimatedDurationMinutes) : undefined,
+        estimatedDurationMinutes: values.estimatedDurationMinutes
+          ? Number(values.estimatedDurationMinutes)
+          : undefined,
       });
       toast.success('Module created successfully.');
       reset();
@@ -87,7 +92,9 @@ function CreateModuleDialog({ courseId, open, onOpenChange }: CreateModuleDialog
           <div className="space-y-2">
             <Label htmlFor="module-description">Description</Label>
             <Textarea id="module-description" rows={3} disabled={isSubmitting} {...register('description')} />
-            {errors.description ? <p className="text-sm text-destructive">{errors.description.message}</p> : null}
+            {errors.description ? (
+              <p className="text-sm text-destructive">{errors.description.message}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">

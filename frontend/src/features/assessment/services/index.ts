@@ -13,6 +13,7 @@ import type {
   AssessmentDetail,
   AssessmentGroupAssignment,
   AssessmentGroupAssignmentSummary,
+  AssessmentIntegrityEventType,
   AssessmentListParams,
   AssessmentQuestion,
   AssessmentStats,
@@ -28,6 +29,7 @@ import type {
   DuplicateAssessmentPayload,
   GradeAnswerPayload,
   GradeAnswerResult,
+  IntegrityEventResult,
   MyAssessmentSummary,
   MyAttemptResponse,
   Question,
@@ -73,7 +75,10 @@ export const questionsApi = {
    * that need the full option set after a status change should refetch via `getById`.
    */
   async updateStatus(id: string, payload: UpdateQuestionStatusPayload): Promise<QuestionSummary> {
-    const { data } = await apiClient.patch<ApiSuccessResponse<QuestionSummary>>(`/questions/${id}/status`, payload);
+    const { data } = await apiClient.patch<ApiSuccessResponse<QuestionSummary>>(
+      `/questions/${id}/status`,
+      payload,
+    );
     return data.data;
   },
 
@@ -84,9 +89,12 @@ export const questionsApi = {
 
 export const assessmentsApi = {
   async list(params: AssessmentListParams): Promise<PaginatedData<AssessmentSummary>> {
-    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<AssessmentSummary>>>('/assessments', {
-      params,
-    });
+    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<AssessmentSummary>>>(
+      '/assessments',
+      {
+        params,
+      },
+    );
     return data.data;
   },
 
@@ -116,17 +124,25 @@ export const assessmentsApi = {
   },
 
   async updateStatus(id: string, payload: UpdateAssessmentStatusPayload): Promise<Assessment> {
-    const { data } = await apiClient.patch<ApiSuccessResponse<Assessment>>(`/assessments/${id}/status`, payload);
+    const { data } = await apiClient.patch<ApiSuccessResponse<Assessment>>(
+      `/assessments/${id}/status`,
+      payload,
+    );
     return data.data;
   },
 
   async releaseResults(id: string): Promise<Assessment> {
-    const { data } = await apiClient.post<ApiSuccessResponse<Assessment>>(`/assessments/${id}/results/release`);
+    const { data } = await apiClient.post<ApiSuccessResponse<Assessment>>(
+      `/assessments/${id}/results/release`,
+    );
     return data.data;
   },
 
   async duplicate(id: string, payload: DuplicateAssessmentPayload): Promise<Assessment> {
-    const { data } = await apiClient.post<ApiSuccessResponse<Assessment>>(`/assessments/${id}/duplicate`, payload);
+    const { data } = await apiClient.post<ApiSuccessResponse<Assessment>>(
+      `/assessments/${id}/duplicate`,
+      payload,
+    );
     return data.data;
   },
 
@@ -155,7 +171,9 @@ export const assessmentsApi = {
 
   /** The ordered answer key — trainer-only. */
   async listQuestions(id: string): Promise<AssessmentQuestion[]> {
-    const { data } = await apiClient.get<ApiSuccessResponse<AssessmentQuestion[]>>(`/assessments/${id}/questions`);
+    const { data } = await apiClient.get<ApiSuccessResponse<AssessmentQuestion[]>>(
+      `/assessments/${id}/questions`,
+    );
     return data.data;
   },
 
@@ -167,7 +185,11 @@ export const assessmentsApi = {
     return data.data;
   },
 
-  async updateQuestion(id: string, aqId: string, payload: UpdateAssessmentQuestionPayload): Promise<AssessmentQuestion> {
+  async updateQuestion(
+    id: string,
+    aqId: string,
+    payload: UpdateAssessmentQuestionPayload,
+  ): Promise<AssessmentQuestion> {
     const { data } = await apiClient.patch<ApiSuccessResponse<AssessmentQuestion>>(
       `/assessments/${id}/questions/${aqId}`,
       payload,
@@ -206,7 +228,11 @@ export const assessmentAttemptsApi = {
     return data.data;
   },
 
-  async saveAnswer(assessmentId: string, assessmentQuestionId: string, payload: UpsertAnswerPayload): Promise<SavedAnswer> {
+  async saveAnswer(
+    assessmentId: string,
+    assessmentQuestionId: string,
+    payload: UpsertAnswerPayload,
+  ): Promise<SavedAnswer> {
     const { data } = await apiClient.put<ApiSuccessResponse<SavedAnswer>>(
       `/assessments/${assessmentId}/attempts/mine/answers/${assessmentQuestionId}`,
       payload,
@@ -229,6 +255,17 @@ export const assessmentAttemptsApi = {
   async submit(assessmentId: string): Promise<Attempt> {
     const { data } = await apiClient.post<ApiSuccessResponse<Attempt>>(
       `/assessments/${assessmentId}/attempts/mine/submit`,
+    );
+    return data.data;
+  },
+
+  async recordIntegrityEvent(
+    assessmentId: string,
+    payload: { type: AssessmentIntegrityEventType; occurredAt?: string },
+  ): Promise<IntegrityEventResult> {
+    const { data } = await apiClient.post<ApiSuccessResponse<IntegrityEventResult>>(
+      `/assessments/${assessmentId}/attempts/mine/integrity-events`,
+      payload,
     );
     return data.data;
   },

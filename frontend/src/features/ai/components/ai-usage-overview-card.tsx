@@ -26,7 +26,12 @@ function AiUsageOverviewCard() {
           icon={MessagesSquare}
           isLoading={isLoading}
         />
-        <StatCard label="Messages" value={data?.totalMessages ?? 0} icon={MessageSquareText} isLoading={isLoading} />
+        <StatCard
+          label="Messages"
+          value={data?.totalMessages ?? 0}
+          icon={MessageSquareText}
+          isLoading={isLoading}
+        />
         <StatCard
           label="Input Tokens"
           value={data?.totalInputTokens ?? 0}

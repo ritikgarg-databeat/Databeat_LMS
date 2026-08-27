@@ -1,4 +1,4 @@
-import { AssessmentAttemptStatus } from '@prisma/client';
+import { AssessmentAttemptStatus, AssessmentIntegrityEventType } from '@prisma/client';
 import { body, param, query } from 'express-validator';
 
 import { MAX_ANSWER_TEXT_LENGTH } from '@/constants/assessment';
@@ -12,9 +12,13 @@ const assessmentQuestionIdParamValidator = param('assessmentQuestionId')
   .isUUID()
   .withMessage(VALIDATION_MESSAGES.INVALID_ID('assessmentQuestionId'));
 
-const attemptIdParamValidator = param('attemptId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('attemptId'));
+const attemptIdParamValidator = param('attemptId')
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('attemptId'));
 
-const answerIdParamValidator = param('answerId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('answerId'));
+const answerIdParamValidator = param('answerId')
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('answerId'));
 
 export const assessmentAttemptsValidation = {
   // `PUT /mine/answers/:assessmentQuestionId` — shape depends on the target question's
@@ -22,8 +26,13 @@ export const assessmentAttemptsValidation = {
   // optional here; at most one is ever relevant for a given question.
   saveAnswer: [
     assessmentQuestionIdParamValidator,
-    body('selectedOptionIds').optional({ values: 'null' }).isArray().withMessage('selectedOptionIds must be an array.'),
-    body('selectedOptionIds.*').isUUID().withMessage('Each selectedOptionIds entry must be a valid identifier.'),
+    body('selectedOptionIds')
+      .optional({ values: 'null' })
+      .isArray()
+      .withMessage('selectedOptionIds must be an array.'),
+    body('selectedOptionIds.*')
+      .isUUID()
+      .withMessage('Each selectedOptionIds entry must be a valid identifier.'),
     body('textAnswer')
       .optional({ values: 'null' })
       .isString()
@@ -33,9 +42,17 @@ export const assessmentAttemptsValidation = {
 
   uploadAnswer: [assessmentQuestionIdParamValidator],
 
+  integrityEvent: [
+    body('type').isIn(Object.values(AssessmentIntegrityEventType)).withMessage('type is invalid.'),
+    body('occurredAt').optional().isISO8601().toDate(),
+  ],
+
   listAttempts: [
     ...paginationQueryValidators,
-    query('status').optional({ values: 'falsy' }).isIn(Object.values(AssessmentAttemptStatus)).withMessage('status must be valid.'),
+    query('status')
+      .optional({ values: 'falsy' })
+      .isIn(Object.values(AssessmentAttemptStatus))
+      .withMessage('status must be valid.'),
   ],
 
   attemptDetail: [attemptIdParamValidator],

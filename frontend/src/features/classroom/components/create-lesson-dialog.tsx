@@ -43,7 +43,10 @@ const createLessonSchema = z.object({
   estimatedDurationMinutes: z
     .string()
     .optional()
-    .refine((value) => !value || /^[1-9]\d*$/.test(value), 'Estimated duration must be a positive whole number.'),
+    .refine(
+      (value) => !value || /^[1-9]\d*$/.test(value),
+      'Estimated duration must be a positive whole number.',
+    ),
 });
 type CreateLessonFormValues = z.infer<typeof createLessonSchema>;
 
@@ -78,7 +81,9 @@ function CreateLessonDialog({ moduleId, open, onOpenChange }: CreateLessonDialog
         title: values.title,
         description: values.description || undefined,
         type: values.type,
-        estimatedDurationMinutes: values.estimatedDurationMinutes ? Number(values.estimatedDurationMinutes) : undefined,
+        estimatedDurationMinutes: values.estimatedDurationMinutes
+          ? Number(values.estimatedDurationMinutes)
+          : undefined,
       });
       toast.success('Lesson created successfully.');
       reset();
@@ -112,7 +117,9 @@ function CreateLessonDialog({ moduleId, open, onOpenChange }: CreateLessonDialog
           <div className="space-y-2">
             <Label htmlFor="lesson-description">Description</Label>
             <Textarea id="lesson-description" rows={3} disabled={isSubmitting} {...register('description')} />
-            {errors.description ? <p className="text-sm text-destructive">{errors.description.message}</p> : null}
+            {errors.description ? (
+              <p className="text-sm text-destructive">{errors.description.message}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">

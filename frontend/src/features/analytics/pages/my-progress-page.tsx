@@ -47,7 +47,9 @@ function weekKeyOf(date: Date): string {
 }
 
 function totalEventsOf(point: DailyActivityPoint): number {
-  return point.logins + point.lessonsCompleted + point.assessmentsSubmitted + point.aiMessages + point.qnaPosts;
+  return (
+    point.logins + point.lessonsCompleted + point.assessmentsSubmitted + point.aiMessages + point.qnaPosts
+  );
 }
 
 interface WeeklyActivityDatum {
@@ -184,7 +186,10 @@ function MyProgressPage() {
         tableView={buildWeeklyActivityTableView(weeklyActivity)}
       >
         {weeklyActivity.length === 0 ? (
-          <EmptyState title="No activity recorded yet" description="Your weekly activity will show up here." />
+          <EmptyState
+            title="No activity recorded yet"
+            description="Your weekly activity will show up here."
+          />
         ) : (
           <AnalyticsBarChart data={weeklyActivity} xKey="week" series={WEEKLY_ACTIVITY_SERIES} />
         )}

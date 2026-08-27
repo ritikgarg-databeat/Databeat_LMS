@@ -1,6 +1,13 @@
 // @dnd-kit reorderable answer-key list for one assessment — structurally the single-level
 // counterpart to classroom's module-lesson-tree.tsx (which nests two levels).
-import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -37,9 +44,10 @@ const MAX_MARKS = 1000;
 
 export interface AssessmentQuestionListProps {
   assessmentId: string;
+  readOnly?: boolean;
 }
 
-function AssessmentQuestionList({ assessmentId }: AssessmentQuestionListProps) {
+function AssessmentQuestionList({ assessmentId, readOnly = false }: AssessmentQuestionListProps) {
   const [deletingQuestion, setDeletingQuestion] = useState<AssessmentQuestion | null>(null);
 
   const { data: questions, isLoading, isError, refetch } = useAssessmentQuestionsQuery(assessmentId);
@@ -52,9 +60,13 @@ function AssessmentQuestionList({ assessmentId }: AssessmentQuestionListProps) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const sortedQuestions = useMemo(() => [...(questions ?? [])].sort((a, b) => a.order - b.order), [questions]);
+  const sortedQuestions = useMemo(
+    () => [...(questions ?? [])].sort((a, b) => a.order - b.order),
+    [questions],
+  );
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (readOnly) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = sortedQuestions.findIndex((question) => question.id === active.id);
@@ -70,7 +82,8 @@ function AssessmentQuestionList({ assessmentId }: AssessmentQuestionListProps) {
   };
 
   const handleMarksChange = (question: AssessmentQuestion, marks: number) => {
-    if (!Number.isInteger(marks) || marks < MIN_MARKS || marks > MAX_MARKS || marks === question.marks) return;
+    if (!Number.isInteger(marks) || marks < MIN_MARKS || marks > MAX_MARKS || marks === question.marks)
+      return;
     updateQuestion.mutate(
       { assessmentId, aqId: question.id, payload: { marks } },
       { onError: (error) => toast.error(getErrorMessage(error)) },
@@ -111,19 +124,25 @@ function AssessmentQuestionList({ assessmentId }: AssessmentQuestionListProps) {
   }
 
   if (sortedQuestions.length === 0) {
-    return <EmptyState title="No questions yet" description="Add a question to start building this assessment." />;
+    return (
+      <EmptyState title="No questions yet" description="Add a question to start building this assessment." />
+    );
   }
 
   return (
     <>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={sortedQuestions.map((question) => question.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={sortedQuestions.map((question) => question.id)}
+          strategy={verticalListSortingStrategy}
+        >
           <div className="space-y-2">
             {sortedQuestions.map((question, index) => (
               <SortableQuestionRow
                 key={question.id}
                 question={question}
                 position={index + 1}
+                readOnly={readOnly}
                 onMarksChange={(marks) => handleMarksChange(question, marks)}
                 onDelete={() => setDeletingQuestion(question)}
               />
@@ -152,12 +171,21 @@ function AssessmentQuestionList({ assessmentId }: AssessmentQuestionListProps) {
 interface SortableQuestionRowProps {
   question: AssessmentQuestion;
   position: number;
+  readOnly: boolean;
   onMarksChange: (marks: number) => void;
   onDelete: () => void;
 }
 
-function SortableQuestionRow({ question, position, onMarksChange, onDelete }: SortableQuestionRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: question.id });
+function SortableQuestionRow({
+  question,
+  position,
+  readOnly,
+  onMarksChange,
+  onDelete,
+}: SortableQuestionRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: question.id,
+  });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
@@ -171,7 +199,11 @@ function SortableQuestionRow({ question, position, onMarksChange, onDelete }: So
     >
       <button
         type="button"
-        className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        className={cn(
+          'touch-none text-muted-foreground',
+          readOnly ? 'cursor-default opacity-40' : 'cursor-grab hover:text-foreground active:cursor-grabbing',
+        )}
+        disabled={readOnly}
         aria-label={`Drag to reorder ${question.snapshotTitle}`}
         {...attributes}
         {...listeners}
@@ -201,19 +233,22 @@ function SortableQuestionRow({ question, position, onMarksChange, onDelete }: So
           max={MAX_MARKS}
           className="w-20"
           defaultValue={question.marks}
+          disabled={readOnly}
           onBlur={(event) => onMarksChange(Number(event.target.value))}
         />
       </div>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={`Remove ${question.snapshotTitle}`}
-        onClick={onDelete}
-      >
-        <Trash2 className="size-4" />
-      </Button>
+      {!readOnly ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={`Remove ${question.snapshotTitle}`}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      ) : null}
     </div>
   );
 }

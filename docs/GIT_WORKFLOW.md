@@ -27,6 +27,7 @@ affected module/feature:
 Types: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `perf`, `style`.
 
 Examples:
+
 - `feat(assessments): add randomized question ordering`
 - `fix(auth): rotate refresh token on reuse detection`
 - `chore(deps): bump prisma to 7.9`
@@ -35,7 +36,7 @@ Examples:
 ## Pull Requests
 
 - Keep PRs scoped to one concern — small PRs review faster and revert more safely.
-- PR description should state the *why*, not just the *what* (the diff already shows what).
+- PR description should state the _why_, not just the _what_ (the diff already shows what).
 - CI (typecheck, lint, build) must pass before merge.
 
 ## Versioning Strategy

@@ -72,7 +72,12 @@ export class AssessmentsController extends BaseController {
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const assessment = await this.service.update(req.params.id as string, req.body as UpdateAssessmentDto, req.user, req.ip);
+    const assessment = await this.service.update(
+      req.params.id as string,
+      req.body as UpdateAssessmentDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, assessment, 'Assessment updated successfully.');
   };
 
@@ -124,7 +129,12 @@ export class AssessmentsController extends BaseController {
   assignGroup = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const assignment = await this.service.assignGroup(req.params.id as string, req.body as AssignGroupDto, req.user, req.ip);
+    const assignment = await this.service.assignGroup(
+      req.params.id as string,
+      req.body as AssignGroupDto,
+      req.user,
+      req.ip,
+    );
     this.created(res, assignment, 'Group assigned successfully.');
   };
 

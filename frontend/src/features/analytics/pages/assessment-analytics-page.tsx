@@ -13,7 +13,9 @@ function AssessmentAnalyticsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isAdminRoute = useLocation().pathname.startsWith('/admin');
-  const resultsPath = isAdminRoute ? `/admin/assessments/${id}/results` : `/trainer/assessments/${id}/results`;
+  const resultsPath = isAdminRoute
+    ? `/admin/assessments/${id}/results`
+    : `/trainer/assessments/${id}/results`;
   // Same query the panel below makes — TanStack dedupes it, so this doesn't double-fetch; it
   // just lets the header name the assessment instead of a bare "Assessment Analytics" title.
   const { data } = useAssessmentAnalyticsQuery(id);

@@ -33,10 +33,7 @@ export class DepartmentsRepository extends BaseRepository {
     if (trainerId) {
       where.AND = [
         {
-          OR: [
-            { users: { some: { id: trainerId } } },
-            { groups: { some: { trainerId, deletedAt: null } } },
-          ],
+          OR: [{ users: { some: { id: trainerId } } }, { groups: { some: { trainerId, deletedAt: null } } }],
         },
       ];
     }
@@ -57,10 +54,7 @@ export class DepartmentsRepository extends BaseRepository {
     return this.db.department.findFirst({
       where: {
         id,
-        OR: [
-          { users: { some: { id: trainerId } } },
-          { groups: { some: { trainerId, deletedAt: null } } },
-        ],
+        OR: [{ users: { some: { id: trainerId } } }, { groups: { some: { trainerId, deletedAt: null } } }],
       },
       include: { _count: { select: { users: true, groups: true } } },
     });

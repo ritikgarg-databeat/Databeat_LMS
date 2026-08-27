@@ -1,12 +1,15 @@
 import { Prisma, type Role } from '@prisma/client';
 
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { qnaQuestionAccessScope } from '@/policies/qna-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { VoteTarget, VoteToggleOutcome } from './qna-votes.types';
 
 function matchWhere(userId: string, target: VoteTarget): Prisma.QnaVoteWhereInput {
-  return target.questionId ? { userId, questionId: target.questionId } : { userId, answerId: target.answerId };
+  return target.questionId
+    ? { userId, questionId: target.questionId }
+    : { userId, answerId: target.answerId };
 }
 
 function countWhere(target: VoteTarget): Prisma.QnaVoteWhereInput {
@@ -41,7 +44,14 @@ export class QnaVotesRepository extends BaseRepository {
    * missing or soft-deleted question is never accessible.
    */
   async isQuestionAccessibleToUser(questionId: string, userId: string, role: Role): Promise<boolean> {
-    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+    if (role === 'SUPER_ADMIN') return true;
+    if (role === 'TRAINER') {
+      const scoped = await this.db.qnaQuestion.findFirst({
+        where: { id: questionId, ...qnaQuestionAccessScope(userId, role) },
+        select: { id: true },
+      });
+      return scoped !== null;
+    }
 
     const question = await this.db.qnaQuestion.findUnique({ where: { id: questionId } });
     if (!question || question.deletedAt !== null) return false;

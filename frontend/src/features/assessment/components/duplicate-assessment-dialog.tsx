@@ -71,8 +71,8 @@ function DuplicateAssessmentDialog({ assessment, onOpenChange }: DuplicateAssess
         <DialogHeader>
           <DialogTitle>Duplicate {assessment.title}</DialogTitle>
           <DialogDescription>
-            Creates a new draft copy with the same details and questions — but no group
-            assignments or attempts. You&apos;ll be taken to the copy afterwards.
+            Creates a new draft copy with the same details and questions — but no group assignments or
+            attempts. You&apos;ll be taken to the copy afterwards.
           </DialogDescription>
         </DialogHeader>
 

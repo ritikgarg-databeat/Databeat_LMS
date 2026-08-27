@@ -24,5 +24,6 @@ router.get('/progress/export', reportsValidation.exportProgress, controller.expo
 router.get('/results/export', reportsValidation.exportResults, controller.exportResults);
 router.get('/groups/export', controller.exportGroups);
 router.get('/courses/export', controller.exportCourses);
+router.get('/mandatory/export', controller.exportMandatory);
 
 export default router;

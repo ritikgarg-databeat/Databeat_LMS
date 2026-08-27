@@ -27,13 +27,22 @@ import type { ImpactConfidence, UsageMetricReport } from '../types';
 
 const OPTIONS_PAGE_SIZE = 100;
 
-const CONFIDENCE_BADGE: Record<ImpactConfidence, { label: string; variant: 'success' | 'warning' | 'secondary' }> = {
+const CONFIDENCE_BADGE: Record<
+  ImpactConfidence,
+  { label: string; variant: 'success' | 'warning' | 'secondary' }
+> = {
   validated: { label: 'Validated', variant: 'success' },
   measured: { label: 'Measured', variant: 'warning' },
   insufficient: { label: 'Insufficient data', variant: 'secondary' },
 };
 
-function UsageMetricCard({ title, query }: { title: string; query: ReturnType<typeof useAutoGradingLatencyQuery> }) {
+function UsageMetricCard({
+  title,
+  query,
+}: {
+  title: string;
+  query: ReturnType<typeof useAutoGradingLatencyQuery>;
+}) {
   const report = query.data as UsageMetricReport | undefined;
   return (
     <Card>
@@ -49,7 +58,8 @@ function UsageMetricCard({ title, query }: { title: string; query: ReturnType<ty
           <div className="space-y-1">
             <p className="text-xl font-semibold tabular-nums">{formatMs(report.meanMs ?? 0)} mean</p>
             <p className="text-xs text-muted-foreground tabular-nums">
-              median {formatMs(report.medianMs ?? 0)}, range {formatMs(report.minMs ?? 0)}–{formatMs(report.maxMs ?? 0)}
+              median {formatMs(report.medianMs ?? 0)}, range {formatMs(report.minMs ?? 0)}–
+              {formatMs(report.maxMs ?? 0)}
             </p>
             <div className="text-xs text-muted-foreground">
               n = {report.n}
@@ -100,8 +110,8 @@ function ImpactMetricsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Impact Metrics</h1>
         <p className="text-muted-foreground">
-          Real usage-log-derived numbers, a pilot cohort dashboard, and the Impact Report generator — every figure
-          labeled by how much confidence it has actually earned.
+          Real usage-log-derived numbers, a pilot cohort dashboard, and the Impact Report generator — every
+          figure labeled by how much confidence it has actually earned.
         </p>
       </div>
 
@@ -110,15 +120,29 @@ function ImpactMetricsPage() {
           <Label htmlFor="from" className="text-xs text-muted-foreground">
             From
           </Label>
-          <Input id="from" type="date" className="w-40" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <Input
+            id="from"
+            type="date"
+            className="w-40"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+          />
         </div>
         <div className="space-y-1">
           <Label htmlFor="to" className="text-xs text-muted-foreground">
             To
           </Label>
-          <Input id="to" type="date" className="w-40" value={to} onChange={(event) => setTo(event.target.value)} />
+          <Input
+            id="to"
+            type="date"
+            className="w-40"
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+          />
         </div>
-        <p className="pb-2 text-xs text-muted-foreground">Leave blank for all-time. Applies to every section below.</p>
+        <p className="pb-2 text-xs text-muted-foreground">
+          Leave blank for all-time. Applies to every section below.
+        </p>
       </div>
 
       <div>
@@ -136,7 +160,10 @@ function ImpactMetricsPage() {
           <Label htmlFor="groupId" className="text-xs text-muted-foreground">
             Group
           </Label>
-          <Select value={groupId || 'none'} onValueChange={(value) => setGroupId(value === 'none' ? '' : value)}>
+          <Select
+            value={groupId || 'none'}
+            onValueChange={(value) => setGroupId(value === 'none' ? '' : value)}
+          >
             <SelectTrigger id="groupId">
               <SelectValue placeholder="Select a group..." />
             </SelectTrigger>
@@ -242,8 +269,8 @@ function ImpactMetricsPage() {
                       {pilotDashboardQuery.data.weeklyActive.percent?.toFixed(1)}%
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {pilotDashboardQuery.data.weeklyActive.activeCount} of {pilotDashboardQuery.data.weeklyActive.totalMembers} members,
-                      trailing 7 days
+                      {pilotDashboardQuery.data.weeklyActive.activeCount} of{' '}
+                      {pilotDashboardQuery.data.weeklyActive.totalMembers} members, trailing 7 days
                     </p>
                   </>
                 )}
@@ -268,7 +295,10 @@ function ImpactMetricsPage() {
         </div>
 
         {!reportRequested ? (
-          <EmptyState title="No report generated yet" description="Click 'Generate report' to assemble one from current live data." />
+          <EmptyState
+            title="No report generated yet"
+            description="Click 'Generate report' to assemble one from current live data."
+          />
         ) : impactReportQuery.isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : impactReportQuery.data ? (

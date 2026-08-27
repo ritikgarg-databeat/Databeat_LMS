@@ -1,4 +1,4 @@
-# Dashboard Module (Prompt 8 — Trainee/Trainer Dashboard Aggregation + AI Insights)
+# Dashboard Module
 
 Two read-only aggregation endpoints — `GET /dashboard/trainee` and `GET /dashboard/trainer` —
 that compose data already owned by other modules into the exact payload shape the frontend
@@ -25,9 +25,6 @@ This module is deliberately import-heavy — it is an AGGREGATOR, not a new sour
 never duplicates a query another module's service already exposes; `dashboard.repository.ts`
 only owns the `AnalyticsInsight` cache table plus a handful of queries that don't have a
 reusable home elsewhere (see the field-source table below).
-
-`dashboard.interfaces.ts` was never created, matching every Prompt 7+ module's convention
-(no separate interfaces file — see analytics/README.md).
 
 ## Field → source table
 

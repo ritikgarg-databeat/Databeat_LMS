@@ -1,4 +1,4 @@
-import { Prisma, type AssessmentAttemptStatus } from '@prisma/client';
+import { Prisma, type AssessmentAttemptStatus, type AssessmentIntegrityEventType } from '@prisma/client';
 
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
 import { trainerAssessmentScope } from '@/policies/trainer-scope.policy';
@@ -46,10 +46,30 @@ const attemptDetailInclude = {
 export type AttemptListRow = Prisma.AssessmentAttemptGetPayload<{ include: typeof attemptListInclude }>;
 export type AttemptDetailRow = Prisma.AssessmentAttemptGetPayload<{ include: typeof attemptDetailInclude }>;
 
-function buildAttemptWhere(assessmentId: string, filters: AttemptListFilters): Prisma.AssessmentAttemptWhereInput {
+function buildAttemptWhere(
+  assessmentId: string,
+  filters: AttemptListFilters,
+): Prisma.AssessmentAttemptWhereInput {
   const where: Prisma.AssessmentAttemptWhereInput = { assessmentId };
   if (filters.status) where.status = filters.status;
   return where;
+}
+
+function trainerAttemptScope(assessmentId: string, trainerId: string): Prisma.AssessmentAttemptWhereInput {
+  return {
+    user: {
+      groupMemberships: {
+        some: {
+          group: {
+            trainerId,
+            status: 'ACTIVE',
+            deletedAt: null,
+            assessmentGroupAssignments: { some: { assessmentId } },
+          },
+        },
+      },
+    },
+  };
 }
 
 // Data-access layer for the assessment-attempts module. Only this class may query Prisma
@@ -97,6 +117,18 @@ export class AssessmentAttemptsRepository extends BaseRepository {
     return assessment !== null;
   }
 
+  async isAttemptInTrainerScope(
+    attemptId: string,
+    assessmentId: string,
+    trainerId: string,
+  ): Promise<boolean> {
+    const attempt = await this.db.assessmentAttempt.findFirst({
+      where: { id: attemptId, assessmentId, ...trainerAttemptScope(assessmentId, trainerId) },
+      select: { id: true },
+    });
+    return attempt !== null;
+  }
+
   findAssessmentQuestions(assessmentId: string) {
     return this.db.assessmentQuestion.findMany({ where: { assessmentId }, orderBy: { order: 'asc' } });
   }
@@ -111,6 +143,31 @@ export class AssessmentAttemptsRepository extends BaseRepository {
 
   findAttemptById(attemptId: string) {
     return this.db.assessmentAttempt.findUnique({ where: { id: attemptId } });
+  }
+
+  findRecentCountedIntegrityEvent(attemptId: string, since: Date) {
+    return this.db.assessmentIntegrityEvent.findFirst({
+      where: { attemptId, countsAsViolation: true, createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  recordIntegrityEvent(
+    attemptId: string,
+    userId: string,
+    type: AssessmentIntegrityEventType,
+    countsAsViolation: boolean,
+    clientOccurredAt: Date | null,
+  ) {
+    return this.db.$transaction(async (tx) => {
+      await tx.assessmentIntegrityEvent.create({
+        data: { attemptId, userId, type, countsAsViolation, clientOccurredAt },
+      });
+      return tx.assessmentAttempt.update({
+        where: { id: attemptId },
+        data: countsAsViolation ? { integrityViolationCount: { increment: 1 } } : {},
+      });
+    });
   }
 
   /** Bounded work queue for the scheduler; oldest expiries are finalized first. */
@@ -169,7 +226,9 @@ export class AssessmentAttemptsRepository extends BaseRepository {
     return this.db.$transaction(async (tx) => {
       for (const grade of answerGrades) {
         await tx.assessmentAnswer.upsert({
-          where: { attemptId_assessmentQuestionId: { attemptId, assessmentQuestionId: grade.assessmentQuestionId } },
+          where: {
+            attemptId_assessmentQuestionId: { attemptId, assessmentQuestionId: grade.assessmentQuestionId },
+          },
           create: {
             attemptId,
             assessmentQuestionId: grade.assessmentQuestionId,
@@ -197,8 +256,17 @@ export class AssessmentAttemptsRepository extends BaseRepository {
     });
   }
 
-  async findAttemptsForAssessment(assessmentId: string, filters: AttemptListFilters, skip: number, take: number) {
-    const where = buildAttemptWhere(assessmentId, filters);
+  async findAttemptsForAssessment(
+    assessmentId: string,
+    filters: AttemptListFilters,
+    skip: number,
+    take: number,
+    trainerId?: string,
+  ) {
+    const where: Prisma.AssessmentAttemptWhereInput = {
+      ...buildAttemptWhere(assessmentId, filters),
+      ...(trainerId ? trainerAttemptScope(assessmentId, trainerId) : {}),
+    };
     const [items, total] = await Promise.all([
       this.db.assessmentAttempt.findMany({
         where,

@@ -48,7 +48,9 @@ const itemVariants: Variants = {
 function LandingHero() {
   const shouldReduceMotion = useReducedMotion();
 
-  const containerMotionProps = shouldReduceMotion ? {} : { initial: 'hidden', animate: 'visible', variants: containerVariants };
+  const containerMotionProps = shouldReduceMotion
+    ? {}
+    : { initial: 'hidden', animate: 'visible', variants: containerVariants };
   const itemMotionProps = shouldReduceMotion ? {} : { variants: itemVariants };
   const mockupMotionProps = shouldReduceMotion
     ? {}
@@ -89,18 +91,32 @@ function LandingHero() {
   const floatCardMotionProps = (delay: number) =>
     shouldReduceMotion
       ? {}
-      : { initial: { opacity: 0, scale: 0.8 }, animate: { opacity: 1, scale: 1 }, transition: { duration: 0.4, ease: 'easeOut' as const, delay } };
+      : {
+          initial: { opacity: 0, scale: 0.8 },
+          animate: { opacity: 1, scale: 1 },
+          transition: { duration: 0.4, ease: 'easeOut' as const, delay },
+        };
   const heartbeatLogoMotionProps = shouldReduceMotion
     ? {}
     : {
         animate: { scale: [1, 1.18, 1, 1.1, 1, 1] },
-        transition: { duration: HEARTBEAT_DURATION, times: HEARTBEAT_TIMES, repeat: Infinity, ease: 'easeInOut' as const },
+        transition: {
+          duration: HEARTBEAT_DURATION,
+          times: HEARTBEAT_TIMES,
+          repeat: Infinity,
+          ease: 'easeInOut' as const,
+        },
       };
   const heartbeatGlowMotionProps = shouldReduceMotion
     ? {}
     : {
         animate: { opacity: [0.15, 0.55, 0.15, 0.4, 0.15, 0.15] },
-        transition: { duration: HEARTBEAT_DURATION, times: HEARTBEAT_TIMES, repeat: Infinity, ease: 'easeInOut' as const },
+        transition: {
+          duration: HEARTBEAT_DURATION,
+          times: HEARTBEAT_TIMES,
+          repeat: Infinity,
+          ease: 'easeInOut' as const,
+        },
       };
 
   return (
@@ -122,14 +138,17 @@ function LandingHero() {
             </Badge>
           </motion.div>
 
-          <motion.h1 {...itemMotionProps} className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
+          <motion.h1
+            {...itemMotionProps}
+            className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl"
+          >
             AI-Powered Learning Platform{' '}
             <span className="text-brand-gradient">for Modern Teams at Databeat</span>
           </motion.h1>
 
           <motion.p {...itemMotionProps} className="max-w-md text-lg text-muted-foreground">
-            Build courses, run assessments, and let AI generate a quick check on every lesson —
-            with real analytics on who&rsquo;s actually learning.
+            Build courses, run assessments, and let AI generate a quick check on every lesson — with real
+            analytics on who&rsquo;s actually learning.
           </motion.p>
 
           <motion.div {...itemMotionProps}>
@@ -208,7 +227,10 @@ function LandingHero() {
           {/* Four floating accent cards, one per corner, each on its own float timing
            * (float / -delayed / -slow) so nothing drifts in lockstep. */}
 
-          <motion.div {...floatCardMotionProps(0.5)} className="animate-float-slow absolute -top-8 -left-4 z-20 hidden sm:block">
+          <motion.div
+            {...floatCardMotionProps(0.5)}
+            className="animate-float-slow absolute -top-8 -left-4 z-20 hidden sm:block"
+          >
             <Card className="w-40 -rotate-2 p-3 shadow-lg">
               <div className="flex items-center gap-2.5">
                 <div className="relative size-9 shrink-0">
@@ -245,7 +267,10 @@ function LandingHero() {
             Quiz generated
           </Badge>
 
-          <motion.div {...floatCardMotionProps(0.8)} className="animate-float absolute -bottom-10 -left-8 z-20 hidden sm:block">
+          <motion.div
+            {...floatCardMotionProps(0.8)}
+            className="animate-float absolute -bottom-10 -left-8 z-20 hidden sm:block"
+          >
             <Card className="w-36 rotate-3 p-3 shadow-lg">
               <p className="text-xs text-muted-foreground">Weekly progress</p>
               <p className="text-brand-accent text-2xl font-semibold">+18%</p>

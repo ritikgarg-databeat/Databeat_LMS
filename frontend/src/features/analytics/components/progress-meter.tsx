@@ -30,7 +30,10 @@ function ProgressMeter({ value, label, className }: ProgressMeterProps) {
         className="h-2 flex-1 overflow-hidden rounded-full"
         style={{ backgroundColor: seqVar(1) }}
       >
-        <div className="h-full rounded-full" style={{ width: `${clamped}%`, backgroundColor: seriesVar(1) }} />
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${clamped}%`, backgroundColor: seriesVar(1) }}
+        />
       </div>
       <span className="shrink-0 text-xs font-medium tabular-nums text-foreground">
         {formatPercent(clamped)}

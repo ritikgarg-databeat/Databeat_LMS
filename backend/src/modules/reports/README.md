@@ -1,27 +1,28 @@
 # Reports Module
 
-CSV report exports (Prompt 8) for staff: trainee progress, assessment results, group
-summaries, and course summaries — computed live from the transactional tables and downloaded
+CSV report exports for staff: trainee progress, assessment results, group
+summaries, course summaries, and mandatory-training compliance — computed live from transactional tables and downloaded
 as `text/csv` attachments.
 
 Layering: `reports.routes.ts` → `reports.controller.ts` → `reports.service.ts` →
 `reports.repository.ts` (see ARCHITECTURE.md §3.1). `reports.dto.ts` holds the query DTOs,
-`reports.types.ts` the internal domain shapes, `reports.validation.ts` the express-validator
-chains. The scaffold's `reports.interfaces.ts` was removed — nothing referenced it.
+`reports.types.ts` the internal domain shapes, and `reports.validation.ts` the
+express-validator chains.
 
 ## Endpoints
 
-All four are `GET`, require TRAINER or SUPER_ADMIN (`requireRole` at the router level), and
+All five are `GET`, require TRAINER or SUPER_ADMIN (`requireRole` at the router level), and
 respond with `text/csv; charset=utf-8` + `Content-Disposition: attachment;
 filename="<base>-YYYY-MM-DD.csv"` (UTC date). Responses deliberately bypass the JSON success
 envelope — the body is the file itself.
 
-| Endpoint                          | Query params                | One row per                               |
-| --------------------------------- | --------------------------- | ----------------------------------------- |
-| `/api/v1/reports/progress/export` | `groupId?`, `courseId?`     | trainee-in-scope × accessible course      |
-| `/api/v1/reports/results/export`  | `assessmentId?`, `groupId?` | assessment attempt by an in-scope trainee |
-| `/api/v1/reports/groups/export`   | —                           | group in scope                            |
-| `/api/v1/reports/courses/export`  | —                           | published course in scope                 |
+| Endpoint                           | Query params                | One row per                               |
+| ---------------------------------- | --------------------------- | ----------------------------------------- |
+| `/api/v1/reports/progress/export`  | `groupId?`, `courseId?`     | trainee-in-scope × accessible course      |
+| `/api/v1/reports/results/export`   | `assessmentId?`, `groupId?` | assessment attempt by an in-scope trainee |
+| `/api/v1/reports/groups/export`    | —                           | group in scope                            |
+| `/api/v1/reports/courses/export`   | —                           | published course in scope                 |
+| `/api/v1/reports/mandatory/export` | —                           | trainee × assigned mandatory course       |
 
 ## Column contracts
 
@@ -70,6 +71,16 @@ Time Spent (min), Submitted At`
   count); `Completion Rate %` = round(Completed ÷ Assigned × 100), 0 when nobody is assigned;
   `Avg Time Spent (hours)` = total time on the course's published lessons ÷ `Started`, 1 dp
   (0 when nobody started — averaging over never-started trainees would only dilute it).
+
+**Mandatory compliance** (`mandatory-training-compliance-YYYY-MM-DD.csv`):
+`Trainee Name, Email, Department, Groups, Mandatory Course, Compliance Status, Lessons
+Completed, Total Lessons, Compliance %, Last Activity`
+
+- Includes published courses whose assignment is mandatory for the trainee through at least one
+  active group in the caller's scope; the master course default is not treated as compliance data.
+- Status is `COMPLIANT`, `IN_PROGRESS`, or `NOT_STARTED`.
+- A completed lesson counts only when `completedContentVersion` matches the lesson's current
+  `contentVersion`; stale completion never appears as compliant after content changes.
 
 ## Security scoping (Prompt 8 § SECURITY)
 

@@ -47,14 +47,21 @@ function TrainerQuickActions({ pendingGradingCount }: TrainerQuickActionsProps) 
     },
     { key: 'reports', label: 'View Reports', icon: FileDown, to: ROUTES.TRAINER.REPORTS },
     { key: 'groups', label: 'Manage Groups', icon: Users, to: ROUTES.TRAINER.GROUPS },
-    { key: 'announcement', label: 'New Announcement', icon: Megaphone, to: `${ROUTES.TRAINER.ROOT}/notifications` },
+    {
+      key: 'announcement',
+      label: 'New Announcement',
+      icon: Megaphone,
+      to: `${ROUTES.TRAINER.ROOT}/notifications`,
+    },
   ];
 
   const containerMotionProps = shouldReduceMotion
     ? {}
     : { initial: 'hidden', animate: 'visible', variants: containerVariants };
   const itemMotionProps = shouldReduceMotion ? {} : { variants: itemVariants };
-  const hoverMotionProps = shouldReduceMotion ? {} : { whileHover: { scale: 1.02 }, whileTap: { scale: 0.98 } };
+  const hoverMotionProps = shouldReduceMotion
+    ? {}
+    : { whileHover: { scale: 1.02 }, whileTap: { scale: 0.98 } };
 
   return (
     <div className="space-y-3">

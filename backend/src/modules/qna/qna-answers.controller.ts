@@ -34,7 +34,12 @@ export class QnaAnswersController extends BaseController {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
 
-    const answer = await this.service.update(req.params.id as string, req.body as UpdateAnswerDto, req.user, req.ip);
+    const answer = await this.service.update(
+      req.params.id as string,
+      req.body as UpdateAnswerDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, answer, 'Answer updated successfully.');
   };
 
@@ -66,7 +71,12 @@ export class QnaAnswersController extends BaseController {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
 
-    const answer = await this.service.verify(req.params.id as string, req.body as VerifyAnswerDto, req.user, req.ip);
+    const answer = await this.service.verify(
+      req.params.id as string,
+      req.body as VerifyAnswerDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, answer, 'Answer verified successfully.');
   };
 }

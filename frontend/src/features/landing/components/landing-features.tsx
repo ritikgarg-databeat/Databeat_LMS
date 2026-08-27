@@ -68,7 +68,8 @@ const FEATURES: Feature[] = [
   {
     icon: CalendarDays,
     title: 'Calendar & Scheduling',
-    description: 'A shared calendar keeps upcoming sessions and deadlines visible to trainers and trainees alike.',
+    description:
+      'A shared calendar keeps upcoming sessions and deadlines visible to trainers and trainees alike.',
   },
   {
     icon: Megaphone,
@@ -107,7 +108,12 @@ function LandingFeatures() {
       };
   const containerMotionProps = shouldReduceMotion
     ? {}
-    : { initial: 'hidden', whileInView: 'visible', viewport: { once: true, amount: 0.2 }, variants: containerVariants };
+    : {
+        initial: 'hidden',
+        whileInView: 'visible',
+        viewport: { once: true, amount: 0.2 },
+        variants: containerVariants,
+      };
   const itemMotionProps = shouldReduceMotion ? {} : { variants: itemVariants };
   const hoverMotionProps = shouldReduceMotion
     ? {}
@@ -118,8 +124,7 @@ function LandingFeatures() {
       <div className="mx-auto max-w-6xl">
         <motion.div {...headerMotionProps} className="mx-auto max-w-2xl text-center">
           <Badge variant="outline" className="gap-1.5 py-1.5">
-            <Sparkles className="size-3.5" aria-hidden />
-            9 Core Capabilities
+            <Sparkles className="size-3.5" aria-hidden />9 Core Capabilities
           </Badge>
           <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
             Every step of training, in one platform

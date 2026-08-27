@@ -110,11 +110,7 @@ function LoginPage() {
           </Label>
         </div>
 
-        <Button
-          type="submit"
-          className="w-full transition-all hover:shadow-glow"
-          disabled={isSubmitting}
-        >
+        <Button type="submit" className="w-full transition-all hover:shadow-glow" disabled={isSubmitting}>
           {isSubmitting ? <Spinner size="sm" className="text-primary-foreground" /> : null}
           {isSubmitting ? 'Signing in...' : 'Sign in'}
         </Button>

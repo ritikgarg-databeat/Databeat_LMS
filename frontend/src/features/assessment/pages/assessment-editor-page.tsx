@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/hooks/use-auth';
 import { formatDateTime } from '@/utils/date';
 import { getErrorMessage } from '@/utils/error';
 
@@ -54,6 +55,7 @@ const STATUS_SUCCESS_MESSAGE: Record<AssessmentStatus, string> = {
 };
 
 function AssessmentEditorPage() {
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isAdminRoute = useLocation().pathname.startsWith('/admin');
@@ -94,6 +96,8 @@ function AssessmentEditorPage() {
       </div>
     );
   }
+
+  const canManageDefinition = isAdminRoute || assessment.createdById === user?.id;
 
   const handleUpdateStatus = async () => {
     if (!pendingStatus) return;
@@ -152,37 +156,43 @@ function AssessmentEditorPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setEditAssessmentOpen(true)}>Edit Assessment Details</DropdownMenuItem>
+            {canManageDefinition ? (
+              <DropdownMenuItem onClick={() => setEditAssessmentOpen(true)}>
+                Edit Assessment Details
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onClick={() => setAssignGroupsOpen(true)}>Assign to Groups</DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to={`${basePath}/assessments/${assessment.id}/results`}>View Results</Link>
             </DropdownMenuItem>
-            {!assessment.showResultImmediately && !assessment.resultsReleasedAt ? (
+            {canManageDefinition && !assessment.showResultImmediately && !assessment.resultsReleasedAt ? (
               <DropdownMenuItem onClick={() => setReleaseConfirmOpen(true)}>Release Results</DropdownMenuItem>
             ) : null}
-            <DropdownMenuSeparator />
-            {assessment.status === 'DRAFT' ? (
+            {canManageDefinition ? <DropdownMenuSeparator /> : null}
+            {canManageDefinition && assessment.status === 'DRAFT' ? (
               <>
                 <DropdownMenuItem onClick={() => setPendingStatus('PUBLISHED')}>Publish</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setPendingStatus('ARCHIVED')}>Archive</DropdownMenuItem>
               </>
             ) : null}
-            {assessment.status === 'PUBLISHED' ? (
+            {canManageDefinition && assessment.status === 'PUBLISHED' ? (
               <>
                 <DropdownMenuItem onClick={() => setPendingStatus('DRAFT')}>Unpublish</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setPendingStatus('ARCHIVED')}>Archive</DropdownMenuItem>
               </>
             ) : null}
-            {assessment.status === 'ARCHIVED' ? (
+            {canManageDefinition && assessment.status === 'ARCHIVED' ? (
               <DropdownMenuItem onClick={() => setPendingStatus('DRAFT')}>Restore to Draft</DropdownMenuItem>
             ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => setDeleteConfirmOpen(true)}
-            >
-              Delete
-            </DropdownMenuItem>
+            {canManageDefinition ? <DropdownMenuSeparator /> : null}
+            {canManageDefinition ? (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                Delete
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -202,7 +212,9 @@ function AssessmentEditorPage() {
           </div>
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">Available from</p>
-            <p className="text-sm">{assessment.availableFrom ? formatDateTime(assessment.availableFrom) : '—'}</p>
+            <p className="text-sm">
+              {assessment.availableFrom ? formatDateTime(assessment.availableFrom) : '—'}
+            </p>
           </div>
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">Due date</p>
@@ -245,7 +257,9 @@ function AssessmentEditorPage() {
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">Created by</p>
             <p className="text-sm">
-              {assessment.createdBy ? `${assessment.createdBy.firstName} ${assessment.createdBy.lastName}` : '—'}
+              {assessment.createdBy
+                ? `${assessment.createdBy.firstName} ${assessment.createdBy.lastName}`
+                : '—'}
             </p>
           </div>
           <div>
@@ -267,12 +281,14 @@ function AssessmentEditorPage() {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Questions</h2>
-          <Button onClick={() => setAddQuestionOpen(true)}>
-            <Plus /> Add Question
-          </Button>
+          {canManageDefinition ? (
+            <Button onClick={() => setAddQuestionOpen(true)}>
+              <Plus /> Add Question
+            </Button>
+          ) : null}
         </div>
 
-        <AssessmentQuestionList assessmentId={assessment.id} />
+        <AssessmentQuestionList assessmentId={assessment.id} readOnly={!canManageDefinition} />
       </div>
 
       <AddQuestionToAssessmentDialog
@@ -296,7 +312,9 @@ function AssessmentEditorPage() {
         open={pendingStatus !== null}
         onOpenChange={(open) => !open && setPendingStatus(null)}
         title={pendingStatus ? `${STATUS_ACTION_LABEL[pendingStatus]} assessment` : ''}
-        description={pendingStatus ? `${assessment.title} ${STATUS_CONFIRM_DESCRIPTION[pendingStatus]}` : undefined}
+        description={
+          pendingStatus ? `${assessment.title} ${STATUS_CONFIRM_DESCRIPTION[pendingStatus]}` : undefined
+        }
         confirmLabel={pendingStatus ? STATUS_ACTION_LABEL[pendingStatus] : 'Confirm'}
         destructive={pendingStatus === 'ARCHIVED'}
         onConfirm={() => void handleUpdateStatus()}

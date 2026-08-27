@@ -117,22 +117,11 @@ function ProfileSettingsCard() {
               />
               {sizeError ? <p className="text-sm text-destructive">{sizeError}</p> : null}
               <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={!selectedFile || isBusy}
-                  onClick={handleUpload}
-                >
+                <Button type="button" size="sm" disabled={!selectedFile || isBusy} onClick={handleUpload}>
                   {uploadAvatarMutation.isPending ? 'Uploading...' : 'Upload'}
                 </Button>
                 {hasAvatar ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={isBusy}
-                    onClick={handleRemove}
-                  >
+                  <Button type="button" variant="outline" size="sm" disabled={isBusy} onClick={handleRemove}>
                     {deleteAvatarMutation.isPending ? 'Removing...' : 'Remove'}
                   </Button>
                 ) : null}

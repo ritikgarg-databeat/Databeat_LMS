@@ -35,7 +35,9 @@ const LEVEL_COLOR: Record<1 | 2 | 3 | 4, string> = {
 const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 
 function totalEvents(point: DailyActivityPoint): number {
-  return point.logins + point.lessonsCompleted + point.assessmentsSubmitted + point.aiMessages + point.qnaPosts;
+  return (
+    point.logins + point.lessonsCompleted + point.assessmentsSubmitted + point.aiMessages + point.qnaPosts
+  );
 }
 
 function dateKey(date: Date): string {
@@ -118,9 +120,9 @@ function ActivityHeatmap({ data, weeks = 13, className }: ActivityHeatmapProps) 
     const monday = column.cells[0]?.date;
     if (!monday) return null;
     if (week === 0) {
-      const upcoming = columns.slice(1, 3).some(
-        (near) => near.cells[0] && near.cells[0].date.getMonth() !== monday.getMonth(),
-      );
+      const upcoming = columns
+        .slice(1, 3)
+        .some((near) => near.cells[0] && near.cells[0].date.getMonth() !== monday.getMonth());
       return upcoming ? null : monday.toLocaleDateString('en-US', { month: 'short' });
     }
     const previousMonday = columns[week - 1]?.cells[0]?.date;
@@ -158,7 +160,10 @@ function ActivityHeatmap({ data, weeks = 13, className }: ActivityHeatmapProps) 
                   <div
                     key={cell.key}
                     title={`${cell.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${cell.total} ${cell.total === 1 ? 'activity' : 'activities'}`}
-                    className={cn('size-3 rounded-[3px]', cell.level === 0 && 'border border-border bg-transparent')}
+                    className={cn(
+                      'size-3 rounded-[3px]',
+                      cell.level === 0 && 'border border-border bg-transparent',
+                    )}
                     style={cell.level !== 0 ? { backgroundColor: LEVEL_COLOR[cell.level] } : undefined}
                   />
                 ))}

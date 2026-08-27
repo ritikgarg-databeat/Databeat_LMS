@@ -6,11 +6,7 @@ import type { PaginatedData } from '@/types/common';
 import { ConflictError, NotFoundError } from '@/utils/app-error';
 import { buildPaginationMeta } from '@/utils/pagination.util';
 
-import type {
-  CreateDepartmentDto,
-  UpdateDepartmentDto,
-  UpdateDepartmentStatusDto,
-} from './departments.dto';
+import type { CreateDepartmentDto, UpdateDepartmentDto, UpdateDepartmentStatusDto } from './departments.dto';
 import { DepartmentsRepository } from './departments.repository';
 import type { DepartmentListFilters, DepartmentSortField, SortOrder } from './departments.types';
 

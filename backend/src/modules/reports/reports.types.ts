@@ -21,11 +21,13 @@ export interface CsvExport {
 export interface AccessibleCourse {
   id: string;
   title: string;
+  isMandatory: boolean;
 }
 
 /** One user's recorded progress on one lesson (the subset of LessonProgress the reports need). */
 export interface LessonProgressCell {
   status: LessonProgressStatus;
+  completedContentVersion: number | null;
   timeSpentSeconds: number;
   lastViewedAt: Date | null;
 }
@@ -40,6 +42,8 @@ export interface ProgressComputation {
   coursesByUser: Map<string, AccessibleCourse[]>;
   /** Published lessons (in published modules) per course — the completion denominator. */
   lessonIdsByCourse: Map<string, string[]>;
+  /** Current content version per published lesson, used to reject stale completions. */
+  lessonVersionById: Map<string, number>;
   /** userId → lessonId → progress row. Absent entries mean NOT_STARTED / no time recorded. */
   progressByUser: Map<string, Map<string, LessonProgressCell>>;
 }

@@ -43,10 +43,11 @@ export class AuthController extends BaseController {
 
   refresh = async (req: Request, res: Response): Promise<void> => {
     const refreshToken = req.cookies[REFRESH_TOKEN_COOKIE] as string | undefined;
-    const { accessToken, refreshToken: newRefreshToken, rememberMe } = await this.service.refresh(
-      refreshToken,
-      this.requestContext(req),
-    );
+    const {
+      accessToken,
+      refreshToken: newRefreshToken,
+      rememberMe,
+    } = await this.service.refresh(refreshToken, this.requestContext(req));
 
     setRefreshTokenCookie(res, newRefreshToken, rememberMe);
     this.ok(res, { accessToken }, 'Session refreshed.');

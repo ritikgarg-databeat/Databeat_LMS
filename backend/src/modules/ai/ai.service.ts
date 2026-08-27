@@ -89,6 +89,7 @@ export class AiService extends BaseService {
       explanationLevel: dto.explanationLevel,
       lessonContext,
       learningScopeContext,
+      responseLanguage: dto.responseLanguage ?? 'English',
     };
     const systemPrompt = promptManager.buildSystemPrompt(promptInput);
 

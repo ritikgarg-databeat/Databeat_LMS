@@ -68,7 +68,10 @@ export class UsersRepository extends BaseRepository {
 
   async isDepartmentInTrainerScope(departmentId: string, trainerId: string): Promise<boolean> {
     const [trainer, group] = await Promise.all([
-      this.db.user.findFirst({ where: { id: trainerId, role: 'TRAINER', departmentId }, select: { id: true } }),
+      this.db.user.findFirst({
+        where: { id: trainerId, role: 'TRAINER', departmentId },
+        select: { id: true },
+      }),
       this.db.group.findFirst({ where: { trainerId, departmentId, deletedAt: null }, select: { id: true } }),
     ]);
     return trainer !== null || group !== null;

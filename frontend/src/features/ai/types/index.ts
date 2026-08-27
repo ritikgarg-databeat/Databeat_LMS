@@ -14,6 +14,8 @@ export type AiFeature =
   | 'GENERATE_VIDEO';
 
 export type AiExplanationLevel = 'BEGINNER' | 'DETAILED' | 'INTERVIEW';
+export type AiResponseLanguage =
+  'English' | 'Hindi' | 'Spanish' | 'French' | 'German' | 'Portuguese' | 'Japanese';
 
 export interface AiVideoGeneration {
   id: string;
@@ -68,6 +70,7 @@ export interface ChatRequestPayload {
   message: string;
   feature?: AiFeature;
   explanationLevel?: AiExplanationLevel;
+  responseLanguage?: AiResponseLanguage;
 }
 
 export interface ChatResponse {

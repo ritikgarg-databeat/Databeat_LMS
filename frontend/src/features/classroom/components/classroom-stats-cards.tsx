@@ -32,8 +32,18 @@ function ClassroomStatsCards() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Total Courses" value={data?.totalCourses ?? 0} icon={BookOpen} isLoading={isLoading} />
-        <StatCard label="Published" value={data?.publishedCourses ?? 0} icon={CheckCircle2} isLoading={isLoading} />
+        <StatCard
+          label="Total Courses"
+          value={data?.totalCourses ?? 0}
+          icon={BookOpen}
+          isLoading={isLoading}
+        />
+        <StatCard
+          label="Published"
+          value={data?.publishedCourses ?? 0}
+          icon={CheckCircle2}
+          isLoading={isLoading}
+        />
         <StatCard label="Draft" value={data?.draftCourses ?? 0} icon={FileEdit} isLoading={isLoading} />
         <StatCard label="Archived" value={data?.archivedCourses ?? 0} icon={Archive} isLoading={isLoading} />
         <StatCard

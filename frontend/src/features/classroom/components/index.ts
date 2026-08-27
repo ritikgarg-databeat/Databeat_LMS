@@ -16,6 +16,7 @@ export * from './lesson-content-renderer';
 export * from './lesson-navigation';
 export * from './lesson-resource-manager';
 export * from './lesson-video-studio';
+export * from './mandatory-course-badge';
 export * from './module-lesson-tree';
 export * from './resource-type-icon';
 export * from './trainee-progress-summary-card';

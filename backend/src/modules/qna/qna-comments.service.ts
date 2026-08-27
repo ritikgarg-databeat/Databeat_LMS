@@ -22,7 +22,9 @@ export class QnaCommentsService extends BaseService {
       throw new BadRequestError('Provide exactly one of questionId or answerId.');
     }
 
-    const targetQuestionId = answerId ? await this.resolveQuestionIdFromAnswer(answerId) : (questionId as string);
+    const targetQuestionId = answerId
+      ? await this.resolveQuestionIdFromAnswer(answerId)
+      : (questionId as string);
     await this.assertQuestionAccessible(targetQuestionId, actor);
 
     const created = await this.repository.create({
@@ -41,9 +43,14 @@ export class QnaCommentsService extends BaseService {
     if (!comment) throw new NotFoundError('Comment not found.');
 
     const isOwner = comment.authorId === actor.id;
-    const isStaff = actor.role === 'TRAINER' || actor.role === 'SUPER_ADMIN';
-    if (!isOwner && !isStaff) {
-      throw new ForbiddenError("You don't have permission to delete this comment.");
+    if (!isOwner && actor.role !== 'SUPER_ADMIN') {
+      if (actor.role !== 'TRAINER') {
+        throw new ForbiddenError("You don't have permission to delete this comment.");
+      }
+      const questionId =
+        comment.questionId ?? (await this.resolveQuestionIdFromAnswer(comment.answerId as string));
+      const accessible = await this.repository.isQuestionAccessibleToUser(questionId, actor.id, actor.role);
+      if (!accessible) throw new ForbiddenError("You don't have permission to delete this comment.");
     }
 
     await this.repository.delete(id);

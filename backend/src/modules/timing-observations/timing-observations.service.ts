@@ -1,14 +1,25 @@
+import type { Role } from '@prisma/client';
+
 import { BaseService } from '@/services/base.service';
 import type { PaginatedData } from '@/types/common';
 import { BadRequestError, NotFoundError } from '@/utils/app-error';
 import { buildPaginationMeta } from '@/utils/pagination.util';
 
 import type { CreateTimingObservationDto } from './timing-observations.dto';
-import { TimingObservationsRepository, type TimingObservationWithRelations } from './timing-observations.repository';
-import type { TimingObservationListFilters, TimingObservationStats, TimingObservationView, TimingStatSummary } from './timing-observations.types';
+import {
+  TimingObservationsRepository,
+  type TimingObservationWithRelations,
+} from './timing-observations.repository';
+import type {
+  TimingObservationListFilters,
+  TimingObservationStats,
+  TimingObservationView,
+  TimingStatSummary,
+} from './timing-observations.types';
 
 interface Actor {
   id: string;
+  role: Role;
 }
 
 function mean(values: number[]): number | null {
@@ -28,15 +39,17 @@ function summarize(values: number[]): TimingStatSummary {
  * never reads from a cache, and reports explicit `null`s (never a placeholder) when `n` is 0.
  */
 export class TimingObservationsService extends BaseService {
-  constructor(protected readonly repository: TimingObservationsRepository = new TimingObservationsRepository()) {
+  constructor(
+    protected readonly repository: TimingObservationsRepository = new TimingObservationsRepository(),
+  ) {
     super();
   }
 
   async create(dto: CreateTimingObservationDto, actor: Actor): Promise<TimingObservationView> {
-    const course = await this.repository.findCourseById(dto.courseId);
+    const course = await this.repository.findCourseById(dto.courseId, actor);
     if (!course) throw new NotFoundError('Course not found.');
 
-    const lesson = await this.repository.findLessonWithCourse(dto.lessonId);
+    const lesson = await this.repository.findLessonWithCourse(dto.lessonId, actor);
     if (!lesson) throw new NotFoundError('Lesson not found.');
     if (lesson.courseId !== dto.courseId) {
       throw new BadRequestError('This lesson does not belong to the selected course.');
@@ -53,13 +66,23 @@ export class TimingObservationsService extends BaseService {
     return this.toView(created);
   }
 
-  async list(filters: TimingObservationListFilters, page: number, pageSize: number): Promise<PaginatedData<TimingObservationView>> {
-    const { items, total } = await this.repository.findMany(filters, (page - 1) * pageSize, pageSize);
-    return { items: items.map((item) => this.toView(item)), meta: buildPaginationMeta(page, pageSize, total) };
+  async list(
+    filters: TimingObservationListFilters,
+    actor: Actor,
+    page: number,
+    pageSize: number,
+  ): Promise<PaginatedData<TimingObservationView>> {
+    const scopedFilters = actor.role === 'TRAINER' ? { ...filters, trainerId: actor.id } : filters;
+    const { items, total } = await this.repository.findMany(scopedFilters, (page - 1) * pageSize, pageSize);
+    return {
+      items: items.map((item) => this.toView(item)),
+      meta: buildPaginationMeta(page, pageSize, total),
+    };
   }
 
-  async stats(filters: TimingObservationListFilters): Promise<TimingObservationStats> {
-    const rows = await this.repository.findAllForStats(filters);
+  async stats(filters: TimingObservationListFilters, actor: Actor): Promise<TimingObservationStats> {
+    const scopedFilters = actor.role === 'TRAINER' ? { ...filters, trainerId: actor.id } : filters;
+    const rows = await this.repository.findAllForStats(scopedFilters);
 
     const manualValues = rows.map((row) => row.manualDurationSeconds);
     const aiValues = rows.map((row) => row.aiAssistedDurationSeconds);

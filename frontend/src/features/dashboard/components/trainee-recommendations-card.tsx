@@ -1,10 +1,4 @@
-import {
-  AlertTriangle,
-  ClipboardList,
-  GraduationCap,
-  Lightbulb,
-  Sparkles,
-} from 'lucide-react';
+import { AlertTriangle, ClipboardList, GraduationCap, Lightbulb, Sparkles } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';

@@ -56,6 +56,7 @@ export interface ContinueLearningDashboardItem {
 export interface TraineeCourseProgress {
   courseId: string;
   title: string;
+  isMandatory: boolean;
   completionPercentage: number;
   status: DashboardCourseStatus;
 }

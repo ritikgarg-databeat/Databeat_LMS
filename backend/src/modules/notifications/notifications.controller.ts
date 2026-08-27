@@ -20,7 +20,12 @@ export class NotificationsController extends BaseController {
     const query = req.query as ListNotificationsQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
 
-    const result = await this.service.list(req.user.id, { unreadOnly: query.unreadOnly === 'true' }, page, pageSize);
+    const result = await this.service.list(
+      req.user.id,
+      { unreadOnly: query.unreadOnly === 'true' },
+      page,
+      pageSize,
+    );
     this.ok(res, result);
   };
 

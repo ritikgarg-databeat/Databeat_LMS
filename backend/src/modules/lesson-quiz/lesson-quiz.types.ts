@@ -21,6 +21,7 @@ export interface LessonContentForQuiz {
   lessonDescription: string | null;
   content: string;
   contentVersion: number;
+  isMandatory: boolean;
   /** True when a file exists but cannot provide reliable text (scan, image, video, or failure). */
   hasOpaqueFileContent: boolean;
 }

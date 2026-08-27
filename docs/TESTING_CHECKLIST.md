@@ -244,6 +244,10 @@ role-based manual workflow checks below.
       deadline-approaching notification for each assigned trainee who hasn't yet submitted.
 - [ ] Running the reminder job twice in a row never sends a duplicate notification for the same
       assessment/trainee pair.
+- [ ] An incomplete assigned mandatory course creates a reminder, a current-version completed
+      course does not, and the same trainee/course is not reminded again within seven days.
+- [ ] The same shared course can be mandatory for one trainer's group and optional for another;
+      reminders, sequencing, quiz gates, analytics, and exports follow each assignment.
 - [ ] A slow job does not overlap its next scheduled execution.
 - [ ] A trainee who opens their own notification list before the scheduled run still gets the
       reminder (the lazy, on-access check is a real safety net, not dead code).
@@ -264,6 +268,20 @@ role-based manual workflow checks below.
       if Super Admin) — a different Trainer's group returns 403, not another trainer's data.
 
 ## Cross-cutting
+
+- [ ] A Trainer can browse and assign another Trainer's published course to their own active
+      group, but cannot edit/delete its master content or view/change the other Trainer's group
+      assignments; duplicating it creates an independently editable draft.
+- [ ] Executive Analysis is organization-wide for Super Admin, while Team Performance and every
+      drill-down/export remain limited to the Trainer's active owned groups.
+- [ ] Mandatory compliance CSV distinguishes compliant/in-progress/not-started learners and does
+      not count a stale `completedContentVersion` as compliant.
+- [ ] AI Tutor returns grounded answers in each supported selected language without weakening an
+      irrelevant-question refusal.
+- [ ] Completing every current lesson shows the summary and downloads a valid SVG certificate;
+      an incomplete course never shows the certificate action.
+- [ ] A production frontend build exposes a valid manifest, registers `sw.js`, supports install
+      in a compatible browser, and never caches `/api/*` responses.
 
 - [ ] Responsive layout holds at desktop, tablet, and mobile widths on the landing page, login,
       both dashboards, and at least one data table/form-heavy screen (no horizontal overflow,

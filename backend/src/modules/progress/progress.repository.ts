@@ -1,12 +1,18 @@
 import type { LessonProgressStatus, Prisma } from '@prisma/client';
 
 import { activeGroupScope } from '@/policies/group-access.policy';
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const lessonHierarchyInclude = {
   module: {
-    select: { id: true, title: true, isPublished: true, courseId: true },
+    select: {
+      id: true,
+      title: true,
+      isPublished: true,
+      courseId: true,
+      course: { select: { id: true, isMandatory: true } },
+    },
   },
 } satisfies Prisma.LessonInclude;
 
@@ -84,10 +90,22 @@ export class ProgressRepository extends BaseRepository {
 
   async isCourseInTrainerScope(trainerId: string, courseId: string): Promise<boolean> {
     const course = await this.db.course.findFirst({
-      where: { id: courseId, deletedAt: null, ...trainerCourseScope(trainerId) },
+      where: { AND: [{ id: courseId, deletedAt: null }, trainerCourseCatalogScope(trainerId)] },
       select: { id: true },
     });
     return course !== null;
+  }
+
+  async isCourseMandatoryForUser(userId: string, courseId: string): Promise<boolean> {
+    const assignment = await this.db.courseGroupAssignment.findFirst({
+      where: {
+        courseId,
+        isMandatory: true,
+        group: activeGroupScope({ members: { some: { userId } } }),
+      },
+      select: { id: true },
+    });
+    return assignment !== null;
   }
 
   /** Distinct PUBLISHED, non-deleted course ids accessible to a user via their group memberships. */
@@ -112,15 +130,17 @@ export class ProgressRepository extends BaseRepository {
     });
   }
 
-  countCompletedLessonsForUser(userId: string, courseIds: string[]): Promise<number> {
+  async countCompletedLessonsForUser(userId: string, courseIds: string[]): Promise<number> {
     if (!courseIds.length) return Promise.resolve(0);
-    return this.db.lessonProgress.count({
+    const rows = await this.db.lessonProgress.findMany({
       where: {
         userId,
         status: 'COMPLETED',
         lesson: { isPublished: true, module: { isPublished: true, courseId: { in: courseIds } } },
       },
+      select: { completedContentVersion: true, lesson: { select: { contentVersion: true } } },
     });
+    return rows.filter((row) => row.completedContentVersion === row.lesson.contentVersion).length;
   }
 
   async sumTimeSpentForUser(userId: string): Promise<number> {
@@ -184,5 +204,34 @@ export class ProgressRepository extends BaseRepository {
   findProgressForLessons(userId: string, lessonIds: string[]) {
     if (!lessonIds.length) return Promise.resolve([]);
     return this.db.lessonProgress.findMany({ where: { userId, lessonId: { in: lessonIds } } });
+  }
+
+  findPublishedCourseSequence(courseId: string, userId: string) {
+    return this.db.lesson.findMany({
+      where: { isPublished: true, module: { courseId, isPublished: true } },
+      orderBy: [{ module: { order: 'asc' } }, { order: 'asc' }],
+      select: {
+        id: true,
+        contentVersion: true,
+        progress: {
+          where: { userId },
+          select: { status: true, completedContentVersion: true },
+        },
+      },
+    });
+  }
+
+  findResourceCompletionState(lessonId: string, userId: string) {
+    return this.db.lessonResource.findMany({
+      where: { lessonId },
+      select: {
+        id: true,
+        contentVersion: true,
+        progress: {
+          where: { userId },
+          select: { status: true, completedContentVersion: true },
+        },
+      },
+    });
   }
 }

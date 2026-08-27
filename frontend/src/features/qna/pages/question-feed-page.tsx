@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/pagination';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ROUTES } from '@/constants/routes';
 import { useDebounce } from '@/hooks/use-debounce';
 
 import { QuestionCard } from '../components/question-card';
@@ -38,8 +39,7 @@ const SORT_OPTIONS: { value: 'newest' | 'votes'; label: string }[] = [
 
 function QuestionFeedPage() {
   const isTraineeRoute = useLocation().pathname.startsWith('/trainee');
-  // TODO(orchestrator): promote to ROUTES.TRAINER.QNA / ROUTES.TRAINEE.QNA once added to routes.ts.
-  const basePath = isTraineeRoute ? '/trainee/qna' : '/trainer/qna';
+  const basePath = isTraineeRoute ? ROUTES.TRAINEE.QNA : ROUTES.TRAINER.QNA;
 
   const [searchParams] = useSearchParams();
 

@@ -24,6 +24,8 @@ import type {
   GroupsAnalyticsFilters,
   LeaderboardEntry,
   LeaderboardFilters,
+  LiveAnalyticsFilters,
+  LiveAnalyticsOverview,
   LessonFunnelStep,
   RefreshResult,
   UserAnalytics,
@@ -60,6 +62,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 //   - Course/assessment analytics are the exception: content-level, staff-wide — see
 //     getCourseAnalytics's doc comment.
 export class AnalyticsService extends BaseService {
+  private readonly overviewCache = new Map<string, { expiresAt: number; value: LiveAnalyticsOverview }>();
   constructor(
     protected readonly repository: AnalyticsRepository = new AnalyticsRepository(),
     protected readonly aggregation: AggregationService = aggregationService,
@@ -95,6 +98,270 @@ export class AnalyticsService extends BaseService {
         ...this.aggregateMemberSnapshots(memberSnapshots),
       };
     });
+  }
+
+  async getOverview(actor: Actor, filters: LiveAnalyticsFilters): Promise<LiveAnalyticsOverview> {
+    const cacheKey = `${actor.role}:${actor.id}:${JSON.stringify(filters)}`;
+    const cached = this.overviewCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+    const trainerGroupIds =
+      actor.role === 'SUPER_ADMIN' ? undefined : await this.repository.findTrainerGroupIds(actor.id);
+    if (filters.groupId && trainerGroupIds && !trainerGroupIds.includes(filters.groupId)) {
+      throw new ForbiddenError("You don't have permission to view this group's analytics.");
+    }
+
+    const [population, allGroups, courses, assessments] = await Promise.all([
+      this.repository.findLeaderboardPopulation({
+        trainerGroupIds,
+        groupId: filters.groupId,
+        departmentId: filters.departmentId,
+        courseId: filters.courseId,
+        assessmentId: filters.assessmentId,
+      }),
+      this.getGroupsAnalytics(actor, { departmentId: filters.departmentId }),
+      this.repository.findOverviewCourses({
+        trainerGroupIds,
+        groupId: filters.groupId,
+        courseId: filters.courseId,
+      }),
+      this.repository.findOverviewAssessments({
+        trainerGroupIds,
+        groupId: filters.groupId,
+        assessmentId: filters.assessmentId,
+      }),
+    ]);
+
+    const userIds = population.map((user) => user.id);
+    const sinceDay = addUtcDays(toUtcDayString(new Date()), -(filters.rangeDays - 1));
+    const since = utcDayToDate(sinceDay);
+    const snapshots = await this.aggregation.ensureUserSnapshots(userIds);
+    const snapshotByUser = new Map(snapshots.map((snapshot) => [snapshot.userId, snapshot]));
+
+    const courseIds = courses.map((course) => course.id);
+    const assessmentIds = assessments.map((assessment) => assessment.id);
+    const [
+      activityRows,
+      courseAssignments,
+      courseLessons,
+      assessmentAssignments,
+      assessmentAttempts,
+      integrityCounts,
+    ] = await Promise.all([
+      this.repository.findDailyActivityForUsers(userIds, since),
+      this.repository.findCourseAssignmentsForUsers(
+        courseIds,
+        userIds,
+        filters.groupId ? [filters.groupId] : trainerGroupIds,
+      ),
+      this.repository.findCourseLessonsWithProgress(courseIds, userIds),
+      this.repository.findAssessmentAssignmentsForUsers(
+        assessmentIds,
+        userIds,
+        filters.groupId ? [filters.groupId] : trainerGroupIds,
+      ),
+      this.repository.findAssessmentAttemptsForUsers(assessmentIds, userIds),
+      this.repository.findIntegrityEventCounts(userIds, since, filters.assessmentId),
+    ]);
+
+    const assignedCourseUsers = new Map<string, Set<string>>();
+    const mandatoryCourseUsers = new Map<string, Set<string>>();
+    for (const assignment of courseAssignments) {
+      const users = assignedCourseUsers.get(assignment.courseId) ?? new Set<string>();
+      assignment.group.members.forEach((member) => users.add(member.userId));
+      assignedCourseUsers.set(assignment.courseId, users);
+      if (assignment.isMandatory) {
+        const mandatoryUsers = mandatoryCourseUsers.get(assignment.courseId) ?? new Set<string>();
+        assignment.group.members.forEach((member) => mandatoryUsers.add(member.userId));
+        mandatoryCourseUsers.set(assignment.courseId, mandatoryUsers);
+      }
+    }
+    const lessonsByCourse = new Map<string, typeof courseLessons>();
+    for (const lesson of courseLessons) {
+      const lessons = lessonsByCourse.get(lesson.module.courseId) ?? [];
+      lessons.push(lesson);
+      lessonsByCourse.set(lesson.module.courseId, lessons);
+    }
+    const courseRows = courses.map((course) => {
+      const assignedUsers = assignedCourseUsers.get(course.id) ?? new Set<string>();
+      const mandatoryUsers = mandatoryCourseUsers.get(course.id) ?? new Set<string>();
+      const lessons = lessonsByCourse.get(course.id) ?? [];
+      let startedCount = 0;
+      let completedCount = 0;
+      let mandatoryStartedCount = 0;
+      let mandatoryCompletedCount = 0;
+      for (const userId of assignedUsers) {
+        const progress = lessons.map((lesson) => lesson.progress.find((row) => row.userId === userId));
+        const started = progress.some(Boolean);
+        const completed =
+          lessons.length > 0 &&
+          lessons.every((lesson, index) => {
+            const row = progress[index];
+            return row?.status === 'COMPLETED' && row.completedContentVersion === lesson.contentVersion;
+          });
+        if (started) startedCount += 1;
+        if (completed) completedCount += 1;
+        if (mandatoryUsers.has(userId)) {
+          if (started) mandatoryStartedCount += 1;
+          if (completed) mandatoryCompletedCount += 1;
+        }
+      }
+      return {
+        courseId: course.id,
+        title: course.title,
+        isMandatory: mandatoryUsers.size > 0,
+        assignedTrainees: assignedUsers.size,
+        startedCount,
+        completedCount,
+        completionRate: percentage(completedCount, assignedUsers.size),
+        averageScore: null,
+        mandatoryAssignedTrainees: mandatoryUsers.size,
+        mandatoryStartedCount,
+        mandatoryCompletedCount,
+      };
+    });
+    const assignedAssessmentUsers = new Map<string, Set<string>>();
+    for (const assignment of assessmentAssignments) {
+      const users = assignedAssessmentUsers.get(assignment.assessmentId) ?? new Set<string>();
+      assignment.group.members.forEach((member) => users.add(member.userId));
+      assignedAssessmentUsers.set(assignment.assessmentId, users);
+    }
+    const latestAttemptByAssessmentUser = new Map<string, (typeof assessmentAttempts)[number]>();
+    for (const attempt of assessmentAttempts) {
+      const key = `${attempt.assessmentId}:${attempt.userId}`;
+      if (!latestAttemptByAssessmentUser.has(key)) latestAttemptByAssessmentUser.set(key, attempt);
+    }
+    const assessmentRows = assessments.map((assessment) => {
+      const assignedUsers = assignedAssessmentUsers.get(assessment.id) ?? new Set<string>();
+      const attempts = [...assignedUsers]
+        .map((userId) => latestAttemptByAssessmentUser.get(`${assessment.id}:${userId}`))
+        .filter((attempt): attempt is NonNullable<typeof attempt> => Boolean(attempt));
+      const scores = attempts
+        .map((attempt) => attempt.percentage)
+        .filter((score): score is number => score !== null);
+      const graded = attempts.filter((attempt) => attempt.passed !== null);
+      return {
+        assessmentId: assessment.id,
+        title: assessment.title,
+        assignedTrainees: assignedUsers.size,
+        participationRate: percentage(attempts.length, assignedUsers.size),
+        averageScore: scores.length ? round1(mean(scores) ?? 0) : null,
+        passRate: graded.length
+          ? percentage(graded.filter((attempt) => attempt.passed).length, graded.length)
+          : null,
+      };
+    });
+
+    const scored = snapshots
+      .map((snapshot) => snapshot.averageScore)
+      .filter((score): score is number => score !== null);
+    const activeCutoff = Date.now() - filters.rangeDays * MS_PER_DAY;
+    const mandatoryRows = courseRows.filter((course) => course.isMandatory);
+    const mandatoryAssigned = mandatoryRows.reduce(
+      (sum, course) => sum + course.mandatoryAssignedTrainees,
+      0,
+    );
+    const mandatoryCompleted = mandatoryRows.reduce((sum, course) => sum + course.mandatoryCompletedCount, 0);
+
+    const leaderboard = population
+      .map((user) => {
+        const snapshot = snapshotByUser.get(user.id);
+        return {
+          userId: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          groupNames: user.groupMemberships.map((membership) => membership.group.name),
+          completionPercentage: snapshot?.completionPercentage ?? 0,
+          averageScore: snapshot?.averageScore ?? null,
+          activityEvents7d: snapshot?.activityEvents7d ?? 0,
+          performanceScore: snapshot?.performanceScore ?? 0,
+        };
+      })
+      .sort(
+        (a, b) => b.performanceScore - a.performanceScore || b.completionPercentage - a.completionPercentage,
+      )
+      .slice(0, 10)
+      .map((entry, index) => ({ rank: index + 1, ...entry }));
+
+    const value: LiveAnalyticsOverview = {
+      generatedAt: new Date(),
+      rangeDays: filters.rangeDays,
+      summary: {
+        totalTrainees: population.length,
+        activeTrainees: snapshots.filter(
+          (snapshot) => snapshot.lastActivityAt && snapshot.lastActivityAt.getTime() >= activeCutoff,
+        ).length,
+        learningHours: round1(snapshots.reduce((sum, snapshot) => sum + snapshot.timeSpentSeconds, 0) / 3600),
+        averageCompletion: round1(mean(snapshots.map((snapshot) => snapshot.completionPercentage)) ?? 0),
+        averageScore: scored.length ? round1(mean(scored) ?? 0) : null,
+        passRate: snapshots.reduce((sum, snapshot) => sum + snapshot.assessmentsTaken, 0)
+          ? percentage(
+              snapshots.reduce((sum, snapshot) => sum + snapshot.assessmentsPassed, 0),
+              snapshots.reduce((sum, snapshot) => sum + snapshot.assessmentsTaken, 0),
+            )
+          : null,
+        mandatoryCompletion: percentage(mandatoryCompleted, mandatoryAssigned),
+      },
+      activityTimeline: this.zeroFilledTimeline(filters.rangeDays, activityRows),
+      completionDistribution: [
+        {
+          status: 'NOT_STARTED',
+          count: snapshots.filter((snapshot) => snapshot.completionPercentage === 0).length,
+        },
+        {
+          status: 'IN_PROGRESS',
+          count: snapshots.filter(
+            (snapshot) => snapshot.completionPercentage > 0 && snapshot.completionPercentage < 100,
+          ).length,
+        },
+        {
+          status: 'COMPLETED',
+          count: snapshots.filter((snapshot) => snapshot.completionPercentage === 100).length,
+        },
+      ],
+      groups: filters.groupId ? allGroups.filter((group) => group.groupId === filters.groupId) : allGroups,
+      courses: courseRows.map(
+        ({
+          mandatoryAssignedTrainees: _assigned,
+          mandatoryStartedCount: _started,
+          mandatoryCompletedCount: _completed,
+          ...course
+        }) => course,
+      ),
+      assessments: assessmentRows,
+      mandatoryCompliance: mandatoryRows.map((course) => ({
+        courseId: course.courseId,
+        title: course.title,
+        assigned: course.mandatoryAssignedTrainees,
+        completed: course.mandatoryCompletedCount,
+        inProgress: Math.max(0, course.mandatoryStartedCount - course.mandatoryCompletedCount),
+        notStarted: Math.max(0, course.mandatoryAssignedTrainees - course.mandatoryStartedCount),
+        completionRate: percentage(course.mandatoryCompletedCount, course.mandatoryAssignedTrainees),
+      })),
+      leaderboard,
+      atRiskTrainees: population
+        .map((user) => ({ user, snapshot: snapshotByUser.get(user.id) }))
+        .filter(({ snapshot }) =>
+          Boolean(
+            snapshot &&
+            (snapshot.completionPercentage < 50 ||
+              !snapshot.lastActivityAt ||
+              snapshot.lastActivityAt.getTime() < Date.now() - 7 * MS_PER_DAY),
+          ),
+        )
+        .sort((a, b) => (a.snapshot?.performanceScore ?? 0) - (b.snapshot?.performanceScore ?? 0))
+        .slice(0, 10)
+        .map(({ user, snapshot }) => ({
+          userId: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          completionPercentage: snapshot?.completionPercentage ?? 0,
+          averageScore: snapshot?.averageScore ?? null,
+          lastActivityAt: snapshot?.lastActivityAt ?? null,
+        })),
+      integrityEvents: integrityCounts.map((entry) => ({ type: entry.type, count: entry._count._all })),
+    };
+
+    this.overviewCache.set(cacheKey, { value, expiresAt: Date.now() + 60_000 });
+    return value;
   }
 
   /** Group detail: summary, member ranking, and a zero-filled 30-day activity timeline. */
@@ -285,9 +552,14 @@ export class AnalyticsService extends BaseService {
    * course, Prompt 5), so the per-trainer scoping deliberately does NOT apply here. User/group
    * analytics are where the stricter trainer scoping bites.
    */
-  async getCourseAnalytics(courseId: string, _actor: Actor): Promise<CourseAnalytics> {
+  async getCourseAnalytics(courseId: string, actor: Actor): Promise<CourseAnalytics> {
     const course = await this.repository.findCourseSummary(courseId);
     if (!course) throw new NotFoundError('Course not found.');
+    if (actor.role === 'TRAINER' && course.createdById !== actor.id) {
+      throw new ForbiddenError(
+        'Organization-wide course analytics are available only to the course owner. Use Team Performance for your groups.',
+      );
+    }
 
     await this.aggregation.ensureCourseSnapshot(courseId);
     const snapshot = await this.repository.findCourseSnapshot(courseId);
@@ -307,9 +579,14 @@ export class AnalyticsService extends BaseService {
   }
 
   /** Same content-level, staff-wide pattern as getCourseAnalytics. */
-  async getAssessmentAnalytics(assessmentId: string, _actor: Actor): Promise<AssessmentAnalytics> {
+  async getAssessmentAnalytics(assessmentId: string, actor: Actor): Promise<AssessmentAnalytics> {
     const assessment = await this.repository.findAssessmentSummary(assessmentId);
     if (!assessment) throw new NotFoundError('Assessment not found.');
+    if (actor.role === 'TRAINER' && assessment.createdById !== actor.id) {
+      throw new ForbiddenError(
+        'Organization-wide assessment analytics are available only to the assessment owner. Use Team Performance for your groups.',
+      );
+    }
 
     await this.aggregation.ensureAssessmentSnapshot(assessmentId);
     const snapshot = await this.repository.findAssessmentSnapshot(assessmentId);
@@ -424,7 +701,8 @@ export class AnalyticsService extends BaseService {
           if (progress) {
             result.started += 1;
             result.timeSpentSeconds += progress.timeSpentSeconds;
-            if (progress.status === 'COMPLETED') result.completed += 1;
+            if (progress.status === 'COMPLETED' && progress.completedContentVersion === lesson.contentVersion)
+              result.completed += 1;
           }
           return result;
         },
@@ -439,6 +717,7 @@ export class AnalyticsService extends BaseService {
       return {
         courseId: course.id,
         title: course.title,
+        isMandatory: course.groupAssignments.length > 0,
         completionPercentage: percentage(tally.completed, tally.total),
         status,
         timeSpentSeconds: tally.timeSpentSeconds,

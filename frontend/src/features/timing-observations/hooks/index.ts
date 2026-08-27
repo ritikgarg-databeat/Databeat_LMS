@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { timingObservationsApi } from '../services';
-import type { CreateTimingObservationPayload, TimingObservationListFilters, TimingObservationListParams } from '../types';
+import type {
+  CreateTimingObservationPayload,
+  TimingObservationListFilters,
+  TimingObservationListParams,
+} from '../types';
 
 const TIMING_OBSERVATIONS_LIST_QUERY_KEY = 'timing-observations-list';
 const TIMING_OBSERVATIONS_STATS_QUERY_KEY = 'timing-observations-stats';

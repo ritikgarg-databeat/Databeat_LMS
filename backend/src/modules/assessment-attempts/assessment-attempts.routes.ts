@@ -49,6 +49,12 @@ router.post(
   controller.uploadAnswer,
 );
 router.post('/mine/submit', traineeOnly, controller.submit);
+router.post(
+  '/mine/integrity-events',
+  traineeOnly,
+  assessmentAttemptsValidation.integrityEvent,
+  controller.recordIntegrityEvent,
+);
 
 router.get('/', staffOnly, assessmentAttemptsValidation.listAttempts, controller.list);
 router.get('/:attemptId', staffOnly, assessmentAttemptsValidation.attemptDetail, controller.getDetail);

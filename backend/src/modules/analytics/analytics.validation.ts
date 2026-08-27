@@ -7,6 +7,13 @@ import { VALIDATION_MESSAGES } from '@/constants/validation-messages';
 // params are validated at the routing layer via the shared `idParamValidator`
 // (@/validators/common.validators), following every other module's convention.
 export const analyticsValidation = {
+  overview: [
+    query('rangeDays').optional().isIn(['7', '30', '90']).withMessage('rangeDays must be 7, 30, or 90.'),
+    query('departmentId').optional().isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('departmentId')),
+    query('groupId').optional().isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId')),
+    query('courseId').optional().isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('courseId')),
+    query('assessmentId').optional().isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('assessmentId')),
+  ],
   groups: [
     query('departmentId').optional().isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('departmentId')),
   ],

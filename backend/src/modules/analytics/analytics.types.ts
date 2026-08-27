@@ -75,6 +75,7 @@ export interface GroupAnalyticsDetail {
 export interface UserCourseAnalyticsRow {
   courseId: string;
   title: string;
+  isMandatory: boolean;
   completionPercentage: number;
   status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
   timeSpentSeconds: number;
@@ -221,4 +222,65 @@ export interface RefreshResult {
   users: number;
   courses: number;
   assessments: number;
+}
+
+export interface LiveAnalyticsFilters {
+  rangeDays: 7 | 30 | 90;
+  departmentId?: string;
+  groupId?: string;
+  courseId?: string;
+  assessmentId?: string;
+}
+
+export interface LiveAnalyticsOverview {
+  generatedAt: Date;
+  rangeDays: number;
+  summary: {
+    totalTrainees: number;
+    activeTrainees: number;
+    learningHours: number;
+    averageCompletion: number;
+    averageScore: number | null;
+    passRate: number | null;
+    mandatoryCompletion: number;
+  };
+  activityTimeline: DailyActivityPoint[];
+  completionDistribution: { status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED'; count: number }[];
+  groups: GroupAnalyticsRow[];
+  courses: Array<{
+    courseId: string;
+    title: string;
+    isMandatory: boolean;
+    assignedTrainees: number;
+    startedCount: number;
+    completedCount: number;
+    completionRate: number;
+    averageScore: number | null;
+  }>;
+  assessments: Array<{
+    assessmentId: string;
+    title: string;
+    assignedTrainees: number;
+    participationRate: number;
+    averageScore: number | null;
+    passRate: number | null;
+  }>;
+  mandatoryCompliance: Array<{
+    courseId: string;
+    title: string;
+    assigned: number;
+    completed: number;
+    inProgress: number;
+    notStarted: number;
+    completionRate: number;
+  }>;
+  leaderboard: LeaderboardEntry[];
+  atRiskTrainees: Array<{
+    userId: string;
+    name: string;
+    completionPercentage: number;
+    averageScore: number | null;
+    lastActivityAt: Date | null;
+  }>;
+  integrityEvents: Array<{ type: string; count: number }>;
 }

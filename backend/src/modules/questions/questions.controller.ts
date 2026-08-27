@@ -5,7 +5,12 @@ import { UnauthorizedError } from '@/utils/app-error';
 import { parsePaginationParams } from '@/utils/pagination.util';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { CreateQuestionDto, ListQuestionsQueryDto, UpdateQuestionDto, UpdateQuestionStatusDto } from './questions.dto';
+import type {
+  CreateQuestionDto,
+  ListQuestionsQueryDto,
+  UpdateQuestionDto,
+  UpdateQuestionStatusDto,
+} from './questions.dto';
 import { QuestionsService } from './questions.service';
 import type { QuestionSortField, SortOrder } from './questions.types';
 
@@ -56,7 +61,12 @@ export class QuestionsController extends BaseController {
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const question = await this.service.update(req.params.id as string, req.body as UpdateQuestionDto, req.user, req.ip);
+    const question = await this.service.update(
+      req.params.id as string,
+      req.body as UpdateQuestionDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, question, 'Question updated successfully.');
   };
 

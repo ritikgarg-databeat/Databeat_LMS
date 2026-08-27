@@ -5,16 +5,17 @@
 // GROUP/DEPARTMENT visibility sourcing (verified live via curl against the backend, Prompt 7 §
 // GROUP VISIBILITY):
 //   - ORGANIZATION: always available, no groupId/departmentId allowed.
-//   - GROUP: groupId required; a TRAINEE's groupId must be a group they're a member of, a
-//     TRAINER/SUPER_ADMIN may pick any group.
+//   - GROUP: groupId required; a TRAINEE may use their own active groups, a TRAINER may use
+//     active groups they own, and a SUPER_ADMIN may use any valid group.
 //   - DEPARTMENT: departmentId required; a TRAINEE's departmentId must equal their own
-//     `User.departmentId`, a TRAINER/SUPER_ADMIN may pick any department.
+//     `User.departmentId`, a TRAINER may use their own/owned-group departments, and a
+//     SUPER_ADMIN may use any valid department.
 //
 // For DEPARTMENT, a TRAINEE's own departmentId is already on `useAuth().user` — so instead of a
 // dropdown, it's silently auto-filled (see the effect below) and the option is disabled/hidden
 // entirely when the trainee has no department.
 //
-// For GROUP, `GET /groups` (the full-org list) is Trainer/Super-Admin-only, so a Trainee sources
+// For GROUP, `GET /groups` is Trainer/Super-Admin-only and server-scoped, so a Trainee sources
 // their own group options from `GET /groups/mine` instead (added alongside this page — see
 // `useMyGroupsOptions` in features/groups/hooks — any authenticated role may call it, unlike the
 // full list). Both roles land on the same dropdown; only the data source differs.
@@ -33,6 +34,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ROLES } from '@/constants/roles';
+import { ROUTES } from '@/constants/routes';
 import { useMyCoursesQuery } from '@/features/classroom/hooks';
 import { coursesApi } from '@/features/classroom/services';
 import { departmentsApi } from '@/features/departments/services';
@@ -88,16 +90,15 @@ function AskQuestionPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isTraineeRoute = useLocation().pathname.startsWith('/trainee');
-  // TODO(orchestrator): promote to ROUTES.TRAINER.QNA / ROUTES.TRAINEE.QNA once added to routes.ts.
-  const basePath = isTraineeRoute ? '/trainee/qna' : '/trainer/qna';
+  const basePath = isTraineeRoute ? ROUTES.TRAINEE.QNA : ROUTES.TRAINER.QNA;
 
   const isPrivileged = user?.role === ROLES.TRAINER || user?.role === ROLES.SUPER_ADMIN;
   const departmentDisabled = !isPrivileged && !user?.departmentId;
 
   const [tags, setTags] = useState<string[]>([]);
 
-  // Only fetched for TRAINER/SUPER_ADMIN — `GET /groups` and `GET /departments` (the full-org
-  // lists) are gated to those roles server-side, so firing them for a TRAINEE would just 403.
+  // Only fetched for TRAINER/SUPER_ADMIN — `GET /groups` and `GET /departments` are gated and
+  // scoped for staff server-side, so firing them for a TRAINEE would just 403.
   // `useGroupsQuery`/`useDepartmentsQuery` don't expose `enabled`, hence the local `useQuery`
   // calls straight against the services here instead.
   const groupsQuery = useQuery({
@@ -111,13 +112,13 @@ function AskQuestionPage() {
     enabled: isPrivileged,
   });
   // A Trainee sources their own group options from `GET /groups/mine` (any role may call it)
-  // instead of the full-org list.
+  // instead of the staff list.
   const myGroupsQuery = useMyGroupsOptions();
   const groupOptions: { id: string; name: string }[] = isPrivileged
     ? (groupsQuery.data?.items ?? [])
     : (myGroupsQuery.data ?? []);
-  // Same reasoning for `GET /courses` (canManage-only) — privileged roles get every published
-  // course; a trainee gets their own accessible ones via the always-open `GET /courses/mine`.
+  // Same reasoning for `GET /courses` (staff-only): a Trainer receives their own drafts plus the
+  // published shared catalogue; a trainee gets assigned courses through `GET /courses/mine`.
   const privilegedCoursesQuery = useQuery({
     queryKey: ['qna-ask-course-options'],
     queryFn: () => coursesApi.list({ page: 1, pageSize: OPTIONS_PAGE_SIZE, status: 'PUBLISHED' }),
@@ -160,7 +161,9 @@ function AskQuestionPage() {
       description: values.description,
       visibility: values.visibility,
       ...(values.visibility === 'GROUP' && values.groupId ? { groupId: values.groupId } : {}),
-      ...(values.visibility === 'DEPARTMENT' && values.departmentId ? { departmentId: values.departmentId } : {}),
+      ...(values.visibility === 'DEPARTMENT' && values.departmentId
+        ? { departmentId: values.departmentId }
+        : {}),
       ...(values.courseId ? { courseId: values.courseId } : {}),
       ...(tags.length > 0 ? { tags } : {}),
     };
@@ -261,7 +264,9 @@ function AskQuestionPage() {
                   )}
                 />
                 {!isPrivileged && groupOptions.length === 0 && !myGroupsQuery.isLoading ? (
-                  <p className="text-xs text-muted-foreground">You are not currently a member of any group.</p>
+                  <p className="text-xs text-muted-foreground">
+                    You are not currently a member of any group.
+                  </p>
                 ) : null}
                 {errors.groupId ? <p className="text-sm text-destructive">{errors.groupId.message}</p> : null}
               </div>
@@ -275,7 +280,11 @@ function AskQuestionPage() {
                     name="departmentId"
                     control={control}
                     render={({ field }) => (
-                      <Select value={field.value ?? ''} onValueChange={field.onChange} disabled={isSubmitting}>
+                      <Select
+                        value={field.value ?? ''}
+                        onValueChange={field.onChange}
+                        disabled={isSubmitting}
+                      >
                         <SelectTrigger id="departmentId">
                           <SelectValue placeholder="Select a department..." />
                         </SelectTrigger>

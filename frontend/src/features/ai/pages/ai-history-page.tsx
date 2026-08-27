@@ -98,7 +98,11 @@ function AiHistoryPage() {
             <MessageSquare /> New chat
           </Button>
           {conversations.length > 0 ? (
-            <Button variant="destructive" onClick={() => setClearAllOpen(true)} disabled={clearHistory.isPending}>
+            <Button
+              variant="destructive"
+              onClick={() => setClearAllOpen(true)}
+              disabled={clearHistory.isPending}
+            >
               <Trash2 /> Clear all history
             </Button>
           ) : null}
@@ -131,7 +135,9 @@ function AiHistoryPage() {
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-medium">{conversation.title}</p>
-                      {conversation.lesson ? <Badge variant="secondary">{conversation.lesson.title}</Badge> : null}
+                      {conversation.lesson ? (
+                        <Badge variant="secondary">{conversation.lesson.title}</Badge>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {conversation._count.messages} message{conversation._count.messages === 1 ? '' : 's'} ·

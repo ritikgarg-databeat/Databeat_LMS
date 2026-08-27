@@ -18,7 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { getErrorMessage } from '@/utils/error';
 
-import { useActiveDepartmentsOptions, useActiveExperienceLevelsOptions, useUpdateGroupMutation } from '../hooks';
+import {
+  useActiveDepartmentsOptions,
+  useActiveExperienceLevelsOptions,
+  useUpdateGroupMutation,
+} from '../hooks';
 import type { Group } from '../types';
 
 // Case-insensitive here — the value is uppercased on submit before being sent to the API,
@@ -209,7 +213,13 @@ function EditGroupDialog({ group, onOpenChange }: EditGroupDialogProps) {
 
           <div className="space-y-2">
             <Label htmlFor="edit-capacity">Capacity</Label>
-            <Input id="edit-capacity" type="number" min={1} disabled={isSubmitting} {...register('capacity')} />
+            <Input
+              id="edit-capacity"
+              type="number"
+              min={1}
+              disabled={isSubmitting}
+              {...register('capacity')}
+            />
             {errors.capacity ? <p className="text-sm text-destructive">{errors.capacity.message}</p> : null}
           </div>
 

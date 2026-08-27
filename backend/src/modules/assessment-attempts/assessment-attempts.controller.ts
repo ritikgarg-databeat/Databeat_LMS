@@ -5,7 +5,12 @@ import { BadRequestError, UnauthorizedError } from '@/utils/app-error';
 import { parsePaginationParams } from '@/utils/pagination.util';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { GradeAnswerDto, ListAttemptsQueryDto, SaveAnswerDto } from './assessment-attempts.dto';
+import type {
+  GradeAnswerDto,
+  ListAttemptsQueryDto,
+  RecordIntegrityEventDto,
+  SaveAnswerDto,
+} from './assessment-attempts.dto';
 import { AssessmentAttemptsService } from './assessment-attempts.service';
 
 // HTTP request handlers for the assessment-attempts module. No business logic here — see
@@ -66,6 +71,24 @@ export class AssessmentAttemptsController extends BaseController {
     if (!req.user) throw new UnauthorizedError();
     const result = await this.service.submit(req.params.id as string, req.user.id, req.ip);
     this.ok(res, result, 'Assessment submitted successfully.');
+  };
+
+  recordIntegrityEvent = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
+    const result = await this.service.recordIntegrityEvent(
+      req.params.id as string,
+      req.user.id,
+      req.body as RecordIntegrityEventDto,
+      req.ip,
+    );
+    this.ok(
+      res,
+      result,
+      result.autoSubmitted
+        ? 'Assessment submitted after repeated integrity violations.'
+        : 'Integrity event recorded.',
+    );
   };
 
   // ---- Trainer/Super-Admin-facing ----

@@ -9,6 +9,12 @@ import JSZip from 'jszip';
 
 import { LESSON_QUIZ_PASS_PERCENTAGE } from '@/constants/lesson-quiz';
 import { promptManager } from '@/modules/ai/prompt-manager';
+import {
+  cappedActiveSecondsDelta,
+  isVideoProgressComplete,
+  mergeWatchedIntervals,
+  requiredResourceActiveSeconds,
+} from '@/modules/resources/resource-progress.utils';
 import { hashAudioInput } from '@/modules/video-generation/video-generation.service';
 import {
   createVideoPromptCacheKey,
@@ -25,13 +31,19 @@ import {
 } from '@/modules/video-generation/video-generation.worker';
 import { buildVideoSourceSnapshot } from '@/modules/video-generation/video-source-context';
 import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
-import { trainerAssessmentScope, trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { qnaQuestionAccessScope } from '@/policies/qna-access.policy';
+import {
+  trainerAssessmentScope,
+  trainerCourseCatalogScope,
+  trainerCourseScope,
+} from '@/policies/trainer-scope.policy';
 import { LocalStorageProvider } from '@/storage/local-storage.provider';
 import {
   getAssessmentAttemptElapsedSeconds,
   getAssessmentAttemptExpiresAt,
   isAssessmentAttemptExpired,
 } from '@/utils/assessment-attempt-time.util';
+import { toClientResource } from '@/utils/client-resource.util';
 import { extractTextSegmentsFromResourceFile } from '@/utils/document-text-extractor';
 import { redactSensitiveText } from '@/utils/pii-redaction.util';
 import { assertUploadMatchesDeclaredType } from '@/utils/upload-safety.util';
@@ -59,6 +71,7 @@ test('video source fingerprints change with lesson content versions and keep sta
     mimeType: null,
     fileSizeBytes: null,
     content: 'Always verify the source before publishing.',
+    contentVersion: 1,
     order: 0,
     createdById: null,
     createdAt: new Date('2026-08-24T12:00:00.000Z'),
@@ -239,14 +252,73 @@ test('lesson quiz has an explicit passing rule', () => {
   assert.equal(LESSON_QUIZ_PASS_PERCENTAGE, 70);
 });
 
-test('trainer content policies include creator and active assigned-group ownership', () => {
+test('mandatory resource gates merge coverage and require real playback and reading time', () => {
+  const intervals = mergeWatchedIntervals([
+    [10, 20],
+    [0, 10.2],
+    [19.8, 95],
+  ]);
+  assert.deepEqual(intervals, [[0, 95]]);
+  assert.equal(
+    isVideoProgressComplete({
+      durationSeconds: 100,
+      furthestSecond: 95,
+      activeTimeSeconds: 90,
+      intervals,
+    }),
+    true,
+  );
+  assert.equal(
+    isVideoProgressComplete({
+      durationSeconds: 100,
+      furthestSecond: 95,
+      activeTimeSeconds: 20,
+      intervals,
+    }),
+    false,
+  );
+  assert.equal(requiredResourceActiveSeconds('MARKDOWN', 'word '.repeat(1_000)), 180);
+  assert.equal(requiredResourceActiveSeconds('PDF', null), 30);
+  assert.equal(requiredResourceActiveSeconds('IMAGE', null), 5);
+  assert.equal(
+    cappedActiveSecondsDelta(15, new Date('2026-08-27T10:00:00.000Z'), new Date('2026-08-27T10:00:02.000Z')),
+    3,
+  );
+  assert.equal(cappedActiveSecondsDelta(15, null, new Date('2026-08-27T10:00:02.000Z')), 0);
+});
+
+test('trainer course policy separates shared catalogue reading from master-content ownership', () => {
   const courseScope = trainerCourseScope('trainer-1');
+  const catalogScope = trainerCourseCatalogScope('trainer-1');
   const assessmentScope = trainerAssessmentScope('trainer-1');
 
-  assert.deepEqual(courseScope.OR?.[0], { createdById: 'trainer-1' });
+  assert.deepEqual(courseScope, { createdById: 'trainer-1' });
+  assert.deepEqual(catalogScope.OR?.[0], { createdById: 'trainer-1' });
+  assert.deepEqual(catalogScope.OR?.[1], { status: 'PUBLISHED' });
   assert.deepEqual(assessmentScope.OR?.[0], { createdById: 'trainer-1' });
   assert.match(JSON.stringify(courseScope), /trainer-1/);
   assert.match(JSON.stringify(assessmentScope), /deletedAt/);
+});
+
+test('Q&A visibility keeps private cohorts scoped while preserving organization discussions', () => {
+  const readScope = qnaQuestionAccessScope('trainer-1', 'TRAINER', true);
+  const interactionScope = qnaQuestionAccessScope('trainer-1', 'TRAINER');
+
+  assert.match(JSON.stringify(readScope), /ORGANIZATION/);
+  assert.match(JSON.stringify(readScope), /"authorId":"trainer-1"/);
+  assert.match(JSON.stringify(readScope), /"trainerId":"trainer-1"/);
+  assert.doesNotMatch(JSON.stringify(interactionScope), /authorId/);
+  assert.deepEqual(qnaQuestionAccessScope('admin-1', 'SUPER_ADMIN'), { deletedAt: null });
+});
+
+test('lesson resource API views never expose internal storage paths', () => {
+  const view = toClientResource({
+    id: 'resource-1',
+    relativePath: 'lesson-resources/private.pdf',
+    title: 'PDF',
+  });
+  assert.deepEqual(view, { id: 'resource-1', title: 'PDF' });
+  assert.equal('relativePath' in view, false);
 });
 
 test('lesson AI fails closed when evidence is missing or invented', () => {

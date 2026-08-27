@@ -4,7 +4,7 @@ import { BaseController } from '@/controllers/base.controller';
 import { UnauthorizedError } from '@/utils/app-error';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { GroupsAnalyticsQueryDto, LeaderboardQueryDto } from './analytics.dto';
+import type { GroupsAnalyticsQueryDto, LeaderboardQueryDto, OverviewQueryDto } from './analytics.dto';
 import { AnalyticsService } from './analytics.service';
 
 // HTTP request handlers for the analytics module. No business logic here — see analytics.service.ts.
@@ -41,6 +41,20 @@ export class AnalyticsController extends BaseController {
     if (!req.user) throw new UnauthorizedError();
     const analytics = await this.service.getMyAnalytics(req.user);
     this.ok(res, analytics);
+  };
+
+  overview = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
+    const query = req.query as OverviewQueryDto;
+    const overview = await this.service.getOverview(req.user, {
+      rangeDays: query.rangeDays ? (Number(query.rangeDays) as 7 | 30 | 90) : 30,
+      departmentId: query.departmentId,
+      groupId: query.groupId,
+      courseId: query.courseId,
+      assessmentId: query.assessmentId,
+    });
+    this.ok(res, overview);
   };
 
   leaderboard = async (req: Request, res: Response): Promise<void> => {

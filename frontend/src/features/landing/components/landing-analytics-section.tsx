@@ -72,15 +72,12 @@ function LandingAnalyticsSection() {
     <section className="px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
       <div className="mx-auto max-w-6xl">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            See progress at a glance
-          </h2>
+          <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">See progress at a glance</h2>
           <p className="mt-3 text-muted-foreground">
             Dashboards built for trainers and admins to spot trends and act on them.
           </p>
           <p className="mt-2 text-muted-foreground">
-            See who&apos;s leading on a live trainee leaderboard, then export the numbers as CSV
-            reports:
+            See who&apos;s leading on a live trainee leaderboard, then export the numbers as CSV reports:
           </p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             {CSV_REPORTS.map((report) => (
@@ -100,9 +97,7 @@ function LandingAnalyticsSection() {
                 {...statItemMotionProps}
                 className="rounded-lg bg-muted p-4 text-center sm:text-left"
               >
-                <p className="text-2xl font-semibold text-[var(--viz-series-1)] sm:text-3xl">
-                  {stat.value}
-                </p>
+                <p className="text-2xl font-semibold text-[var(--viz-series-1)] sm:text-3xl">{stat.value}</p>
                 <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{stat.label}</p>
               </motion.div>
             ))}

@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useActiveDepartmentsOptions, useActiveExperienceLevelsOptions } from '@/features/groups/hooks';
 import { getErrorMessage } from '@/utils/error';
@@ -38,8 +39,12 @@ const editCourseSchema = z.object({
   estimatedDurationMinutes: z
     .string()
     .optional()
-    .refine((value) => !value || /^[1-9]\d*$/.test(value), 'Estimated duration must be a positive whole number.'),
+    .refine(
+      (value) => !value || /^[1-9]\d*$/.test(value),
+      'Estimated duration must be a positive whole number.',
+    ),
   difficulty: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']),
+  isMandatory: z.boolean(),
 });
 type EditCourseFormValues = z.infer<typeof editCourseSchema>;
 
@@ -73,6 +78,7 @@ function EditCourseDialog({ course, onOpenChange }: EditCourseDialogProps) {
           estimatedDurationMinutes:
             course.estimatedDurationMinutes !== null ? String(course.estimatedDurationMinutes) : '',
           difficulty: course.difficulty,
+          isMandatory: course.isMandatory,
         }
       : undefined,
   });
@@ -80,6 +86,12 @@ function EditCourseDialog({ course, onOpenChange }: EditCourseDialogProps) {
   if (!course) return null;
 
   const onSubmit = async (values: EditCourseFormValues) => {
+    if (values.isMandatory && !course.isMandatory && course.status === 'PUBLISHED') {
+      const confirmed = window.confirm(
+        'This makes mandatory the default for future group assignments. Existing group assignments will not change. Continue?',
+      );
+      if (!confirmed) return;
+    }
     try {
       // The "None" <option> has value="" — normalize it to null or the backend's optional-field
       // validators reject the empty string as an invalid uuid.
@@ -90,8 +102,11 @@ function EditCourseDialog({ course, onOpenChange }: EditCourseDialogProps) {
           description: values.description || null,
           departmentId: values.departmentId || null,
           experienceLevelId: values.experienceLevelId || null,
-          estimatedDurationMinutes: values.estimatedDurationMinutes ? Number(values.estimatedDurationMinutes) : null,
+          estimatedDurationMinutes: values.estimatedDurationMinutes
+            ? Number(values.estimatedDurationMinutes)
+            : null,
           difficulty: values.difficulty,
+          isMandatory: values.isMandatory,
         },
       });
       toast.success('Course updated successfully.');
@@ -217,6 +232,27 @@ function EditCourseDialog({ course, onOpenChange }: EditCourseDialogProps) {
               />
             </div>
           </div>
+
+          <Controller
+            name="isMandatory"
+            control={control}
+            render={({ field }) => (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-4">
+                <div>
+                  <Label htmlFor="edit-isMandatory">Mandatory by default</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Applies to new group assignments; existing group rules remain independent.
+                  </p>
+                </div>
+                <Switch
+                  id="edit-isMandatory"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={isSubmitting}
+                />
+              </div>
+            )}
+          />
 
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>

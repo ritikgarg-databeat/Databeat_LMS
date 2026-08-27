@@ -23,7 +23,9 @@ import { paginationQueryValidators } from '@/validators/common.validators';
 // validation optional too (verified in the courses module — see courses.validation.ts).
 const titleChain = () => body('title').trim().isLength({ min: 1, max: MAX_ASSESSMENT_TITLE_LENGTH });
 const durationMinutesChain = () =>
-  body('durationMinutes').isInt({ min: MIN_ASSESSMENT_DURATION_MINUTES, max: MAX_ASSESSMENT_DURATION_MINUTES }).toInt();
+  body('durationMinutes')
+    .isInt({ min: MIN_ASSESSMENT_DURATION_MINUTES, max: MAX_ASSESSMENT_DURATION_MINUTES })
+    .toInt();
 const passingPercentageChain = () =>
   body('passingPercentage').isInt({ min: MIN_PASSING_PERCENTAGE, max: MAX_PASSING_PERCENTAGE }).toInt();
 const marksChain = () => body('marks').isInt({ min: MIN_QUESTION_MARKS, max: MAX_QUESTION_MARKS }).toInt();
@@ -31,15 +33,24 @@ const marksChain = () => body('marks').isInt({ min: MIN_QUESTION_MARKS, max: MAX
 // Always-optional chains — both `create` and `update` use `.optional()`, so it's safe to share
 // a single instance since no use-site needs the bare/required form (see courses.validation.ts's
 // `descriptionChain`/`thumbnailChain` for the same reasoning).
-const descriptionChain = body('description').optional({ values: 'null' }).isString().isLength({ max: MAX_ASSESSMENT_DESCRIPTION_LENGTH });
+const descriptionChain = body('description')
+  .optional({ values: 'null' })
+  .isString()
+  .isLength({ max: MAX_ASSESSMENT_DESCRIPTION_LENGTH });
 const instructionsChain = body('instructions')
   .optional({ values: 'null' })
   .isString()
   .isLength({ max: MAX_ASSESSMENT_INSTRUCTIONS_LENGTH });
 // `values: 'null'` (not 'falsy') — an explicit `null` must still pass through to clear the
 // field on update, mirroring courses.validation.ts's capacityChain fix.
-const availableFromChain = body('availableFrom').optional({ values: 'null' }).isISO8601().withMessage('availableFrom must be a valid date.');
-const dueDateChain = body('dueDate').optional({ values: 'null' }).isISO8601().withMessage('dueDate must be a valid date.');
+const availableFromChain = body('availableFrom')
+  .optional({ values: 'null' })
+  .isISO8601()
+  .withMessage('availableFrom must be a valid date.');
+const dueDateChain = body('dueDate')
+  .optional({ values: 'null' })
+  .isISO8601()
+  .withMessage('dueDate must be a valid date.');
 const negativeMarkingEnabledChain = body('negativeMarkingEnabled').optional().isBoolean().toBoolean();
 const negativeMarksPerWrongAnswerChain = body('negativeMarksPerWrongAnswer')
   .optional({ values: 'null' })
@@ -48,7 +59,9 @@ const negativeMarksPerWrongAnswerChain = body('negativeMarksPerWrongAnswer')
 const randomizeQuestionsChain = body('randomizeQuestions').optional().isBoolean().toBoolean();
 const showResultImmediatelyChain = body('showResultImmediately').optional().isBoolean().toBoolean();
 
-const groupIdParamValidator = param('groupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'));
+const groupIdParamValidator = param('groupId')
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'));
 const aqIdParamValidator = param('aqId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('aqId'));
 
 const configFieldChains = [
@@ -73,7 +86,12 @@ export const assessmentsValidation = {
 
   create: [titleChain(), durationMinutesChain(), passingPercentageChain(), ...configFieldChains],
 
-  update: [titleChain().optional(), durationMinutesChain().optional(), passingPercentageChain().optional(), ...configFieldChains],
+  update: [
+    titleChain().optional(),
+    durationMinutesChain().optional(),
+    passingPercentageChain().optional(),
+    ...configFieldChains,
+  ],
 
   updateStatus: [body('status').isIn(Object.values(AssessmentStatus)).withMessage('status must be valid.')],
 
@@ -83,7 +101,10 @@ export const assessmentsValidation = {
 
   unassignGroup: [groupIdParamValidator],
 
-  addQuestion: [body('questionId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('questionId')), marksChain()],
+  addQuestion: [
+    body('questionId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('questionId')),
+    marksChain(),
+  ],
 
   updateQuestion: [aqIdParamValidator, marksChain()],
 

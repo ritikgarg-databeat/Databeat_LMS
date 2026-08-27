@@ -14,6 +14,8 @@ import type {
   GroupsAnalyticsParams,
   LeaderboardData,
   LeaderboardParams,
+  LiveAnalyticsOverview,
+  LiveAnalyticsParams,
   TraineeDashboard,
   TrainerDashboard,
   UserAnalytics,
@@ -32,6 +34,12 @@ export const dashboardApi = {
 };
 
 export const analyticsApi = {
+  async getOverview(params: LiveAnalyticsParams): Promise<LiveAnalyticsOverview> {
+    const { data } = await apiClient.get<ApiSuccessResponse<LiveAnalyticsOverview>>('/analytics/overview', {
+      params,
+    });
+    return data.data;
+  },
   async getGroups(params?: GroupsAnalyticsParams): Promise<GroupAnalyticsList> {
     const { data } = await apiClient.get<ApiSuccessResponse<GroupAnalyticsList>>('/analytics/groups', {
       params,

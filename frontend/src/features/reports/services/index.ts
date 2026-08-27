@@ -43,7 +43,10 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
   }
 }
 
-async function downloadReportCsv(kind: ReportKind, params?: Record<string, string | undefined>): Promise<void> {
+async function downloadReportCsv(
+  kind: ReportKind,
+  params?: Record<string, string | undefined>,
+): Promise<void> {
   const response = await apiClient.get<Blob>(`/reports/${kind}/export`, {
     responseType: 'blob',
     params,
@@ -70,5 +73,9 @@ export const reportsApi = {
 
   downloadCoursesReport(): Promise<void> {
     return downloadReportCsv('courses');
+  },
+
+  downloadMandatoryReport(): Promise<void> {
+    return downloadReportCsv('mandatory');
   },
 };

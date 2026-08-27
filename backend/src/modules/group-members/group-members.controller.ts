@@ -6,7 +6,12 @@ import { parsePaginationParams } from '@/utils/pagination.util';
 import { assertUploadMatchesDeclaredType } from '@/utils/upload-safety.util';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { AddGroupMemberDto, AddGroupMembersDto, ListGroupMembersQueryDto, TransferGroupMemberDto } from './group-members.dto';
+import type {
+  AddGroupMemberDto,
+  AddGroupMembersDto,
+  ListGroupMembersQueryDto,
+  TransferGroupMemberDto,
+} from './group-members.dto';
 import { GroupMembersService } from './group-members.service';
 import type { GroupMemberSortField, SortOrder } from './group-members.types';
 
@@ -83,7 +88,12 @@ export class GroupMembersController extends BaseController {
     if (!req.user) throw new UnauthorizedError();
     if (!req.file) throw new BadRequestError('A CSV file is required.');
     await assertUploadMatchesDeclaredType(req.file);
-    const summary = await this.service.bulkImport(req.params.groupId as string, req.file.buffer, req.user, req.ip);
+    const summary = await this.service.bulkImport(
+      req.params.groupId as string,
+      req.file.buffer,
+      req.user,
+      req.ip,
+    );
     this.ok(res, summary, 'Bulk import complete.');
   };
 }

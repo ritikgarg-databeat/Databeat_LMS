@@ -177,6 +177,9 @@ their password-change history already set, so they skip the forced first-login p
 6. Smoke-test: visit the deployed frontend URL, confirm the landing page loads, and confirm
    `/login` successfully authenticates against the deployed backend (network tab should show
    calls to `VITE_API_URL`, not `localhost`).
+7. Serve `manifest.webmanifest`, `sw.js`, and `favicon.svg` from the site root. The production
+   frontend registers the service worker automatically. Do not proxy or rewrite `/api/*` through
+   the static asset cache; authenticated data is intentionally network-only.
 
 ---
 
@@ -186,9 +189,11 @@ If AI video is enabled, confirm the API and worker share `UPLOAD_PATH`, applicab
 licensing is approved, Chromium/FFmpeg prerequisites are installed, and a test draft publishes.
 
 - [ ] `GET /health/live` and `GET /health/ready` return 200.
-- [ ] Exactly one worker is running and its startup log lists `expired-assessment-attempts` and
-      `deadline-reminders`; the reminder catch-up completes without error.
+- [ ] Exactly one worker is running and its startup log lists `expired-assessment-attempts`,
+      `deadline-reminders`, and `mandatory-training-reminders`; catch-up completes without error.
 - [ ] Frontend loads and `/login` successfully authenticates.
+- [ ] Browser application tools show a valid web manifest and active service worker; the install
+      action appears in a supported browser and API requests are absent from service-worker caches.
 - [ ] Logged-in Super Admin is immediately prompted to change their password, and the app
       accepts no other action until it's done.
 - [ ] After changing the password, the Super Admin can create a trainer, a department, and a

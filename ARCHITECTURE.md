@@ -1,6 +1,6 @@
 # Databeat LMS — Enterprise Architecture Document
 
-**Status:** Implemented architecture, updated 2026-08-21. Future items are labelled explicitly.
+**Status:** Implemented architecture, updated 2026-08-27. Future items are labelled explicitly.
 
 ---
 
@@ -76,7 +76,9 @@ Route → Middleware (auth, validation) → Controller → Service → Repositor
 
 - **Controller:** HTTP concerns only — parse request, call service, shape response. No business logic.
 - **Service:** All business rules, orchestration across repositories, transaction boundaries.
-- **Repository:** Prisma queries only. Nothing outside the repository layer talks to Prisma directly. This is what lets us later replace Prisma/Postgres calls with caching or a different data source per-entity without touching services.
+- **Repository:** owns request-domain persistence and Prisma query shapes. Bootstrap/health,
+  scheduled retention, seed/invariant tools, the PostgreSQL rate-limit store, and bounded AI
+  context extraction are explicit infrastructure exceptions rather than ordinary service CRUD.
 
 ### 3.2 Layering (Frontend)
 
@@ -185,13 +187,13 @@ ai-lms/
 │   └── src/
 │       ├── config/          environment, Prisma, CORS
 │       ├── middleware/      auth/RBAC, request id/logging, rate limits, uploads, errors
-│       ├── modules/         26 vertical domain modules
+│       ├── modules/         27 vertical domain modules
 │       ├── policies/        active-group and trainer-resource scope
 │       ├── repositories/    shared repository base/audit repository
 │       ├── services/        audit, password-reset delivery, PostgreSQL rate-limit store
 │       ├── storage/         StorageProvider + LocalStorageProvider
 │       ├── jobs/            reminder, expiry, optional retention + scheduler
-│       ├── prisma/          schema, 17 migrations, seeds, invariant checker
+│       ├── prisma/          schema, 21 migrations, seeds, invariant checker
 │       ├── tests/           focused hardening regression suite
 │       ├── app.ts           middleware/routes/health assembly
 │       ├── server.ts        API process bootstrap
@@ -208,9 +210,9 @@ ai-lms/
 └── .github/workflows/       automated quality gate
 ```
 
-Every backend feature follows routes → controller → service → repository → Prisma. Every frontend
-feature keeps API service/hooks/types beside its pages/components, while cross-feature primitives
-remain shared.
+Backend request-domain CRUD follows routes → controller → service → repository → Prisma, with the
+documented infrastructure exceptions above. Every frontend feature keeps API service/hooks/types
+beside its pages/components, while cross-feature primitives remain shared.
 
 ### 5.1 Legacy backend design sketch (historical; `/server` is now `/backend`)
 
@@ -301,7 +303,7 @@ client/
 │   │   ├── api-client.ts            # axios instance, interceptors (token refresh, error mapping)
 │   │   ├── queryClient.ts
 │   │   └── utils.ts
-│   ├── hooks/                       # cross-feature hooks (useAuth, usePermission, useTheme)
+│   ├── hooks/                       # cross-feature hooks (useAuth, useTheme, useDebounce)
 │   ├── stores/                      # lightweight client-state (Zustand) — UI state only
 │   ├── styles/                      # tailwind.css, theme tokens
 │   └── types/                       # shared TS types/interfaces
@@ -315,17 +317,17 @@ client/
 ## 6. Database Entity Map & Rationale
 
 The table below this current map is the original design proposal and contains entity names that
-were not adopted. The implemented Prisma schema currently groups 42 models as follows:
+were not adopted. The implemented Prisma schema currently groups 46 models as follows:
 
-| Domain                          | Implemented models                                                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity/security               | `User`, `RefreshToken`, `PasswordResetToken`, `RateLimitBucket`, `AuditLog`                                                                       |
-| Organization                    | `Department`, `ExperienceLevel`, `Group`, `GroupMember`                                                                                           |
-| Classroom                       | `Course`, `CourseModule`, `Lesson`, `LessonResource`, `CourseGroupAssignment`, `LessonProgress`, `LessonQuizAttempt`                              |
-| Assessment                      | `Question`, `QuestionOption`, `Assessment`, `AssessmentQuestion`, `AssessmentGroupAssignment`, `AssessmentAttempt`, `AssessmentAnswer`            |
-| Calendar/notifications/settings | `CalendarEvent`, `CalendarEventAssignment`, `Notification`, `NotificationPreference`, `PlatformSettings`                                          |
-| AI/Q&A                          | `AiConversation`, `AiMessage`, `QnaQuestion`, `QnaAnswer`, `QnaComment`, `QnaVote`, `QnaTag`, `QnaQuestionTag`, `QnaAttachment`                   |
-| Analytics/impact                | `TimingObservation`, `UserDailyActivity`, `UserPerformanceSnapshot`, `CourseAnalyticsSnapshot`, `AssessmentAnalyticsSnapshot`, `AnalyticsInsight` |
+| Domain                          | Implemented models                                                                                                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity/security               | `User`, `RefreshToken`, `PasswordResetToken`, `RateLimitBucket`, `AuditLog`                                                                                          |
+| Organization                    | `Department`, `ExperienceLevel`, `Group`, `GroupMember`                                                                                                              |
+| Classroom/video                 | `Course`, `CourseModule`, `Lesson`, `LessonResource`, `LessonResourceProgress`, `VideoGenerationJob`, `CourseGroupAssignment`, `LessonProgress`, `LessonQuizAttempt` |
+| Assessment                      | `Question`, `QuestionOption`, `Assessment`, `AssessmentQuestion`, `AssessmentGroupAssignment`, `AssessmentAttempt`, `AssessmentIntegrityEvent`, `AssessmentAnswer`   |
+| Calendar/notifications/settings | `CalendarEvent`, `CalendarEventAssignment`, `Notification`, `NotificationPreference`, `PlatformSettings`                                                             |
+| AI/Q&A                          | `AiConversation`, `AiMessage`, `QnaQuestion`, `QnaAnswer`, `QnaComment`, `QnaVote`, `QnaTag`, `QnaQuestionTag`, `QnaAttachment`                                      |
+| Analytics/impact                | `TimingObservation`, `UserDailyActivity`, `UserPerformanceSnapshot`, `CourseAnalyticsSnapshot`, `AssessmentAnalyticsSnapshot`, `AnalyticsInsight`                    |
 
 Important implemented invariants: role is an enum on `User`; there is no Organization/Permission
 model; assessment questions are snapshotted into `AssessmentQuestion`; answers belong to
@@ -535,7 +537,9 @@ checks prevent archived groups or Trainer A's ownership from granting Trainer B 
   HTTP status and the standard envelope drive client handling. Internal stack traces, SQL details,
   and provider errors are logged server-side and never returned in production.
 - **Pagination:** cursor-based for high-volume/append-mostly lists (Audit Logs, Notifications, Q&A feed); offset/limit (`page`, `pageSize`) for admin tables where jump-to-page UX matters (Users, Reports).
-- **Auth requirement declaration:** every route file declares required permission(s) alongside the route definition (`router.post('/', authorize('course:create'), ...)`), so the permission model is discoverable by reading routes, not by hunting through service code.
+- **Auth requirement declaration:** protected route files declare coarse role requirements with
+  `requireRole(...)`; services, shared policies, and repository filters enforce creator, group,
+  learner, publication, and object ownership because those rules depend on stored data.
 - **File endpoints:** uploads use multipart + disk-temporary Multer handling, size/type/signature
   validation, and the storage provider. PostgreSQL stores metadata plus a relative pointer.
   Downloads stream through the provider with safe disposition; they are not loaded fully into
@@ -665,7 +669,9 @@ interface AIProvider {
 - **Trainer metrics:** active-group performance from `LessonProgress` and `AssessmentAttempt`,
   assessment score/pass/question statistics from snapshotted `AssessmentAnswer` rows, login and
   Q&A engagement, and UTC-bucketed learning trends.
-- **Export:** Reports module reuses the exact same aggregation functions as the dashboards (single source of truth for numbers) and renders to CSV/PDF as a presentation-layer concern only.
+- **Export:** Reports query transactional data with the same documented business definitions and
+  produce live CSV files. They do not generate PDF reports or rely on potentially stale analytics
+  snapshots.
 
 ---
 
@@ -754,7 +760,7 @@ behavior and operational boundaries are documented in the preceding sections and
 | **M3 — Assessment Engine**        | Question Bank, Assessment builder, Attempt flow (timer, randomization, snapshotting), Auto-evaluation for objective types, Results                                                                                 |
 | **M4 — Engagement**               | Calendar (events, group assignment), Q&A Forum (questions/answers/comments/upvotes/tags/verification)                                                                                                              |
 | **M5 — AI Layer**                 | AI Service + provider adapter, lesson-aware chat, summarization, quiz/interview-question generation (draft-to-QuestionBank flow)                                                                                   |
-| **M6 — Analytics & Reporting**    | Trainee/Trainer dashboards, lazy TTL analytics snapshots, Reports export (CSV/PDF), in-app Notification Service                                                                                                    |
+| **M6 — Analytics & Reporting**    | Trainee/Trainer dashboards, lazy TTL analytics snapshots, CSV report exports, in-app Notification Service                                                                                                          |
 | **M7 — Hardening**                | Rate limiting tuning, security review pass, performance pass (indexing/query audit), accessibility audit, mobile responsiveness pass, Settings module, manual-evaluation flows for subjective/coding/SQL questions |
 | **M8 — Launch Readiness**         | Load testing, backup/restore runbook, deployment pipeline, seed/demo data, admin onboarding docs                                                                                                                   |
 
@@ -767,13 +773,13 @@ This ordering is dependency-driven: Assessments need Question Bank and Classroom
 | Risk                                                                  | Impact                                                      | Mitigation                                                                                                                                                 |
 | --------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Local file storage doesn't scale past a single server / no redundancy | Data loss, can't horizontally scale API servers             | Storage abstraction (§13) makes S3/R2 migration a config change, not a rewrite; document this as a pre-scale-out prerequisite, not an afterthought         |
-| AI vendor pricing/availability/policy changes                         | Feature outage or cost spike                                | Provider-adapter pattern (§14); keep at least a second adapter designed (even if not implemented) as a documented fallback path                            |
+| AI vendor pricing/availability/policy changes                         | Feature outage or cost spike                                | Provider-adapter pattern (§14) with implemented OpenAI and Anthropic adapters; test a provider switch before relying on it operationally                   |
 | Question Bank edits silently invalidate historical results            | Compliance/trust issue (graded results should be immutable) | `Attempt` snapshotting (§6) — solved structurally, not procedurally                                                                                        |
 | Role/scope sprawl as features grow                                    | RBAC and ownership rules become inconsistent                | Central active-group/trainer policy helpers, route-role review, and regression tests for every new role/resource path                                      |
 | Refresh token theft (XSS or device compromise)                        | Account takeover                                            | httpOnly cookie + rotation + reuse detection (§9); short access-token TTL limits stolen-access-token window                                                |
 | Analytics queries degrade dashboard performance as data grows         | Poor trainer/admin UX at scale                              | TTL snapshot tables and explicit refresh already separate derived data from sources of truth; move refresh work to a durable queue when volume requires it |
 | A single API instance becomes a bottleneck                            | Downtime under load                                         | The API is stateless and shared rate limits live in PostgreSQL, but local uploads must move to shared object storage before horizontal API scaling         |
-| Scope creep inside the monolith erodes module boundaries              | Future service extraction becomes impossible                | Import-boundary lint rule (§8) enforced in CI from M0                                                                                                      |
+| Scope creep inside the monolith erodes module boundaries              | Future service extraction becomes difficult                 | Layering conventions, module-local READMEs, code review, TypeScript, and import/order linting; add strict boundary lint rules if drift appears             |
 
 ---
 

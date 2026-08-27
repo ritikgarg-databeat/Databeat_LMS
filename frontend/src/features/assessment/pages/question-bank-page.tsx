@@ -34,7 +34,11 @@ import { getErrorMessage } from '@/utils/error';
 
 import { CreateQuestionDialog } from '../components/create-question-dialog';
 import { EditQuestionDialog } from '../components/edit-question-dialog';
-import { QUESTION_TYPE_LABEL, QUESTION_TYPE_VALUES, QuestionTypeBadge } from '../components/question-type-badge';
+import {
+  QUESTION_TYPE_LABEL,
+  QUESTION_TYPE_VALUES,
+  QuestionTypeBadge,
+} from '../components/question-type-badge';
 import { useDeleteQuestionMutation, useQuestionsQuery, useUpdateQuestionStatusMutation } from '../hooks';
 import type {
   QuestionCategory,
@@ -78,7 +82,11 @@ const QUESTION_CATEGORY_LABEL: Record<QuestionCategory, string> = {
   GENERAL: 'General',
 };
 
-const QUESTION_DIFFICULTY_VALUES = ['EASY', 'MEDIUM', 'HARD'] as const satisfies readonly QuestionDifficulty[];
+const QUESTION_DIFFICULTY_VALUES = [
+  'EASY',
+  'MEDIUM',
+  'HARD',
+] as const satisfies readonly QuestionDifficulty[];
 
 const QUESTION_DIFFICULTY_LABEL: Record<QuestionDifficulty, string> = {
   EASY: 'Easy',
@@ -337,7 +345,10 @@ function QuestionBankPage() {
           ))}
         </div>
       ) : !data?.items.length ? (
-        <EmptyState title="No questions found" description="Try adjusting your filters, or create a new question." />
+        <EmptyState
+          title="No questions found"
+          description="Try adjusting your filters, or create a new question."
+        />
       ) : (
         <>
           <Table>
@@ -389,7 +400,9 @@ function QuestionBankPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingQuestionId(question.id)}>Edit</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setEditingQuestionId(question.id)}>
+                          Edit
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => void handleToggleStatus(question)}>
                           {question.status === 'ACTIVE' ? 'Archive' : 'Restore'}
                         </DropdownMenuItem>
@@ -425,7 +438,9 @@ function QuestionBankPage() {
                 <PaginationNext
                   aria-disabled={page * QUESTIONS_PAGE_SIZE >= data.meta.total}
                   className={
-                    page * QUESTIONS_PAGE_SIZE >= data.meta.total ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                    page * QUESTIONS_PAGE_SIZE >= data.meta.total
+                      ? 'pointer-events-none opacity-50'
+                      : 'cursor-pointer'
                   }
                   onClick={() => setPage((p) => p + 1)}
                 />

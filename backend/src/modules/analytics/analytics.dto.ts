@@ -15,3 +15,11 @@ export interface LeaderboardQueryDto {
   courseId?: string;
   limit?: string;
 }
+
+export interface OverviewQueryDto {
+  rangeDays?: string;
+  departmentId?: string;
+  groupId?: string;
+  courseId?: string;
+  assessmentId?: string;
+}

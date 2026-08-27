@@ -1,7 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
 
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope, trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 // Data-access layer for the resources module. Only this class may query Prisma directly
@@ -19,6 +19,25 @@ export class ResourcesRepository extends BaseRepository {
 
   findById(id: string) {
     return this.db.lessonResource.findUnique({ where: { id } });
+  }
+
+  findProgress(userId: string, resourceId: string) {
+    return this.db.lessonResourceProgress.findUnique({
+      where: { userId_resourceId: { userId, resourceId } },
+    });
+  }
+
+  upsertProgress(
+    userId: string,
+    resourceId: string,
+    data: Prisma.LessonResourceProgressUncheckedCreateInput,
+  ) {
+    const { id: _id, userId: _userId, resourceId: _resourceId, ...values } = data;
+    return this.db.lessonResourceProgress.upsert({
+      where: { userId_resourceId: { userId, resourceId } },
+      create: { ...values, userId, resourceId },
+      update: values,
+    });
   }
 
   async findNextOrder(lessonId: string): Promise<number> {
@@ -96,7 +115,10 @@ export class ResourcesRepository extends BaseRepository {
     }
     if (role === 'TRAINER') {
       const lesson = await this.db.lesson.findFirst({
-        where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(userId) } } },
+        where: {
+          id: lessonId,
+          module: { course: { AND: [{ deletedAt: null }, trainerCourseCatalogScope(userId)] } },
+        },
         select: { id: true },
       });
       return lesson !== null;
@@ -119,5 +141,13 @@ export class ResourcesRepository extends BaseRepository {
       }),
     });
     return membership !== null;
+  }
+
+  async isLessonManageableByTrainer(lessonId: string, trainerId: string): Promise<boolean> {
+    const lesson = await this.db.lesson.findFirst({
+      where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(trainerId) } } },
+      select: { id: true },
+    });
+    return lesson !== null;
   }
 }

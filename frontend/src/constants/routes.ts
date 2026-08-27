@@ -24,6 +24,8 @@ export const ROUTES = {
     AUDIT_LOG: '/admin/audit-log',
     TIMING_OBSERVATIONS: '/admin/timing-observations',
     IMPACT_METRICS: '/admin/impact-metrics',
+    LIVE_ANALYSIS: '/admin/analysis',
+    REPORTS: '/admin/reports',
     SETTINGS: '/admin/settings',
   },
   TRAINER: {
@@ -36,6 +38,7 @@ export const ROUTES = {
     QUESTIONS: '/trainer/questions',
     CALENDAR: '/trainer/calendar',
     QNA: '/trainer/qna',
+    LIVE_ANALYSIS: '/trainer/analysis',
     REPORTS: '/trainer/reports',
     TIMING_OBSERVATIONS: '/trainer/timing-observations',
     IMPACT_METRICS: '/trainer/impact-metrics',

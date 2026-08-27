@@ -1,3 +1,4 @@
+import { AssessmentSubmissionReason } from '@prisma/client';
 import type {
   Assessment,
   AssessmentAnswer,
@@ -19,13 +20,18 @@ import { logger } from '@/utils/logger';
 import { buildPaginationMeta } from '@/utils/pagination.util';
 import { assertUploadMatchesDeclaredType, removeTemporaryUpload } from '@/utils/upload-safety.util';
 
-import type { GradeAnswerDto, SaveAnswerDto } from './assessment-attempts.dto';
-import { AssessmentAttemptsRepository, type AnswerGradeUpsert, type AttemptListFilters } from './assessment-attempts.repository';
+import type { GradeAnswerDto, RecordIntegrityEventDto, SaveAnswerDto } from './assessment-attempts.dto';
+import {
+  AssessmentAttemptsRepository,
+  type AnswerGradeUpsert,
+  type AttemptListFilters,
+} from './assessment-attempts.repository';
 import {
   AUTO_GRADABLE_TEXT_QUESTION_TYPES,
   MANUAL_REVIEW_QUESTION_TYPES,
   OPTION_BASED_QUESTION_TYPES,
   type AttemptSummary,
+  type IntegrityEventResult,
   type AttemptWithGradedQuestions,
   type AttemptWithSanitizedQuestions,
   type GradedQuestionView,
@@ -86,7 +92,9 @@ interface Actor {
 // scoped. Nothing here re-checks role — only "is this trainee actually allowed to see/touch this
 // particular assessment/attempt".
 export class AssessmentAttemptsService extends BaseService {
-  constructor(protected readonly repository: AssessmentAttemptsRepository = new AssessmentAttemptsRepository()) {
+  constructor(
+    protected readonly repository: AssessmentAttemptsRepository = new AssessmentAttemptsRepository(),
+  ) {
     super();
   }
 
@@ -115,7 +123,9 @@ export class AssessmentAttemptsService extends BaseService {
     }
 
     const questions = await this.repository.findAssessmentQuestions(assessmentId);
-    const questionOrder = assessment.randomizeQuestions ? shuffle(questions.map((question) => question.id)) : null;
+    const questionOrder = assessment.randomizeQuestions
+      ? shuffle(questions.map((question) => question.id))
+      : null;
 
     const created = await this.repository.createAttempt({
       assessment: { connect: { id: assessmentId } },
@@ -133,7 +143,10 @@ export class AssessmentAttemptsService extends BaseService {
     return this.buildAttemptWithSanitizedQuestions(assessment, created, questions);
   }
 
-  async getMine(assessmentId: string, userId: string): Promise<AttemptWithSanitizedQuestions | AttemptWithGradedQuestions> {
+  async getMine(
+    assessmentId: string,
+    userId: string,
+  ): Promise<AttemptWithSanitizedQuestions | AttemptWithGradedQuestions> {
     // Accessibility is re-checked on every trainee-facing action (Prompt 6 § RBAC ground rules),
     // not just at `/start` — mirrors the progress module's `getLessonProgress` precedent, which
     // re-validates course accessibility on every read rather than only when progress is created.
@@ -218,7 +231,9 @@ export class AssessmentAttemptsService extends BaseService {
     const question = await this.findAssessmentQuestionOrThrow(assessmentId, assessmentQuestionId);
 
     if (question.snapshotType !== 'FILE_UPLOAD') {
-      throw new BadRequestError('This question does not accept a file upload — use PUT to save your answer instead.');
+      throw new BadRequestError(
+        'This question does not accept a file upload — use PUT to save your answer instead.',
+      );
     }
 
     this.assertAcceptedMimeType(file.mimetype);
@@ -273,6 +288,72 @@ export class AssessmentAttemptsService extends BaseService {
     return this.finalizeAttempt(assessment, attempt, requestReceivedAt, ipAddress);
   }
 
+  async recordIntegrityEvent(
+    assessmentId: string,
+    userId: string,
+    dto: RecordIntegrityEventDto,
+    ipAddress?: string | null,
+  ): Promise<IntegrityEventResult> {
+    const assessment = await this.assertAssessmentAccessibleOrThrow(assessmentId, userId);
+    const attempt = await this.repository.findAttemptByAssessmentAndUser(assessmentId, userId);
+    if (!attempt) throw new NotFoundError("You haven't started this assessment yet.");
+
+    if (attempt.status !== 'IN_PROGRESS') {
+      return {
+        violationCount: attempt.integrityViolationCount,
+        warningsRemaining: 0,
+        autoSubmitted: true,
+        attempt: this.toAttemptSummary(attempt),
+      };
+    }
+
+    const countsAsViolation = dto.type !== 'COPY_ATTEMPT';
+    if (countsAsViolation) {
+      const recent = await this.repository.findRecentCountedIntegrityEvent(
+        attempt.id,
+        new Date(Date.now() - 2_000),
+      );
+      if (recent) {
+        return {
+          violationCount: attempt.integrityViolationCount,
+          warningsRemaining: Math.max(0, 3 - attempt.integrityViolationCount),
+          autoSubmitted: false,
+          attempt: this.toAttemptSummary(attempt),
+        };
+      }
+    }
+
+    const updated = await this.repository.recordIntegrityEvent(
+      attempt.id,
+      userId,
+      dto.type,
+      countsAsViolation,
+      dto.occurredAt ? new Date(dto.occurredAt) : null,
+    );
+    if (updated.integrityViolationCount >= 3) {
+      const submitted = await this.finalizeAttempt(
+        assessment,
+        updated,
+        new Date(),
+        ipAddress,
+        AssessmentSubmissionReason.INTEGRITY_VIOLATION,
+      );
+      return {
+        violationCount: updated.integrityViolationCount,
+        warningsRemaining: 0,
+        autoSubmitted: true,
+        attempt: submitted,
+      };
+    }
+
+    return {
+      violationCount: updated.integrityViolationCount,
+      warningsRemaining: 3 - updated.integrityViolationCount,
+      autoSubmitted: false,
+      attempt: this.toAttemptSummary(updated),
+    };
+  }
+
   /**
    * Finalizes abandoned attempts after their server-authoritative deadline. This intentionally
    * uses the assessment snapshot linked to the attempt rather than current group access: an
@@ -280,7 +361,10 @@ export class AssessmentAttemptsService extends BaseService {
    */
   async finalizeExpiredAttempts(limit = 100): Promise<{ found: number; finalized: number; failed: number }> {
     const cutoff = new Date();
-    const attempts = await this.repository.findExpiredInProgressAttempts(cutoff, Math.max(1, Math.min(limit, 500)));
+    const attempts = await this.repository.findExpiredInProgressAttempts(
+      cutoff,
+      Math.max(1, Math.min(limit, 500)),
+    );
     let finalized = 0;
     let failed = 0;
 
@@ -306,6 +390,7 @@ export class AssessmentAttemptsService extends BaseService {
     attempt: AssessmentAttempt,
     requestReceivedAt: Date,
     ipAddress?: string | null,
+    forcedSubmissionReason?: AssessmentSubmissionReason,
   ): Promise<AttemptSummary> {
     const { id: assessmentId } = assessment;
     const { userId } = attempt;
@@ -314,7 +399,9 @@ export class AssessmentAttemptsService extends BaseService {
       this.repository.findAssessmentQuestions(assessmentId),
       this.repository.findAnswersByAttemptId(attempt.id),
     ]);
-    const existingByQuestionId = new Map(existingAnswers.map((answer) => [answer.assessmentQuestionId, answer]));
+    const existingByQuestionId = new Map(
+      existingAnswers.map((answer) => [answer.assessmentQuestionId, answer]),
+    );
 
     let autoScoreBeforePenalty = 0;
     let wrongAttemptedAutoGradedCount = 0;
@@ -361,11 +448,13 @@ export class AssessmentAttemptsService extends BaseService {
       Math.round((effectiveEnd.getTime() - attempt.startedAt.getTime()) / 1000),
     );
     const expired = requestReceivedAt >= attempt.expiresAt;
-    const submissionReason = expired
-      ? assessment.dueDate && attempt.expiresAt.getTime() === assessment.dueDate.getTime()
-        ? 'DUE_DATE_REACHED'
-        : 'TIME_EXPIRED'
-      : 'LEARNER';
+    const submissionReason =
+      forcedSubmissionReason ??
+      (expired
+        ? assessment.dueDate && attempt.expiresAt.getTime() === assessment.dueDate.getTime()
+          ? 'DUE_DATE_REACHED'
+          : 'TIME_EXPIRED'
+        : 'LEARNER');
     const maxMarks = questions.reduce((sum, question) => sum + question.marks, 0);
 
     const attemptData: Prisma.AssessmentAttemptUpdateInput = hasManualReviewQuestion
@@ -382,7 +471,8 @@ export class AssessmentAttemptsService extends BaseService {
           manualScore: 0,
           totalScore: autoScore,
           percentage: maxMarks === 0 ? 0 : Math.round((autoScore / maxMarks) * 100),
-          passed: (maxMarks === 0 ? 0 : Math.round((autoScore / maxMarks) * 100)) >= assessment.passingPercentage,
+          passed:
+            (maxMarks === 0 ? 0 : Math.round((autoScore / maxMarks) * 100)) >= assessment.passingPercentage,
           gradedAt: now,
           submittedAt: requestReceivedAt,
           submissionReason,
@@ -420,13 +510,18 @@ export class AssessmentAttemptsService extends BaseService {
       filters,
       (page - 1) * pageSize,
       pageSize,
+      actor.role === 'TRAINER' ? actor.id : undefined,
     );
 
     return {
       items: items.map((attempt) => ({
         id: attempt.id,
         userId: attempt.userId,
-        user: { firstName: attempt.user.firstName, lastName: attempt.user.lastName, email: attempt.user.email },
+        user: {
+          firstName: attempt.user.firstName,
+          lastName: attempt.user.lastName,
+          email: attempt.user.email,
+        },
         status: attempt.status,
         submittedAt: attempt.submittedAt,
         totalScore: attempt.totalScore,
@@ -441,8 +536,11 @@ export class AssessmentAttemptsService extends BaseService {
     await this.assertAssessmentInScope(assessmentId, actor);
     const attempt = await this.repository.findAttemptDetail(attemptId);
     if (!attempt || attempt.assessmentId !== assessmentId) throw new NotFoundError('Attempt not found.');
+    await this.assertAttemptInScope(attemptId, assessmentId, actor);
 
-    const answers = [...attempt.answers].sort((a, b) => a.assessmentQuestion.order - b.assessmentQuestion.order);
+    const answers = [...attempt.answers].sort(
+      (a, b) => a.assessmentQuestion.order - b.assessmentQuestion.order,
+    );
 
     return {
       id: attempt.id,
@@ -475,7 +573,6 @@ export class AssessmentAttemptsService extends BaseService {
         },
         selectedOptionIds: answer.selectedOptionIds,
         textAnswer: answer.textAnswer,
-        fileRelativePath: answer.fileRelativePath,
         fileOriginalFilename: answer.fileOriginalFilename,
         isCorrect: answer.isCorrect,
         marksAwarded: answer.marksAwarded,
@@ -496,6 +593,7 @@ export class AssessmentAttemptsService extends BaseService {
     await this.assertAssessmentInScope(assessmentId, actor);
     const attempt = await this.repository.findAttemptById(attemptId);
     if (!attempt || attempt.assessmentId !== assessmentId) throw new NotFoundError('Attempt not found.');
+    await this.assertAttemptInScope(attemptId, assessmentId, actor);
 
     const answer = await this.repository.findAnswerById(answerId);
     if (!answer || answer.attemptId !== attemptId) throw new NotFoundError('Answer not found.');
@@ -569,7 +667,8 @@ export class AssessmentAttemptsService extends BaseService {
       metadata: { attemptId, answerId, marksAwarded: dto.marksAwarded },
     });
 
-    return { attempt: this.toAttemptSummary(result.attempt), answer: result.answer };
+    const { fileRelativePath: _internalPath, ...safeAnswer } = result.answer;
+    return { attempt: this.toAttemptSummary(result.attempt), answer: safeAnswer };
   }
 
   // ---------------------------------------------------------------------------------------
@@ -593,11 +692,16 @@ export class AssessmentAttemptsService extends BaseService {
     return assessment;
   }
 
-  private async findOwnInProgressAttemptOrThrow(assessmentId: string, userId: string): Promise<AssessmentAttempt> {
+  private async findOwnInProgressAttemptOrThrow(
+    assessmentId: string,
+    userId: string,
+  ): Promise<AssessmentAttempt> {
     const attempt = await this.repository.findAttemptByAssessmentAndUser(assessmentId, userId);
     if (!attempt) throw new NotFoundError("You haven't started this assessment yet.");
     if (attempt.status !== 'IN_PROGRESS') {
-      throw new ConflictError("This attempt is no longer in progress — answers can't be changed after submitting.");
+      throw new ConflictError(
+        "This attempt is no longer in progress — answers can't be changed after submitting.",
+      );
     }
     return attempt;
   }
@@ -608,7 +712,10 @@ export class AssessmentAttemptsService extends BaseService {
     }
   }
 
-  private async findAssessmentQuestionOrThrow(assessmentId: string, assessmentQuestionId: string): Promise<AssessmentQuestion> {
+  private async findAssessmentQuestionOrThrow(
+    assessmentId: string,
+    assessmentQuestionId: string,
+  ): Promise<AssessmentQuestion> {
     const question = await this.repository.findAssessmentQuestionById(assessmentQuestionId);
     if (!question || question.assessmentId !== assessmentId) {
       throw new NotFoundError('Question not found on this assessment.');
@@ -628,6 +735,15 @@ export class AssessmentAttemptsService extends BaseService {
       !(await this.repository.isAssessmentInTrainerScope(assessmentId, actor.id))
     ) {
       throw new ForbiddenError("You don't have permission to manage this assessment.");
+    }
+  }
+
+  private async assertAttemptInScope(attemptId: string, assessmentId: string, actor: Actor): Promise<void> {
+    if (
+      actor.role === 'TRAINER' &&
+      !(await this.repository.isAttemptInTrainerScope(attemptId, assessmentId, actor.id))
+    ) {
+      throw new ForbiddenError("You don't have permission to access this trainee's attempt.");
     }
   }
 
@@ -748,11 +864,15 @@ export class AssessmentAttemptsService extends BaseService {
       totalScore: attempt.totalScore,
       percentage: attempt.percentage,
       passed: attempt.passed,
+      integrityViolationCount: attempt.integrityViolationCount,
     };
   }
 
   /** SINGLE_CORRECT_MCQ/MULTIPLE_CORRECT/TRUE_FALSE: set-compare. FILL_IN_THE_BLANK/SQL_QUERY: normalized-text-compare. */
-  private isAutoGradedAnswerCorrect(question: AssessmentQuestion, existing: AssessmentAnswer | undefined): boolean {
+  private isAutoGradedAnswerCorrect(
+    question: AssessmentQuestion,
+    existing: AssessmentAnswer | undefined,
+  ): boolean {
     if (isOptionBasedType(question.snapshotType)) {
       const correctIds = new Set(
         ((question.snapshotOptions as unknown as SnapshotOption[] | null) ?? [])
@@ -767,7 +887,9 @@ export class AssessmentAttemptsService extends BaseService {
       const submitted = existing?.textAnswer;
       if (submitted === null || submitted === undefined) return false;
       const normalizedSubmitted = normalizeText(submitted);
-      const acceptable = ((question.snapshotCorrectAnswers as unknown as string[] | null) ?? []).map(normalizeText);
+      const acceptable = ((question.snapshotCorrectAnswers as unknown as string[] | null) ?? []).map(
+        normalizeText,
+      );
       return acceptable.includes(normalizedSubmitted);
     }
 
@@ -782,7 +904,9 @@ export class AssessmentAttemptsService extends BaseService {
 
   private assertFileSizeWithinLimit(sizeBytes: number): void {
     if (sizeBytes > MAX_LESSON_FILE_SIZE_BYTES) {
-      throw new BadRequestError(`File exceeds the maximum allowed size of ${MAX_LESSON_FILE_SIZE_BYTES} bytes.`);
+      throw new BadRequestError(
+        `File exceeds the maximum allowed size of ${MAX_LESSON_FILE_SIZE_BYTES} bytes.`,
+      );
     }
   }
 }

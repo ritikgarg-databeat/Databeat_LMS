@@ -1,8 +1,10 @@
 import type { Role } from '@prisma/client';
 
+import { ProgressService } from '@/modules/progress/progress.service';
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/app-error';
+import { toClientResource } from '@/utils/client-resource.util';
 import { hasNewLessonContent } from '@/utils/lesson-content-status.util';
 import { deleteLessonResourceFiles } from '@/utils/lesson-resource-cleanup.util';
 import { deleteVideoDraftFiles } from '@/utils/video-draft-cleanup.util';
@@ -22,12 +24,15 @@ interface Actor {
 
 // Business logic for the lessons module. Controllers call into this layer only.
 export class LessonsService extends BaseService {
-  constructor(protected readonly repository: LessonsRepository = new LessonsRepository()) {
+  constructor(
+    protected readonly repository: LessonsRepository = new LessonsRepository(),
+    private readonly progressService: ProgressService = new ProgressService(),
+  ) {
     super();
   }
 
   async list(moduleId: string, actor: Actor) {
-    await this.assertModuleInScope(moduleId, actor);
+    await this.assertModuleReadable(moduleId, actor);
     return this.repository.findByModuleId(moduleId);
   }
 
@@ -40,23 +45,34 @@ export class LessonsService extends BaseService {
     if (actor.role === 'TRAINEE') {
       const accessible = await this.repository.isAccessibleToUser(id, actor.id, actor.role);
       if (!accessible) throw new ForbiddenError("You don't have permission to view this lesson.");
+      await this.progressService.assertLessonAvailableForLearning(id, actor);
     }
-    if (actor.role === 'TRAINER' && !(await this.repository.isLessonInTrainerScope(id, actor.id))) {
+    if (actor.role === 'TRAINER' && !(await this.repository.isLessonReadableByTrainer(id, actor.id))) {
       throw new ForbiddenError("You don't have permission to view this lesson.");
     }
 
     const lesson = await this.repository.findDetailedById(id, actor.id);
     if (!lesson) throw new NotFoundError('Lesson not found.');
 
-    const { progress, ...rest } = lesson;
+    const { progress, resources, ...rest } = lesson;
+    if (actor.role === 'TRAINEE') {
+      rest.module.course.isMandatory = await this.repository.isCourseMandatoryForUser(
+        rest.module.course.id,
+        actor.id,
+      );
+    }
     const learnerProgress = progress[0];
-    const latestResourceCreatedAt = rest.resources.reduce<Date | null>(
+    const latestResourceCreatedAt = resources.reduce<Date | null>(
       (latest, resource) => (!latest || resource.createdAt > latest ? resource.createdAt : latest),
       null,
     );
 
     return {
       ...rest,
+      resources: resources.map((resource) => {
+        const { progress: resourceProgress, ...resourceRest } = resource;
+        return { ...toClientResource(resourceRest), progress: resourceProgress[0] ?? null };
+      }),
       progress: learnerProgress
         ? {
             ...learnerProgress,
@@ -112,7 +128,11 @@ export class LessonsService extends BaseService {
 
     const result = contentChanged
       ? await this.repository.updateAndInvalidateLearning(id, updateData)
-      : { lesson: await this.repository.update(id, updateData), reopenedLearnerCount: 0, invalidatedQuizCount: 0 };
+      : {
+          lesson: await this.repository.update(id, updateData),
+          reopenedLearnerCount: 0,
+          invalidatedQuizCount: 0,
+        };
     const updated = result.lesson;
 
     await auditLogService.record({
@@ -207,6 +227,12 @@ export class LessonsService extends BaseService {
   private async assertModuleInScope(moduleId: string, actor: Actor): Promise<void> {
     if (actor.role === 'TRAINER' && !(await this.repository.isModuleInTrainerScope(moduleId, actor.id))) {
       throw new ForbiddenError("You don't have permission to manage this course module.");
+    }
+  }
+
+  private async assertModuleReadable(moduleId: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isModuleReadableByTrainer(moduleId, actor.id))) {
+      throw new ForbiddenError("You don't have permission to view this course module.");
     }
   }
 

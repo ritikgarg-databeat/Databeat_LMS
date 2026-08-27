@@ -23,6 +23,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useAuth } from '@/hooks/use-auth';
 import { useDebounce } from '@/hooks/use-debounce';
 import { formatDate } from '@/utils/date';
 import { getErrorMessage } from '@/utils/error';
@@ -31,7 +32,11 @@ import { AssessmentStatusBadge } from '../components/assessment-status-badge';
 import { CreateAssessmentDialog } from '../components/create-assessment-dialog';
 import { DuplicateAssessmentDialog } from '../components/duplicate-assessment-dialog';
 import { EditAssessmentDialog } from '../components/edit-assessment-dialog';
-import { useAssessmentsQuery, useDeleteAssessmentMutation, useUpdateAssessmentStatusMutation } from '../hooks';
+import {
+  useAssessmentsQuery,
+  useDeleteAssessmentMutation,
+  useUpdateAssessmentStatusMutation,
+} from '../hooks';
 import type { AssessmentSortField, AssessmentStatus, AssessmentSummary, SortOrder } from '../types';
 
 const ASSESSMENTS_PAGE_SIZE = 10;
@@ -67,6 +72,7 @@ const SORT_OPTIONS: AssessmentSortOption[] = [
 ];
 
 function AssessmentListPage() {
+  const { user } = useAuth();
   const isAdminRoute = useLocation().pathname.startsWith('/admin');
   const basePath = isAdminRoute ? '/admin' : '/trainer';
 
@@ -248,16 +254,24 @@ function AssessmentListPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingAssessment(assessment)}>Edit</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => void handleToggleStatus(assessment)}>
-                          {assessment.status === 'DRAFT'
-                            ? 'Publish'
-                            : assessment.status === 'PUBLISHED'
-                              ? 'Unpublish'
-                              : 'Restore to Draft'}
-                        </DropdownMenuItem>
-                        {assessment.status !== 'ARCHIVED' ? (
-                          <DropdownMenuItem onClick={() => void handleArchive(assessment)}>Archive</DropdownMenuItem>
+                        {isAdminRoute || assessment.createdById === user?.id ? (
+                          <>
+                            <DropdownMenuItem onClick={() => setEditingAssessment(assessment)}>
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void handleToggleStatus(assessment)}>
+                              {assessment.status === 'DRAFT'
+                                ? 'Publish'
+                                : assessment.status === 'PUBLISHED'
+                                  ? 'Unpublish'
+                                  : 'Restore to Draft'}
+                            </DropdownMenuItem>
+                            {assessment.status !== 'ARCHIVED' ? (
+                              <DropdownMenuItem onClick={() => void handleArchive(assessment)}>
+                                Archive
+                              </DropdownMenuItem>
+                            ) : null}
+                          </>
                         ) : null}
                         <DropdownMenuItem onClick={() => setDuplicatingAssessment(assessment)}>
                           Duplicate
@@ -265,12 +279,14 @@ function AssessmentListPage() {
                         <DropdownMenuItem asChild>
                           <Link to={`${basePath}/assessments/${assessment.id}/results`}>View Results</Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeletingAssessment(assessment)}
-                        >
-                          Delete
-                        </DropdownMenuItem>
+                        {isAdminRoute || assessment.createdById === user?.id ? (
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeletingAssessment(assessment)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

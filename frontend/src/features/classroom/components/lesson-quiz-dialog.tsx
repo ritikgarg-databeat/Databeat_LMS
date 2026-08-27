@@ -2,6 +2,7 @@ import { CheckCircle2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { IntegrityWatermark } from '@/components/shared/integrity-watermark';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,6 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/use-auth';
+import { useContentProtection } from '@/hooks/use-content-protection';
 import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/utils/error';
 
@@ -34,10 +37,19 @@ export interface LessonQuizDialogProps {
  * -> see the graded result (correct answers revealed) -> "Mark lesson as complete" hands control
  * back to the caller. No retakes — once submitted, the results screen is all this dialog shows.
  */
-function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted, onRetry }: LessonQuizDialogProps) {
+function LessonQuizDialog({
+  lessonId,
+  open,
+  onOpenChange,
+  questions,
+  onCompleted,
+  onRetry,
+}: LessonQuizDialogProps) {
+  const { user } = useAuth();
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<LessonQuizResult | null>(null);
   const submitQuiz = useSubmitLessonQuizMutation();
+  useContentProtection(open);
 
   const allAnswered = questions.every((question) => Boolean(answers[question.id]));
 
@@ -69,7 +81,10 @@ function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="relative max-h-[85vh] overflow-y-auto sm:max-w-xl">
+        <IntegrityWatermark
+          label={`${user?.firstName ?? 'Learner'} ${user?.lastName ?? ''} · ${user?.email ?? ''}`}
+        />
         <DialogHeader>
           <DialogTitle>Quick check before you finish</DialogTitle>
           <DialogDescription>
@@ -104,7 +119,10 @@ function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted
                           !showResult && 'hover:bg-accent',
                           isSelected && !showResult && 'border-primary bg-accent',
                           showResult && isCorrectOption && 'border-success bg-success/10',
-                          showResult && isSelected && !isCorrectOption && 'border-destructive bg-destructive/10',
+                          showResult &&
+                            isSelected &&
+                            !isCorrectOption &&
+                            'border-destructive bg-destructive/10',
                           showResult && 'cursor-default',
                         )}
                       >
@@ -115,7 +133,9 @@ function LessonQuizDialog({ lessonId, open, onOpenChange, questions, onCompleted
                           value={option.id}
                           checked={isSelected}
                           disabled={showResult}
-                          onChange={() => setAnswers((previous) => ({ ...previous, [question.id]: option.id }))}
+                          onChange={() =>
+                            setAnswers((previous) => ({ ...previous, [question.id]: option.id }))
+                          }
                         />
                         <span className="flex-1">{option.text}</span>
                         {showResult && isCorrectOption ? (

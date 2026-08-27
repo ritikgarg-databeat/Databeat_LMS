@@ -39,6 +39,11 @@ export interface CourseLessonProgress {
   status: LessonProgressStatus;
   timeSpentSeconds: number;
   hasNewContent: boolean;
+  isLocked: boolean;
+  lockReason: string | null;
+  requiredResourceCount: number;
+  completedResourceCount: number;
+  canStartQuiz: boolean;
 }
 
 export interface CourseModuleProgress {
@@ -50,6 +55,7 @@ export interface CourseModuleProgress {
 
 export interface CourseProgressBreakdown {
   courseId: string;
+  isMandatory: boolean;
   overallPercentage: number;
   modules: CourseModuleProgress[];
 }

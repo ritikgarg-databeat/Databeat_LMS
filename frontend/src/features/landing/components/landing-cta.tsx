@@ -43,8 +43,8 @@ function LandingCta() {
           Ready to bring AI-powered training to your team?
         </h2>
         <p className="text-primary-foreground/80 mt-3">
-          Sign in to launch courses and assessments, backed by an AI tutor that answers every
-          trainee&apos;s questions in real time.
+          Sign in to launch courses and assessments, backed by an AI tutor that answers every trainee&apos;s
+          questions in real time.
         </p>
         <Button
           asChild

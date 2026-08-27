@@ -66,7 +66,11 @@ const QUESTION_CATEGORY_LABEL: Record<QuestionCategory, string> = {
   GENERAL: 'General',
 };
 
-const QUESTION_DIFFICULTY_VALUES = ['EASY', 'MEDIUM', 'HARD'] as const satisfies readonly QuestionDifficulty[];
+const QUESTION_DIFFICULTY_VALUES = [
+  'EASY',
+  'MEDIUM',
+  'HARD',
+] as const satisfies readonly QuestionDifficulty[];
 
 const QUESTION_DIFFICULTY_LABEL: Record<QuestionDifficulty, string> = {
   EASY: 'Easy',
@@ -114,7 +118,11 @@ function getDefaultAnswersForType(type: QuestionType): { value: string }[] {
 
 const questionFormSchema = z
   .object({
-    title: z.string().trim().min(1, 'Title is required.').max(4000, 'Title must be 4000 characters or fewer.'),
+    title: z
+      .string()
+      .trim()
+      .min(1, 'Title is required.')
+      .max(4000, 'Title must be 4000 characters or fewer.'),
     type: z.string().min(1, 'Type is required.'),
     category: z.string().min(1, 'Category is required.'),
     difficulty: z.string().min(1, 'Difficulty is required.'),
@@ -538,8 +546,15 @@ function CreateQuestionDialog({ open, onOpenChange }: CreateQuestionDialogProps)
               </div>
               <div className="space-y-2">
                 <Label htmlFor="language">Language (optional)</Label>
-                <Input id="language" placeholder="e.g. python" disabled={isSubmitting} {...register('language')} />
-                {errors.language ? <p className="text-sm text-destructive">{errors.language.message}</p> : null}
+                <Input
+                  id="language"
+                  placeholder="e.g. python"
+                  disabled={isSubmitting}
+                  {...register('language')}
+                />
+                {errors.language ? (
+                  <p className="text-sm text-destructive">{errors.language.message}</p>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -547,7 +562,9 @@ function CreateQuestionDialog({ open, onOpenChange }: CreateQuestionDialogProps)
           <div className="space-y-2">
             <Label htmlFor="explanation">Explanation (optional)</Label>
             <Textarea id="explanation" rows={3} disabled={isSubmitting} {...register('explanation')} />
-            {errors.explanation ? <p className="text-sm text-destructive">{errors.explanation.message}</p> : null}
+            {errors.explanation ? (
+              <p className="text-sm text-destructive">{errors.explanation.message}</p>
+            ) : null}
           </div>
 
           <DialogFooter>

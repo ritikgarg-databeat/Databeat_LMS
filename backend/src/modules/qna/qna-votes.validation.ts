@@ -7,7 +7,13 @@ import { body } from 'express-validator';
 // feedback_express_validator_optional_mutation).
 export const qnaVotesValidation = {
   toggle: [
-    body('questionId').optional({ values: 'null' }).isUUID().withMessage('questionId must be a valid identifier.'),
-    body('answerId').optional({ values: 'null' }).isUUID().withMessage('answerId must be a valid identifier.'),
+    body('questionId')
+      .optional({ values: 'null' })
+      .isUUID()
+      .withMessage('questionId must be a valid identifier.'),
+    body('answerId')
+      .optional({ values: 'null' })
+      .isUUID()
+      .withMessage('answerId must be a valid identifier.'),
   ],
 };

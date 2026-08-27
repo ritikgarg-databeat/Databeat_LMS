@@ -47,7 +47,13 @@ export class GroupsRepository extends BaseRepository {
   ) {
     const where = buildWhere(filters);
     const [items, total] = await Promise.all([
-      this.db.group.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: summaryInclude }),
+      this.db.group.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { [sortBy]: sortOrder },
+        include: summaryInclude,
+      }),
       this.db.group.count({ where }),
     ]);
     return { items, total };
@@ -106,9 +112,7 @@ export class GroupsRepository extends BaseRepository {
     return this.db.user.count({
       where: {
         role: 'TRAINEE',
-        ...(trainerId
-          ? { groupMemberships: { some: { group: { trainerId, deletedAt: null } } } }
-          : {}),
+        ...(trainerId ? { groupMemberships: { some: { group: { trainerId, deletedAt: null } } } } : {}),
       },
     });
   }
@@ -124,7 +128,10 @@ export class GroupsRepository extends BaseRepository {
 
   async isDepartmentInTrainerScope(trainerId: string, departmentId: string): Promise<boolean> {
     const [trainer, managedGroup] = await Promise.all([
-      this.db.user.findFirst({ where: { id: trainerId, role: 'TRAINER', departmentId }, select: { id: true } }),
+      this.db.user.findFirst({
+        where: { id: trainerId, role: 'TRAINER', departmentId },
+        select: { id: true },
+      }),
       this.db.group.findFirst({ where: { trainerId, departmentId, deletedAt: null }, select: { id: true } }),
     ]);
     return trainer !== null || managedGroup !== null;

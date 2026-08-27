@@ -1,7 +1,7 @@
 import type { Prisma, Role } from '@prisma/client';
 
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope, trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { ReorderItem } from './lessons.types';
@@ -55,12 +55,15 @@ export class LessonsRepository extends BaseRepository {
     return this.db.lesson.findUnique({
       where: { id },
       include: {
-        resources: { orderBy: { order: 'asc' } },
+        resources: {
+          orderBy: { order: 'asc' },
+          include: { progress: { where: { userId } } },
+        },
         module: {
           select: {
             id: true,
             title: true,
-            course: { select: { id: true, title: true, status: true } },
+            course: { select: { id: true, title: true, status: true, isMandatory: true } },
           },
         },
         progress: { where: { userId } },
@@ -99,6 +102,40 @@ export class LessonsRepository extends BaseRepository {
       select: { id: true },
     });
     return lesson !== null;
+  }
+
+  async isModuleReadableByTrainer(moduleId: string, trainerId: string): Promise<boolean> {
+    const courseModule = await this.db.courseModule.findFirst({
+      where: {
+        id: moduleId,
+        course: { AND: [{ deletedAt: null }, trainerCourseCatalogScope(trainerId)] },
+      },
+      select: { id: true },
+    });
+    return courseModule !== null;
+  }
+
+  async isLessonReadableByTrainer(lessonId: string, trainerId: string): Promise<boolean> {
+    const lesson = await this.db.lesson.findFirst({
+      where: {
+        id: lessonId,
+        module: { course: { AND: [{ deletedAt: null }, trainerCourseCatalogScope(trainerId)] } },
+      },
+      select: { id: true },
+    });
+    return lesson !== null;
+  }
+
+  async isCourseMandatoryForUser(courseId: string, userId: string): Promise<boolean> {
+    const assignment = await this.db.courseGroupAssignment.findFirst({
+      where: {
+        courseId,
+        isMandatory: true,
+        group: { status: 'ACTIVE', deletedAt: null, members: { some: { userId } } },
+      },
+      select: { id: true },
+    });
+    return assignment !== null;
   }
 
   async findNextOrder(moduleId: string): Promise<number> {

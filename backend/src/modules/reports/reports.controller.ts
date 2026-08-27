@@ -46,6 +46,11 @@ export class ReportsController extends BaseController {
     this.sendCsv(res, await this.service.exportCourses(req.user));
   };
 
+  exportMandatory = async (req: Request, res: Response): Promise<void> => {
+    if (!req.user) throw new UnauthorizedError();
+    this.sendCsv(res, await this.service.exportMandatoryCompliance(req.user));
+  };
+
   /**
    * CSV downloads deliberately bypass the JSON success envelope — the body is a file, not an
    * API payload. Filename sanitization uses the same pattern as resources.controller.ts#download

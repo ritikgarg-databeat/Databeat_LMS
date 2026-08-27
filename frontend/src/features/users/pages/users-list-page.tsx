@@ -273,7 +273,9 @@ function UsersListPage({ manageRole }: UsersListPageProps) {
                   <TableCell className="font-medium">{user.fullName}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{departmentName(user.departmentId)}</TableCell>
-                  {isTraineeView ? <TableCell>{experienceLevelName(user.experienceLevelId)}</TableCell> : null}
+                  {isTraineeView ? (
+                    <TableCell>{experienceLevelName(user.experienceLevelId)}</TableCell>
+                  ) : null}
                   <TableCell>
                     <Badge variant={user.isActive ? 'success' : 'secondary'}>
                       {user.isActive ? 'Active' : 'Disabled'}
@@ -321,7 +323,9 @@ function UsersListPage({ manageRole }: UsersListPageProps) {
                 <PaginationNext
                   aria-disabled={page * USERS_PAGE_SIZE >= data.meta.total}
                   className={
-                    page * USERS_PAGE_SIZE >= data.meta.total ? 'pointer-events-none opacity-50' : 'cursor-pointer'
+                    page * USERS_PAGE_SIZE >= data.meta.total
+                      ? 'pointer-events-none opacity-50'
+                      : 'cursor-pointer'
                   }
                   onClick={() => setPage((p) => p + 1)}
                 />
@@ -364,9 +368,7 @@ function UsersListPage({ manageRole }: UsersListPageProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Temporary password generated</DialogTitle>
-            <DialogDescription>
-              Share this password securely — it will not be shown again.
-            </DialogDescription>
+            <DialogDescription>Share this password securely — it will not be shown again.</DialogDescription>
           </DialogHeader>
           <code className="block rounded-md bg-muted p-3 text-center text-lg font-semibold tracking-wider">
             {temporaryPassword}

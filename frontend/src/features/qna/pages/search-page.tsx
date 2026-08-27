@@ -18,8 +18,7 @@ const SEARCH_RESULT_LIMIT = 20;
 
 function SearchPage() {
   const isTraineeRoute = useLocation().pathname.startsWith('/trainee');
-  // TODO(orchestrator): promote to ROUTES.TRAINER.QNA / ROUTES.TRAINEE.QNA once added to routes.ts.
-  const qnaBasePath = isTraineeRoute ? '/trainee/qna' : '/trainer/qna';
+  const qnaBasePath = isTraineeRoute ? ROUTES.TRAINEE.QNA : ROUTES.TRAINER.QNA;
   const classroomBasePath = isTraineeRoute ? ROUTES.TRAINEE.CLASSROOM : ROUTES.TRAINER.CLASSROOM;
 
   const [searchParams, setSearchParams] = useSearchParams();

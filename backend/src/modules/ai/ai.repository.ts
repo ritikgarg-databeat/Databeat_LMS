@@ -2,7 +2,7 @@ import type { Prisma, Role } from '@prisma/client';
 
 import { AI_CONVERSATION_MESSAGES_MAX } from '@/constants/ai';
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { AiConversationListFilters } from './ai.types';
@@ -139,7 +139,10 @@ export class AiRepository extends BaseRepository {
     if (role === 'TRAINER') {
       return (
         (await this.db.lesson.findFirst({
-          where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(userId) } } },
+          where: {
+            id: lessonId,
+            module: { course: { AND: [{ deletedAt: null }, trainerCourseCatalogScope(userId)] } },
+          },
           select: { id: true },
         })) !== null
       );

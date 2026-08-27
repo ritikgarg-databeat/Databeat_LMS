@@ -32,7 +32,11 @@ import { formatDateTime } from '@/utils/date';
 import { formatSeconds } from '@/utils/duration';
 import { getErrorMessage } from '@/utils/error';
 
-import { useCreateTimingObservationMutation, useTimingObservationStatsQuery, useTimingObservationsQuery } from '../hooks';
+import {
+  useCreateTimingObservationMutation,
+  useTimingObservationStatsQuery,
+  useTimingObservationsQuery,
+} from '../hooks';
 
 const PAGE_SIZE = 20;
 /** "Effectively all" page size for the course dropdown — same convention as qna's ask-question form. */
@@ -57,7 +61,15 @@ const observationSchema = z.object({
 
 type ObservationFormValues = z.infer<typeof observationSchema>;
 
-function StatBlock({ label, summary, unit }: { label: string; summary: { mean: number | null; min: number | null; max: number | null }; unit: 'seconds' }) {
+function StatBlock({
+  label,
+  summary,
+  unit,
+}: {
+  label: string;
+  summary: { mean: number | null; min: number | null; max: number | null };
+  unit: 'seconds';
+}) {
   return (
     <div className="space-y-1 rounded-md border p-3">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -133,8 +145,8 @@ function TimingObservationsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Timing Observations</h1>
         <p className="text-muted-foreground">
-          Log a real, self-timed comparison of writing a lesson quiz by hand vs. reviewing the AI-generated one — the
-          human-timed evidence behind Measurable Early Impact.
+          Log a real, self-timed comparison of writing a lesson quiz by hand vs. reviewing the AI-generated
+          one — the human-timed evidence behind Measurable Early Impact.
         </p>
       </div>
 
@@ -172,7 +184,9 @@ function TimingObservationsPage() {
                     </Select>
                   )}
                 />
-                {errors.courseId ? <p className="text-sm text-destructive">{errors.courseId.message}</p> : null}
+                {errors.courseId ? (
+                  <p className="text-sm text-destructive">{errors.courseId.message}</p>
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -181,9 +195,15 @@ function TimingObservationsPage() {
                   name="lessonId"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange} disabled={isSubmitting || !courseId}>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={isSubmitting || !courseId}
+                    >
                       <SelectTrigger id="lessonId">
-                        <SelectValue placeholder={courseId ? 'Select a lesson...' : 'Select a course first'} />
+                        <SelectValue
+                          placeholder={courseId ? 'Select a lesson...' : 'Select a course first'}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {lessonOptions.map((lesson) => (
@@ -195,15 +215,26 @@ function TimingObservationsPage() {
                     </Select>
                   )}
                 />
-                {errors.lessonId ? <p className="text-sm text-destructive">{errors.lessonId.message}</p> : null}
+                {errors.lessonId ? (
+                  <p className="text-sm text-destructive">{errors.lessonId.message}</p>
+                ) : null}
               </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="manualMinutes">Manual quiz-writing time (minutes)</Label>
-                <Input id="manualMinutes" type="number" step="0.1" min="0" disabled={isSubmitting} {...register('manualMinutes')} />
-                {errors.manualMinutes ? <p className="text-sm text-destructive">{errors.manualMinutes.message}</p> : null}
+                <Input
+                  id="manualMinutes"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  disabled={isSubmitting}
+                  {...register('manualMinutes')}
+                />
+                {errors.manualMinutes ? (
+                  <p className="text-sm text-destructive">{errors.manualMinutes.message}</p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="aiAssistedMinutes">AI-assisted review time (minutes)</Label>
@@ -292,7 +323,9 @@ function TimingObservationsPage() {
                     <div className="text-xs text-muted-foreground">{entry.courseTitle}</div>
                   </TableCell>
                   <TableCell className="tabular-nums">{formatSeconds(entry.manualDurationSeconds)}</TableCell>
-                  <TableCell className="tabular-nums">{formatSeconds(entry.aiAssistedDurationSeconds)}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {formatSeconds(entry.aiAssistedDurationSeconds)}
+                  </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="tabular-nums">
                       {formatSeconds(entry.savedSeconds)}
@@ -315,13 +348,18 @@ function TimingObservationsPage() {
               </PaginationItem>
               <PaginationItem>
                 <span className="px-2 text-sm text-muted-foreground">
-                  Page {listQuery.data.meta.page} of {Math.max(1, Math.ceil(listQuery.data.meta.total / listQuery.data.meta.pageSize))}
+                  Page {listQuery.data.meta.page} of{' '}
+                  {Math.max(1, Math.ceil(listQuery.data.meta.total / listQuery.data.meta.pageSize))}
                 </span>
               </PaginationItem>
               <PaginationItem>
                 <PaginationNext
                   aria-disabled={page * PAGE_SIZE >= listQuery.data.meta.total}
-                  className={page * PAGE_SIZE >= listQuery.data.meta.total ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                  className={
+                    page * PAGE_SIZE >= listQuery.data.meta.total
+                      ? 'pointer-events-none opacity-50'
+                      : 'cursor-pointer'
+                  }
                   onClick={() => setPage((p) => p + 1)}
                 />
               </PaginationItem>

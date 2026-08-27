@@ -5,7 +5,7 @@
 // `useDownloadReportMutation` threads through to axios `params`.
 
 /** The four CSV exports the backend serves at `GET /reports/<kind>/export`. */
-export type ReportKind = 'progress' | 'results' | 'groups' | 'courses';
+export type ReportKind = 'progress' | 'results' | 'groups' | 'courses' | 'mandatory';
 
 export type ProgressReportParams = {
   groupId?: string;

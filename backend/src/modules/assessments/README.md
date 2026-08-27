@@ -5,16 +5,18 @@ question-bank-backed question list within an assessment. Attempt-taking/grading 
 separate assessment-attempts module, mounted at `/:id/attempts` by `assessments.routes.ts`.
 
 Layering: `assessments.routes.ts` → `assessments.controller.ts` → `assessments.service.ts` → `assessments.repository.ts`
-(see ARCHITECTURE.md §3.1). `assessments.dto.ts` defines request/response shapes, `assessments.types.ts`
-defines internal domain shapes, `assessments.interfaces.ts` defines the contracts controllers/services
-depend on, and `assessments.validation.ts` holds the express-validator chains for this module's routes.
+(see ARCHITECTURE.md §3.1). `assessments.dto.ts` defines request/response shapes,
+`assessments.types.ts` defines internal domain shapes, and `assessments.validation.ts` holds the
+express-validator chains for this module's routes.
 
 Mounted in `src/routes/index.ts` at a top-level `/assessments` path (mirrors `/courses`, not nested).
 
 ## RBAC
 
-Trainer and Super-Admin have identical, full manage permissions. Trainees get read-only access to
-`GET /assessments/:id` (metadata only, gated by `AssessmentsRepository#isAccessibleToUser`) and
+Super Admin manages all assessments. Trainers manage definitions they created and may reuse an
+assessment assigned to their own groups; attempt access and grading stay within those groups.
+Trainees get read-only access to `GET /assessments/:id` (metadata only, gated by
+`AssessmentsRepository#isAccessibleToUser`) and
 `GET /assessments/mine` — never the question content/answer key, which is exclusively served
 through the attempts module's start-attempt endpoint (sanitized).
 

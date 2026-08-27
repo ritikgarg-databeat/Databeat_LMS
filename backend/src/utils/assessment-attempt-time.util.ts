@@ -15,10 +15,7 @@ export function getAssessmentAttemptExpiresAt({
   return dueDate < durationExpiry ? dueDate : durationExpiry;
 }
 
-export function isAssessmentAttemptExpired(
-  window: AssessmentAttemptWindow,
-  now: Date = new Date(),
-): boolean {
+export function isAssessmentAttemptExpired(window: AssessmentAttemptWindow, now: Date = new Date()): boolean {
   return now >= getAssessmentAttemptExpiresAt(window);
 }
 
@@ -26,6 +23,7 @@ export function getAssessmentAttemptElapsedSeconds(
   window: AssessmentAttemptWindow,
   now: Date = new Date(),
 ): number {
-  const effectiveEnd = now < getAssessmentAttemptExpiresAt(window) ? now : getAssessmentAttemptExpiresAt(window);
+  const effectiveEnd =
+    now < getAssessmentAttemptExpiresAt(window) ? now : getAssessmentAttemptExpiresAt(window);
   return Math.max(0, Math.round((effectiveEnd.getTime() - window.startedAt.getTime()) / 1000));
 }

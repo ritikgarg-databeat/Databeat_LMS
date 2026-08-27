@@ -1,4 +1,4 @@
-import type { AssessmentAttemptStatus } from '@prisma/client';
+import type { AssessmentAttemptStatus, AssessmentIntegrityEventType } from '@prisma/client';
 
 // Request/response DTOs (API-facing shapes) for the assessment-attempts module.
 
@@ -24,4 +24,9 @@ export interface ListAttemptsQueryDto {
   page?: string;
   pageSize?: string;
   status?: AssessmentAttemptStatus;
+}
+
+export interface RecordIntegrityEventDto {
+  type: AssessmentIntegrityEventType;
+  occurredAt?: string;
 }

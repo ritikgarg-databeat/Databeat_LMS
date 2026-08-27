@@ -4,8 +4,8 @@ Owns the `LessonProgress` model — per-trainee, per-lesson learning progress tr
 
 Layering: `progress.routes.ts` → `progress.controller.ts` → `progress.service.ts` → `progress.repository.ts`
 (see ARCHITECTURE.md §3.1). `progress.dto.ts` defines request/response shapes, `progress.types.ts`
-defines internal domain shapes, `progress.interfaces.ts` defines the contracts controllers/services
-depend on, and `progress.validation.ts` holds the express-validator chains for this module's routes.
+defines internal domain shapes, and `progress.validation.ts` holds the express-validator chains
+for this module's routes.
 
 This module works directly against `Course` / `CourseModule` / `Lesson` / `LessonProgress` /
 `GroupMember` / `CourseGroupAssignment` via Prisma — it deliberately does not import from the
@@ -14,7 +14,8 @@ per this codebase's convention). It implements its own self-contained copy of th
 trainee-accessibility rule (Prompt 5 § SECURITY): a course is accessible to a user iff it is
 PUBLISHED, not soft-deleted, and assigned to a group the user is a member of; a lesson is
 additionally accessible to a Trainee only if the lesson and its module are both published.
-Trainers/Super Admins always bypass this check. A Trainee is always given a 403 (never a 404) for
+Trainers may read the shared published catalogue and Super Admins may read all content. A Trainee
+is always given a 403 (never a 404) for
 inaccessible or nonexistent content, so existence is never leaked.
 
 When a trainer changes lesson content or adds/deletes a resource, `Lesson.contentVersion`
@@ -23,6 +24,14 @@ attached to their old version and cannot satisfy the new completion contract. Pr
 `hasNewContent`, derived from the newest resource creation time and the learner's last view. This
 drives the trainee-facing new-content dot without adding a second notification table or state that
 could drift from the lesson resources.
+
+Mandatory course assignments flatten all published modules and lessons into one ordered sequence.
+The effective value is derived from the trainee's active group assignments; mandatory wins when
+the same course is assigned through multiple groups. The first
+lesson without current-version completion is available; later lessons return 403 from lesson,
+resource, progress, and quiz access paths until it is completed. `LessonResourceProgress` tracks
+current resource versions, bounded active time, acknowledgement, viewport exposure, and merged
+video coverage. Lesson completion is refused until every current resource is complete.
 
 ## Two kinds of endpoints
 

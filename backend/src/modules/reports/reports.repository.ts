@@ -15,7 +15,10 @@ export class ReportsRepository extends BaseRepository {
    * exports are exactly where historical batches still matter.
    */
   async findTrainerGroupIds(trainerId: string): Promise<string[]> {
-    const groups = await this.db.group.findMany({ where: { trainerId, deletedAt: null }, select: { id: true } });
+    const groups = await this.db.group.findMany({
+      where: { trainerId, deletedAt: null },
+      select: { id: true },
+    });
     return groups.map((group) => group.id);
   }
 
@@ -34,7 +37,10 @@ export class ReportsRepository extends BaseRepository {
   }
 
   findAssessmentById(assessmentId: string) {
-    return this.db.assessment.findFirst({ where: { id: assessmentId, deletedAt: null }, select: { id: true } });
+    return this.db.assessment.findFirst({
+      where: { id: assessmentId, deletedAt: null },
+      select: { id: true },
+    });
   }
 
   /**
@@ -116,7 +122,7 @@ export class ReportsRepository extends BaseRepository {
         groupId: { in: groupIds },
         course: { status: 'PUBLISHED', deletedAt: null, ...(courseId ? { id: courseId } : {}) },
       },
-      select: { groupId: true, course: { select: { id: true, title: true } } },
+      select: { groupId: true, isMandatory: true, course: { select: { id: true, title: true } } },
     });
   }
 
@@ -128,7 +134,7 @@ export class ReportsRepository extends BaseRepository {
     if (!courseIds.length) return Promise.resolve([]);
     return this.db.lesson.findMany({
       where: { isPublished: true, module: { isPublished: true, courseId: { in: courseIds } } },
-      select: { id: true, module: { select: { courseId: true } } },
+      select: { id: true, contentVersion: true, module: { select: { courseId: true } } },
     });
   }
 
@@ -136,7 +142,14 @@ export class ReportsRepository extends BaseRepository {
     if (!userIds.length || !lessonIds.length) return Promise.resolve([]);
     return this.db.lessonProgress.findMany({
       where: { userId: { in: userIds }, lessonId: { in: lessonIds } },
-      select: { userId: true, lessonId: true, status: true, timeSpentSeconds: true, lastViewedAt: true },
+      select: {
+        userId: true,
+        lessonId: true,
+        status: true,
+        completedContentVersion: true,
+        timeSpentSeconds: true,
+        lastViewedAt: true,
+      },
     });
   }
 
@@ -200,7 +213,13 @@ export class ReportsRepository extends BaseRepository {
         ...(groupIds ? { groupAssignments: { some: { groupId: { in: groupIds } } } } : {}),
       },
       orderBy: { title: 'asc' },
-      select: { id: true, title: true, status: true, groupAssignments: { select: { groupId: true } } },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        isMandatory: true,
+        groupAssignments: { select: { groupId: true } },
+      },
     });
   }
 

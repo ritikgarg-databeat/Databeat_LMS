@@ -20,7 +20,10 @@ const titleChain = () => body('title').trim().isLength({ min: 1, max: MAX_COURSE
 // clear the field on update, while a genuinely invalid falsy value (e.g. an empty-string
 // departmentId, or `0` minutes) still hits its own validator instead of being silently treated
 // as "not provided" — mirrors the fix already applied in groups.validation.ts's capacityChain.
-const descriptionChain = body('description').optional({ values: 'null' }).isString().isLength({ max: MAX_COURSE_DESCRIPTION_LENGTH });
+const descriptionChain = body('description')
+  .optional({ values: 'null' })
+  .isString()
+  .isLength({ max: MAX_COURSE_DESCRIPTION_LENGTH });
 const thumbnailChain = body('thumbnail').optional({ values: 'null' }).isString();
 const departmentIdChain = body('departmentId').optional({ values: 'null' }).isUUID();
 const experienceLevelIdChain = body('experienceLevelId').optional({ values: 'null' }).isUUID();
@@ -28,8 +31,18 @@ const estimatedDurationChain = body('estimatedDurationMinutes')
   .optional({ values: 'null' })
   .isInt({ min: MIN_ESTIMATED_DURATION_MINUTES, max: MAX_ESTIMATED_DURATION_MINUTES })
   .toInt();
-const difficultyChain = body('difficulty').optional().isIn(Object.values(CourseDifficulty)).withMessage('difficulty must be valid.');
-const groupIdParamValidator = param('groupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'));
+const difficultyChain = body('difficulty')
+  .optional()
+  .isIn(Object.values(CourseDifficulty))
+  .withMessage('difficulty must be valid.');
+const mandatoryChain = body('isMandatory')
+  .optional()
+  .isBoolean()
+  .withMessage('isMandatory must be a boolean.')
+  .toBoolean();
+const groupIdParamValidator = param('groupId')
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'));
 
 export const coursesValidation = {
   create: [
@@ -40,6 +53,7 @@ export const coursesValidation = {
     experienceLevelIdChain,
     estimatedDurationChain,
     difficultyChain,
+    mandatoryChain,
   ],
 
   update: [
@@ -50,13 +64,19 @@ export const coursesValidation = {
     experienceLevelIdChain,
     estimatedDurationChain,
     difficultyChain,
+    mandatoryChain,
   ],
 
   updateStatus: [body('status').isIn(Object.values(CourseStatus)).withMessage('status must be valid.')],
 
   duplicate: [titleChain(), body('includeResources').optional().isBoolean().toBoolean()],
 
-  assignGroup: [body('groupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId'))],
+  assignGroup: [
+    body('groupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('groupId')),
+    mandatoryChain,
+  ],
+
+  updateAssignment: [groupIdParamValidator, body('isMandatory').isBoolean().toBoolean()],
 
   unassignGroup: [groupIdParamValidator],
 

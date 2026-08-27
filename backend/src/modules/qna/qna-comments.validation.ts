@@ -10,8 +10,14 @@ import { idParamValidator } from '@/validators/common.validators';
 // feedback_express_validator_optional_mutation).
 export const qnaCommentsValidation = {
   create: [
-    body('questionId').optional({ values: 'null' }).isUUID().withMessage('questionId must be a valid identifier.'),
-    body('answerId').optional({ values: 'null' }).isUUID().withMessage('answerId must be a valid identifier.'),
+    body('questionId')
+      .optional({ values: 'null' })
+      .isUUID()
+      .withMessage('questionId must be a valid identifier.'),
+    body('answerId')
+      .optional({ values: 'null' })
+      .isUUID()
+      .withMessage('answerId must be a valid identifier.'),
     body('content')
       .trim()
       .isLength({ min: 1, max: MAX_QNA_COMMENT_LENGTH })

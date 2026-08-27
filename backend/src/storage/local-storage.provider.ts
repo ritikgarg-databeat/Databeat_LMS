@@ -51,8 +51,13 @@ export class LocalStorageProvider implements StorageProvider {
     return fs.createReadStream(this.resolve(pointer));
   }
 
-  async copy(pointer: StoredFilePointer, originalName: string, entityType: string): Promise<StoredFilePointer> {
-    if (!ENTITY_TYPE_PATTERN.test(entityType)) throw new Error(`Invalid entityType for file storage: ${entityType}`);
+  async copy(
+    pointer: StoredFilePointer,
+    originalName: string,
+    entityType: string,
+  ): Promise<StoredFilePointer> {
+    if (!ENTITY_TYPE_PATTERN.test(entityType))
+      throw new Error(`Invalid entityType for file storage: ${entityType}`);
     const relativePath = path.join(entityType, generateSafeFilename(originalName));
     const absolutePath = path.join(this.rootDir, relativePath);
     await fsPromises.mkdir(path.dirname(absolutePath), { recursive: true });

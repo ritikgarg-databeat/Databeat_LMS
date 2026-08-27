@@ -1,7 +1,7 @@
 import type { LessonQuizAttemptStatus, Prisma, Role } from '@prisma/client';
 
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 import { storageProvider } from '@/storage';
 import {
@@ -67,10 +67,30 @@ export class LessonQuizRepository extends BaseRepository {
    * uploaded as a file, not pasted as Markdown, so skipping file-backed resources here would
    * leave the quiz gate silently inert for the majority of real lessons.
    */
-  async findLessonContentForQuiz(lessonId: string): Promise<LessonContentForQuiz | null> {
+  async findLessonContentForQuiz(lessonId: string, userId?: string): Promise<LessonContentForQuiz | null> {
     const lesson = await this.db.lesson.findUnique({
       where: { id: lessonId },
-      include: { resources: { orderBy: { order: 'asc' } } },
+      include: {
+        resources: { orderBy: { order: 'asc' } },
+        module: {
+          select: {
+            course: {
+              select: {
+                isMandatory: true,
+                groupAssignments: {
+                  where: userId
+                    ? {
+                        isMandatory: true,
+                        group: { status: 'ACTIVE', deletedAt: null, members: { some: { userId } } },
+                      }
+                    : { id: '__not-used__' },
+                  select: { id: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
     if (!lesson) return null;
 
@@ -108,6 +128,9 @@ export class LessonQuizRepository extends BaseRepository {
       lessonDescription: lesson.description,
       content,
       contentVersion: lesson.contentVersion,
+      isMandatory: userId
+        ? lesson.module.course.groupAssignments.length > 0
+        : lesson.module.course.isMandatory,
       hasOpaqueFileContent: fileResourceCount > successfullyExtractedFileCount,
     };
   }
@@ -126,7 +149,10 @@ export class LessonQuizRepository extends BaseRepository {
     if (role === 'TRAINER') {
       return (
         (await this.db.lesson.findFirst({
-          where: { id: lessonId, module: { course: { deletedAt: null, ...trainerCourseScope(userId) } } },
+          where: {
+            id: lessonId,
+            module: { course: { AND: [{ deletedAt: null }, trainerCourseCatalogScope(userId)] } },
+          },
           select: { id: true },
         })) !== null
       );
@@ -148,6 +174,38 @@ export class LessonQuizRepository extends BaseRepository {
         courseAssignments: { some: { courseId: course.id } },
       }),
     });
-    return membership !== null;
+    if (!membership) return false;
+    const mandatoryAssignment = await this.db.courseGroupAssignment.findFirst({
+      where: {
+        courseId: course.id,
+        isMandatory: true,
+        group: { status: 'ACTIVE', deletedAt: null, members: { some: { userId } } },
+      },
+      select: { id: true },
+    });
+    if (!mandatoryAssignment) return true;
+
+    const sequence = await this.db.lesson.findMany({
+      where: {
+        isPublished: true,
+        module: { courseId: course.id, isPublished: true },
+      },
+      orderBy: [{ module: { order: 'asc' } }, { order: 'asc' }],
+      select: {
+        id: true,
+        contentVersion: true,
+        progress: {
+          where: { userId },
+          take: 1,
+          select: { status: true, completedContentVersion: true },
+        },
+      },
+    });
+    const requestedIndex = sequence.findIndex((item) => item.id === lessonId);
+    const firstIncompleteIndex = sequence.findIndex((item) => {
+      const progress = item.progress[0];
+      return progress?.status !== 'COMPLETED' || progress.completedContentVersion !== item.contentVersion;
+    });
+    return requestedIndex >= 0 && (firstIncompleteIndex < 0 || requestedIndex <= firstIncompleteIndex);
   }
 }

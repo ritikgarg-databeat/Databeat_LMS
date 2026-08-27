@@ -59,7 +59,6 @@ export interface QuestionCreatedBySummary {
   id: string;
   firstName: string;
   lastName: string;
-  email: string;
 }
 
 /**
@@ -164,7 +163,6 @@ export interface AssessmentCreatedBySummary {
   id: string;
   firstName: string;
   lastName: string;
-  email: string;
 }
 
 /** Scalar fields shared by every assessment representation, regardless of viewer role. */
@@ -403,12 +401,23 @@ export interface Attempt {
   expiresAt: string;
   remainingSeconds: number;
   submittedAt: string | null;
-  submissionReason: 'LEARNER' | 'TIME_EXPIRED' | 'DUE_DATE_REACHED' | 'ADMIN' | null;
+  submissionReason: 'LEARNER' | 'TIME_EXPIRED' | 'DUE_DATE_REACHED' | 'INTEGRITY_VIOLATION' | 'ADMIN' | null;
   gradedAt: string | null;
   timeSpentSeconds: number;
   totalScore: number | null;
   percentage: number | null;
   passed: boolean | null;
+  integrityViolationCount: number;
+}
+
+export type AssessmentIntegrityEventType =
+  'FULLSCREEN_EXIT' | 'TAB_HIDDEN' | 'WINDOW_BLUR' | 'SCREENSHOT_ATTEMPT' | 'PRINT_ATTEMPT' | 'COPY_ATTEMPT';
+
+export interface IntegrityEventResult {
+  violationCount: number;
+  warningsRemaining: number;
+  autoSubmitted: boolean;
+  attempt: Attempt;
 }
 
 /** `POST /assessments/:id/attempts/start` response — idempotent, also used to resume. */
@@ -516,7 +525,6 @@ export interface AttemptAnswerDetail {
   question: AttemptQuestionContext;
   selectedOptionIds: string[] | null;
   textAnswer: string | null;
-  fileRelativePath: string | null;
   fileOriginalFilename: string | null;
   isCorrect: boolean | null;
   marksAwarded: number | null;
@@ -556,7 +564,6 @@ export interface GradeAnswerRawAnswer {
   assessmentQuestionId: string;
   selectedOptionIds: string[] | null;
   textAnswer: string | null;
-  fileRelativePath: string | null;
   fileOriginalFilename: string | null;
   isCorrect: boolean | null;
   marksAwarded: number | null;

@@ -44,7 +44,6 @@ export interface CourseCreatedBySummary {
   id: string;
   firstName: string;
   lastName: string;
-  email: string;
 }
 
 export interface CourseGroupSummary {
@@ -56,6 +55,7 @@ export interface CourseGroupSummary {
 /** `GET /courses/:id/assignments` list item — `id` is the groupId. */
 export interface CourseGroupAssignmentSummary extends CourseGroupSummary {
   memberCount: number;
+  isMandatory: boolean;
 }
 
 /** Response shape of `POST /courses/:id/assignments`. */
@@ -65,6 +65,7 @@ export interface CourseGroupAssignment {
   groupId: string;
   assignedById: string | null;
   assignedAt: string;
+  isMandatory: boolean;
   group: CourseGroupSummary;
 }
 
@@ -78,11 +79,15 @@ interface CourseBase {
   experienceLevelId: string | null;
   estimatedDurationMinutes: number | null;
   difficulty: CourseDifficulty;
+  isMandatory: boolean;
   status: CourseStatus;
   createdById: string | null;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Management capability flags; omitted from learner-only representations. */
+  canEdit?: boolean;
+  canAssign?: boolean;
 }
 
 /**
@@ -122,12 +127,13 @@ export interface CourseModuleWithLessons extends CourseModule {
 /** `GET /courses/:id` — scalar fields + relations, plus the full module/lesson tree. */
 export interface CourseDetail extends Course {
   modules: CourseModuleWithLessons[];
-  assignedGroups: CourseGroupSummary[];
+  assignedGroups: Array<CourseGroupSummary & { isMandatory: boolean }>;
 }
 
 export interface CourseListFilters {
   status?: CourseStatus;
   difficulty?: CourseDifficulty;
+  isMandatory?: boolean;
   departmentId?: string;
   experienceLevelId?: string;
   search?: string;
@@ -148,6 +154,7 @@ export interface CreateCoursePayload {
   experienceLevelId?: string;
   estimatedDurationMinutes?: number;
   difficulty?: CourseDifficulty;
+  isMandatory?: boolean;
 }
 
 /** `status` is deliberately absent — status only ever changes via `updateStatus`. */
@@ -159,6 +166,7 @@ export interface UpdateCoursePayload {
   experienceLevelId?: string | null;
   estimatedDurationMinutes?: number | null;
   difficulty?: CourseDifficulty;
+  isMandatory?: boolean;
 }
 
 export interface UpdateCourseStatusPayload {
@@ -172,6 +180,11 @@ export interface DuplicateCoursePayload {
 
 export interface AssignGroupPayload {
   groupId: string;
+  isMandatory?: boolean;
+}
+
+export interface UpdateCourseAssignmentPayload {
+  isMandatory: boolean;
 }
 
 export interface CourseStats {
@@ -244,6 +257,7 @@ export interface Lesson {
   order: number;
   estimatedDurationMinutes: number | null;
   isPublished: boolean;
+  contentVersion: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -261,6 +275,7 @@ export interface LessonModuleSummary {
     id: string;
     title: string;
     status: CourseStatus;
+    isMandatory: boolean;
   };
 }
 
@@ -305,7 +320,7 @@ export interface ReorderLessonsPayload {
 
 /**
  * File-backed types (PDF/VIDEO/IMAGE/PRESENTATION/DOCUMENT/ZIP) populate
- * relativePath/originalFilename/mimeType/fileSizeBytes and leave `content` null. Text-backed
+ * originalFilename/mimeType/fileSizeBytes and leave `content` null. Text-backed
  * types (MARKDOWN/CODE_SNIPPET) and EXTERNAL_LINK populate `content` and leave the file fields
  * null — see `RESOURCE_TYPE_META` in ../constants for the `isFileBacked` lookup.
  */
@@ -314,7 +329,6 @@ export interface LessonResource {
   lessonId: string;
   type: ResourceType;
   title: string;
-  relativePath: string | null;
   originalFilename: string | null;
   mimeType: string | null;
   fileSizeBytes: number | null;
@@ -323,6 +337,40 @@ export interface LessonResource {
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
+  contentVersion: number;
+  progress?: LessonResourceProgress | null;
+}
+
+export interface LessonResourceProgress {
+  id: string;
+  userId: string;
+  resourceId: string;
+  status: LessonProgressStatus;
+  completedContentVersion: number | null;
+  activeTimeSeconds: number;
+  furthestVideoSecond: number;
+  videoDurationSeconds: number | null;
+  watchedIntervals: [number, number][] | null;
+  maxScrollPercentage: number;
+  openedAt: string | null;
+  acknowledgedAt: string | null;
+  completedAt: string | null;
+  lastEventAt: string | null;
+}
+
+export interface RecordResourceProgressPayload {
+  event: 'OPEN' | 'VIEW' | 'VIDEO_HEARTBEAT' | 'ACKNOWLEDGE';
+  activeSecondsDelta?: number;
+  scrollPercentage?: number;
+  positionSeconds?: number;
+  durationSeconds?: number;
+  watchedFromSeconds?: number;
+  watchedToSeconds?: number;
+}
+
+export interface ResourceProgressResult extends LessonResourceProgress {
+  requiredActiveSeconds: number;
+  watchedPercentage: number;
 }
 
 /** Body for `POST /lessons/:id/resources/upload` (multipart) — `type` must be file-backed. */
@@ -434,6 +482,11 @@ export interface CourseLessonProgress {
   status: LessonProgressStatus;
   timeSpentSeconds: number;
   hasNewContent: boolean;
+  isLocked: boolean;
+  lockReason: string | null;
+  requiredResourceCount: number;
+  completedResourceCount: number;
+  canStartQuiz: boolean;
 }
 
 export interface CourseModuleProgress {
@@ -445,6 +498,7 @@ export interface CourseModuleProgress {
 
 export interface CourseProgressBreakdown {
   courseId: string;
+  isMandatory: boolean;
   overallPercentage: number;
   modules: CourseModuleProgress[];
 }

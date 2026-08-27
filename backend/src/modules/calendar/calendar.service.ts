@@ -31,7 +31,7 @@ export class CalendarService extends BaseService {
 
   async list(filters: CalendarEventListFilters, actor: Actor) {
     const events = await this.repository.findMany(filters, actor.role === 'TRAINER' ? actor.id : undefined);
-    return events.map((event) => this.toListItem(event));
+    return events.map((event) => this.toListItem(event, actor));
   }
 
   /**
@@ -46,14 +46,14 @@ export class CalendarService extends BaseService {
       if (!event) throw new ForbiddenError("You don't have permission to view this event.");
       const accessible = await this.isAccessibleToUser(event, actor.id);
       if (!accessible) throw new ForbiddenError("You don't have permission to view this event.");
-      return this.toListItem(event);
+      return this.toListItem(event, actor);
     }
 
     if (!event) throw new NotFoundError('Calendar event not found.');
     if (actor.role === 'TRAINER' && !(await this.repository.isInTrainerViewScope(id, actor.id))) {
       throw new ForbiddenError("You don't have permission to view this event.");
     }
-    return this.toListItem(event);
+    return this.toListItem(event, actor);
   }
 
   async listMine(userId: string, filters: CalendarEventListFilters) {
@@ -97,7 +97,7 @@ export class CalendarService extends BaseService {
       eventId: created.id,
     });
 
-    return this.toListItem(created);
+    return this.toListItem(created, actor);
   }
 
   async update(id: string, dto: UpdateCalendarEventDto, actor: Actor, ipAddress?: string | null) {
@@ -159,7 +159,7 @@ export class CalendarService extends BaseService {
       eventId: updated.id,
     });
 
-    return this.toListItem(updated);
+    return this.toListItem(updated, actor);
   }
 
   async softDelete(id: string, actor: Actor, ipAddress?: string | null): Promise<void> {
@@ -209,12 +209,19 @@ export class CalendarService extends BaseService {
       });
   }
 
-  private toListItem(event: CalendarEventWithAssignments) {
+  private toListItem(event: CalendarEventWithAssignments, actor: Actor) {
     const { assignments, ...rest } = event;
-    const departments = assignments
+    // Only Admins and the event creator receive its complete audience list. A learner, or a
+    // trainer who sees an Admin-created event through one assigned group/department, must not
+    // learn the names of every other cohort targeted by the same event.
+    const visibleAssignments =
+      actor.role === 'SUPER_ADMIN' || (actor.role === 'TRAINER' && event.createdById === actor.id)
+        ? assignments
+        : [];
+    const departments = visibleAssignments
       .map((assignment) => assignment.department)
       .filter((department): department is { id: string; name: string } => department !== null);
-    const groups = assignments
+    const groups = visibleAssignments
       .map((assignment) => assignment.group)
       .filter((group): group is { id: string; name: string; code: string } => group !== null);
 

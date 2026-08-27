@@ -18,7 +18,7 @@ export class QnaTagsController extends BaseController {
     if (!req.user) throw new UnauthorizedError();
 
     const query = req.query as ListTagsQueryDto;
-    const tags = await this.service.list({ search: query.search });
+    const tags = await this.service.list({ search: query.search }, req.user);
     this.ok(res, tags);
   };
 }

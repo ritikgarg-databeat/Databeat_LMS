@@ -6,6 +6,7 @@
 // hook's doc-comment in `../hooks/use-authenticated-media-url.ts` for why a bare `src` attribute
 // can't be pointed at the backend directly.
 import { Download, ExternalLink as ExternalLinkIcon } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -17,8 +18,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatFileSize } from '@/utils/file';
 
 import { RESOURCE_TYPE_META } from '../constants';
-import { useAuthenticatedMediaUrl, useDownloadResource } from '../hooks';
-import type { LessonResource, ResourceType } from '../types';
+import { useAuthenticatedMediaUrl, useDownloadResource, useRecordResourceProgressMutation } from '../hooks';
+import type { LessonResource, ResourceProgressResult, ResourceType } from '../types';
 
 import { ResourceTypeIcon } from './resource-type-icon';
 
@@ -39,9 +40,18 @@ export interface LessonContentRendererProps {
    * non-video content, since "did the user actually finish" can't be inferred there.
    */
   onVideoEnded?: () => void;
+  mandatory?: boolean;
+  onResourceProgressChange?: (resourceId: string, completed: boolean) => void;
 }
 
-function LessonContentRenderer({ lessonId, resources, lessonType, onVideoEnded }: LessonContentRendererProps) {
+function LessonContentRenderer({
+  lessonId,
+  resources,
+  lessonType,
+  onVideoEnded,
+  mandatory = false,
+  onResourceProgressChange,
+}: LessonContentRendererProps) {
   if (resources.length === 0) {
     return (
       <EmptyState
@@ -56,14 +66,29 @@ function LessonContentRenderer({ lessonId, resources, lessonType, onVideoEnded }
 
   return (
     <div className="space-y-8">
-      {orderedResources.map((resource) => (
-        <ResourceView
-          key={resource.id}
-          lessonId={lessonId}
-          resource={resource}
-          onVideoEnded={isSoleVideoLesson ? onVideoEnded : undefined}
-        />
-      ))}
+      {orderedResources.map((resource) => {
+        const view = (
+          <ResourceView
+            lessonId={lessonId}
+            resource={resource}
+            mandatory={mandatory}
+            onProgress={(completed) => onResourceProgressChange?.(resource.id, completed)}
+            onVideoEnded={isSoleVideoLesson ? onVideoEnded : undefined}
+          />
+        );
+        return mandatory ? (
+          <MandatoryResourceTracker
+            key={resource.id}
+            lessonId={lessonId}
+            resource={resource}
+            onProgress={(completed) => onResourceProgressChange?.(resource.id, completed)}
+          >
+            {view}
+          </MandatoryResourceTracker>
+        ) : (
+          <div key={resource.id}>{view}</div>
+        );
+      })}
     </div>
   );
 }
@@ -72,10 +97,14 @@ function ResourceView({
   lessonId,
   resource,
   onVideoEnded,
+  mandatory,
+  onProgress,
 }: {
   lessonId: string;
   resource: LessonResource;
   onVideoEnded?: () => void;
+  mandatory: boolean;
+  onProgress: (completed: boolean) => void;
 }) {
   switch (resource.type) {
     case 'MARKDOWN':
@@ -90,14 +119,18 @@ function ResourceView({
     case 'CODE_SNIPPET':
       return (
         <TitledResource resource={resource}>
-          <SyntaxHighlighter style={oneDark} showLineNumbers customStyle={{ margin: 0, borderRadius: '0.5rem' }}>
+          <SyntaxHighlighter
+            style={oneDark}
+            showLineNumbers
+            customStyle={{ margin: 0, borderRadius: '0.5rem' }}
+          >
             {resource.content ?? ''}
           </SyntaxHighlighter>
         </TitledResource>
       );
 
     case 'EXTERNAL_LINK':
-      return <ExternalLinkResource resource={resource} />;
+      return <ExternalLinkResource lessonId={lessonId} resource={resource} mandatory={mandatory} />;
 
     case 'PDF':
       return (
@@ -109,7 +142,13 @@ function ResourceView({
     case 'VIDEO':
       return (
         <TitledResource resource={resource}>
-          <VideoResource lessonId={lessonId} resource={resource} onEnded={onVideoEnded} />
+          <VideoResource
+            lessonId={lessonId}
+            resource={resource}
+            mandatory={mandatory}
+            onProgress={onProgress}
+            onEnded={onVideoEnded}
+          />
         </TitledResource>
       );
 
@@ -123,11 +162,143 @@ function ResourceView({
     case 'PRESENTATION':
     case 'DOCUMENT':
     case 'ZIP':
-      return <DownloadableFileResource lessonId={lessonId} resource={resource} />;
+      return <DownloadableFileResource lessonId={lessonId} resource={resource} mandatory={mandatory} />;
 
     default:
       return null;
   }
+}
+
+function requiredActiveSeconds(resource: LessonResource): number {
+  if (resource.type === 'MARKDOWN' || resource.type === 'CODE_SNIPPET') {
+    const words = (resource.content ?? '').trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(10, Math.min(180, Math.ceil((words / 200) * 60)));
+  }
+  if (resource.type === 'IMAGE') return 5;
+  if (resource.type === 'PDF' || resource.type === 'PRESENTATION' || resource.type === 'DOCUMENT') return 30;
+  return 10;
+}
+
+function MandatoryResourceTracker({
+  lessonId,
+  resource,
+  onProgress,
+  children,
+}: {
+  lessonId: string;
+  resource: LessonResource;
+  onProgress: (completed: boolean) => void;
+  children: React.ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mutation = useRecordResourceProgressMutation();
+  const initiallyCompleted =
+    resource.progress?.status === 'COMPLETED' &&
+    resource.progress.completedContentVersion === resource.contentVersion;
+  const [progress, setProgress] = useState({
+    completed: initiallyCompleted,
+    activeSeconds: resource.progress?.activeTimeSeconds ?? 0,
+    requiredSeconds: requiredActiveSeconds(resource),
+    maxScroll: resource.progress?.maxScrollPercentage ?? 0,
+  });
+  const visibleRef = useRef(false);
+  const openedRef = useRef(Boolean(resource.progress?.openedAt));
+
+  const applyResult = useCallback(
+    (result: ResourceProgressResult) => {
+      const completed =
+        result.status === 'COMPLETED' && result.completedContentVersion === resource.contentVersion;
+      setProgress({
+        completed,
+        activeSeconds: result.activeTimeSeconds,
+        requiredSeconds: result.requiredActiveSeconds,
+        maxScroll: result.maxScrollPercentage,
+      });
+      onProgress(completed);
+    },
+    [onProgress, resource.contentVersion],
+  );
+
+  useEffect(() => {
+    onProgress(initiallyCompleted);
+  }, [initiallyCompleted, onProgress]);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || progress.completed || resource.type === 'VIDEO') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        visibleRef.current = Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.25);
+        const requiresExplicitOpen = ['EXTERNAL_LINK', 'PRESENTATION', 'DOCUMENT', 'ZIP'].includes(
+          resource.type,
+        );
+        if (visibleRef.current && !openedRef.current && !requiresExplicitOpen) {
+          openedRef.current = true;
+          mutation.mutate(
+            { lessonId, resourceId: resource.id, payload: { event: 'OPEN' } },
+            { onSuccess: applyResult },
+          );
+        }
+      },
+      { threshold: [0.25] },
+    );
+    observer.observe(element);
+    const interval = window.setInterval(() => {
+      if (!visibleRef.current || document.hidden) return;
+      const rect = element.getBoundingClientRect();
+      const visibleBottom = Math.min(window.innerHeight, Math.max(0, window.innerHeight - rect.top));
+      const percentage = rect.height <= 0 ? 100 : Math.round(Math.min(1, visibleBottom / rect.height) * 100);
+      mutation.mutate(
+        {
+          lessonId,
+          resourceId: resource.id,
+          payload: { event: 'VIEW', activeSecondsDelta: 5, scrollPercentage: percentage },
+        },
+        { onSuccess: applyResult },
+      );
+    }, 5_000);
+    return () => {
+      window.clearInterval(interval);
+      observer.disconnect();
+    };
+  }, [applyResult, lessonId, mutation, progress.completed, resource.id, resource.type]);
+
+  const canAcknowledge =
+    resource.type !== 'VIDEO' &&
+    progress.activeSeconds >= progress.requiredSeconds &&
+    (!(resource.type === 'MARKDOWN' || resource.type === 'CODE_SNIPPET' || resource.type === 'IMAGE') ||
+      progress.maxScroll >= 90);
+
+  return (
+    <div ref={containerRef} className="space-y-3 rounded-lg border border-border/70 p-4">
+      {children}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm">
+        <span className={progress.completed ? 'text-success' : 'text-muted-foreground'}>
+          {progress.completed
+            ? 'Resource completed'
+            : resource.type === 'VIDEO'
+              ? 'Watch the complete video without skipping.'
+              : `Review time ${Math.min(progress.activeSeconds, progress.requiredSeconds)}/${progress.requiredSeconds}s`}
+        </span>
+        {resource.type !== 'VIDEO' && !progress.completed ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!canAcknowledge || mutation.isPending}
+            onClick={() =>
+              mutation.mutate(
+                { lessonId, resourceId: resource.id, payload: { event: 'ACKNOWLEDGE' } },
+                { onSuccess: applyResult },
+              )
+            }
+          >
+            Mark resource reviewed
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function TitledResource({ resource, children }: { resource: LessonResource; children: React.ReactNode }) {
@@ -142,12 +313,24 @@ function TitledResource({ resource, children }: { resource: LessonResource; chil
   );
 }
 
-function ExternalLinkResource({ resource }: { resource: LessonResource }) {
+function ExternalLinkResource({
+  lessonId,
+  resource,
+  mandatory,
+}: {
+  lessonId: string;
+  resource: LessonResource;
+  mandatory: boolean;
+}) {
+  const progress = useRecordResourceProgressMutation();
   return (
     <a
       href={resource.content ?? '#'}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={() => {
+        if (mandatory) progress.mutate({ lessonId, resourceId: resource.id, payload: { event: 'OPEN' } });
+      }}
       className="flex items-center justify-between gap-3 rounded-md border p-4 transition-colors hover:bg-accent hover:text-accent-foreground"
     >
       <span className="flex items-center gap-3">
@@ -187,21 +370,79 @@ function VideoResource({
   lessonId,
   resource,
   onEnded,
+  mandatory,
+  onProgress,
 }: {
   lessonId: string;
   resource: LessonResource;
   onEnded?: () => void;
+  mandatory: boolean;
+  onProgress: (completed: boolean) => void;
 }) {
   const { url, isLoading, error } = useAuthenticatedMediaUrl(lessonId, resource.id);
+  const mutation = useRecordResourceProgressMutation();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const furthestRef = useRef(resource.progress?.furthestVideoSecond ?? 0);
+  const lastReportedRef = useRef(resource.progress?.furthestVideoSecond ?? 0);
 
   if (isLoading) return <Skeleton className="aspect-video w-full" />;
   if (error || !url) {
     return <p className="text-sm text-muted-foreground">Unable to load this video.</p>;
   }
 
+  const reportProgress = (force = false) => {
+    const video = videoRef.current;
+    if (!mandatory || !video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const current = video.currentTime;
+    const from = Math.min(lastReportedRef.current, current);
+    if (!force && current - lastReportedRef.current < 4) return;
+    lastReportedRef.current = current;
+    mutation.mutate(
+      {
+        lessonId,
+        resourceId: resource.id,
+        payload: {
+          event: 'VIDEO_HEARTBEAT',
+          activeSecondsDelta: Math.min(15, Math.max(0, current - from)),
+          positionSeconds: current,
+          durationSeconds: video.duration,
+          watchedFromSeconds: from,
+          watchedToSeconds: current,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          const completed =
+            result.status === 'COMPLETED' && result.completedContentVersion === resource.contentVersion;
+          furthestRef.current = Math.max(furthestRef.current, result.furthestVideoSecond);
+          onProgress(completed);
+          if (completed && force) onEnded?.();
+        },
+      },
+    );
+  };
+
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption -- uploaded lesson videos carry no caption tracks
-    <video controls className="w-full rounded-md border bg-black" src={url} onEnded={onEnded} />
+    <video
+      ref={videoRef}
+      controls
+      className="w-full rounded-md border bg-black"
+      src={url}
+      onTimeUpdate={(event) => {
+        if (!mandatory) return;
+        const video = event.currentTarget;
+        if (video.currentTime <= furthestRef.current + 2)
+          furthestRef.current = Math.max(furthestRef.current, video.currentTime);
+        reportProgress();
+      }}
+      onSeeking={(event) => {
+        if (mandatory && event.currentTarget.currentTime > furthestRef.current + 2) {
+          event.currentTarget.currentTime = furthestRef.current;
+        }
+      }}
+      onEnded={() => (mandatory ? reportProgress(true) : onEnded?.())}
+    />
   );
 }
 
@@ -221,8 +462,17 @@ function ImageResource({ lessonId, resource }: { lessonId: string; resource: Les
   return <img src={url} alt={resource.title} loading="lazy" className="max-w-full rounded-md" />;
 }
 
-function DownloadableFileResource({ lessonId, resource }: { lessonId: string; resource: LessonResource }) {
+function DownloadableFileResource({
+  lessonId,
+  resource,
+  mandatory,
+}: {
+  lessonId: string;
+  resource: LessonResource;
+  mandatory: boolean;
+}) {
   const download = useDownloadResource();
+  const progress = useRecordResourceProgressMutation();
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-4">
@@ -238,7 +488,10 @@ function DownloadableFileResource({ lessonId, resource }: { lessonId: string; re
       <Button
         type="button"
         variant="outline"
-        onClick={() => void download(lessonId, resource.id, resource.originalFilename ?? resource.title)}
+        onClick={() => {
+          if (mandatory) progress.mutate({ lessonId, resourceId: resource.id, payload: { event: 'OPEN' } });
+          void download(lessonId, resource.id, resource.originalFilename ?? resource.title);
+        }}
       >
         <Download /> Download
       </Button>

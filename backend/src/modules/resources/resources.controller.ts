@@ -7,7 +7,7 @@ import { BadRequestError, NotFoundError, UnauthorizedError } from '@/utils/app-e
 import { logger } from '@/utils/logger';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { CreateTextResourceDto, UploadResourceDto } from './resources.dto';
+import type { CreateTextResourceDto, RecordResourceProgressDto, UploadResourceDto } from './resources.dto';
 import { ResourcesService } from './resources.service';
 
 // HTTP request handlers for the resources module. No business logic here — see resources.service.ts.
@@ -61,6 +61,18 @@ export class ResourcesController extends BaseController {
     this.noContent(res);
   };
 
+  recordProgress = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
+    const progress = await this.service.recordProgress(
+      req.params.id as string,
+      req.params.resourceId as string,
+      req.body as RecordResourceProgressDto,
+      req.user,
+    );
+    this.ok(res, progress, 'Resource progress updated.');
+  };
+
   download = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
@@ -81,7 +93,10 @@ export class ResourcesController extends BaseController {
       await pipeline(stream, res);
     } catch (error) {
       if (res.headersSent) {
-        logger.error('Lesson resource stream failed mid-response', { error, resourceId: req.params.resourceId });
+        logger.error('Lesson resource stream failed mid-response', {
+          error,
+          resourceId: req.params.resourceId,
+        });
         res.destroy();
         return;
       }

@@ -34,7 +34,12 @@ function AssessmentAnalyticsPanel({ assessmentId, className }: AssessmentAnalyti
   const weakTopicsTableView = useMemo(
     () => ({
       headers: ['Category', 'Answered', 'Correct', 'Correct Rate'],
-      rows: weakTopicsSorted.map((topic) => [topic.category, topic.answeredCount, topic.correctCount, formatPercent(topic.correctRate)]),
+      rows: weakTopicsSorted.map((topic) => [
+        topic.category,
+        topic.answeredCount,
+        topic.correctCount,
+        formatPercent(topic.correctRate),
+      ]),
     }),
     [weakTopicsSorted],
   );

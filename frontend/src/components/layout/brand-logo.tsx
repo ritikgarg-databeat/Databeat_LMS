@@ -21,8 +21,16 @@ export interface BrandLogoProps {
 function BrandLogo({ label, className, imgClassName = 'h-8' }: BrandLogoProps) {
   return (
     <div className={cn('flex min-w-0 items-center gap-2.5', className)}>
-      <img src={databeatLogoLight} alt="Databeat" className={cn('w-auto shrink-0 dark:hidden', imgClassName)} />
-      <img src={databeatLogoDark} alt="Databeat" className={cn('hidden w-auto shrink-0 dark:block', imgClassName)} />
+      <img
+        src={databeatLogoLight}
+        alt="Databeat"
+        className={cn('w-auto shrink-0 dark:hidden', imgClassName)}
+      />
+      <img
+        src={databeatLogoDark}
+        alt="Databeat"
+        className={cn('hidden w-auto shrink-0 dark:block', imgClassName)}
+      />
       {label ? (
         <span className="truncate border-l pl-2.5 text-sm font-semibold text-foreground/80">{label}</span>
       ) : null}

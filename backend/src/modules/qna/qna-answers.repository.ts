@@ -1,13 +1,13 @@
 import type { Prisma, Role } from '@prisma/client';
 
 import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { qnaQuestionAccessScope } from '@/policies/qna-access.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 const authorSelect = {
   id: true,
   firstName: true,
   lastName: true,
-  email: true,
 } satisfies Prisma.UserSelect;
 
 const answerInclude = {
@@ -87,7 +87,14 @@ export class QnaAnswersRepository extends BaseRepository {
    * `User.departmentId` to match. A missing or soft-deleted question is never accessible.
    */
   async isQuestionAccessibleToUser(questionId: string, userId: string, role: Role): Promise<boolean> {
-    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+    if (role === 'SUPER_ADMIN') return true;
+    if (role === 'TRAINER') {
+      const scoped = await this.db.qnaQuestion.findFirst({
+        where: { id: questionId, ...qnaQuestionAccessScope(userId, role) },
+        select: { id: true },
+      });
+      return scoped !== null;
+    }
 
     const question = await this.db.qnaQuestion.findUnique({
       where: { id: questionId },

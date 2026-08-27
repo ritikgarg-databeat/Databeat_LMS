@@ -12,6 +12,7 @@ import type {
   ListCoursesQueryDto,
   UpdateCourseDto,
   UpdateCourseStatusDto,
+  UpdateCourseAssignmentDto,
 } from './courses.dto';
 import { CoursesService } from './courses.service';
 import type { CourseSortField, SortOrder } from './courses.types';
@@ -134,15 +135,23 @@ export class CoursesController extends BaseController {
     this.created(res, assignment, 'Group assigned successfully.');
   };
 
-  unassignGroup = async (req: Request, res: Response): Promise<void> => {
+  updateAssignment = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    await this.service.unassignGroup(
+    const assignment = await this.service.updateAssignment(
       req.params.id as string,
       req.params.groupId as string,
+      req.body as UpdateCourseAssignmentDto,
       req.user,
       req.ip,
     );
+    this.ok(res, assignment, 'Course requirement updated successfully.');
+  };
+
+  unassignGroup = async (req: Request, res: Response): Promise<void> => {
+    assertValidRequest(req);
+    if (!req.user) throw new UnauthorizedError();
+    await this.service.unassignGroup(req.params.id as string, req.params.groupId as string, req.user, req.ip);
     this.noContent(res);
   };
 }

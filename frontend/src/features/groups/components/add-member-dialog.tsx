@@ -35,10 +35,13 @@ function AddMemberDialog({ groupId, open, onOpenChange }: AddMemberDialogProps) 
   const [selected, setSelected] = useState<string[]>([]);
 
   const { data: trainees, isLoading: isLoadingTrainees } = useTraineesOptions();
-  const { data: currentMembers, isLoading: isLoadingMembers } = useGroupMembersQuery(open ? groupId : undefined, {
-    page: 1,
-    pageSize: 100,
-  });
+  const { data: currentMembers, isLoading: isLoadingMembers } = useGroupMembersQuery(
+    open ? groupId : undefined,
+    {
+      page: 1,
+      pageSize: 100,
+    },
+  );
   const addMembers = useAddGroupMembersMutation();
 
   const existingIds = useMemo(
@@ -56,7 +59,9 @@ function AddMemberDialog({ groupId, open, onOpenChange }: AddMemberDialogProps) 
   }, [trainees, existingIds, search]);
 
   const toggle = (id: string) => {
-    setSelected((previous) => (previous.includes(id) ? previous.filter((existing) => existing !== id) : [...previous, id]));
+    setSelected((previous) =>
+      previous.includes(id) ? previous.filter((existing) => existing !== id) : [...previous, id],
+    );
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -121,7 +126,11 @@ function AddMemberDialog({ groupId, open, onOpenChange }: AddMemberDialogProps) 
         </div>
 
         <DialogFooter>
-          <Button type="button" disabled={selected.length === 0 || addMembers.isPending} onClick={() => void onSubmit()}>
+          <Button
+            type="button"
+            disabled={selected.length === 0 || addMembers.isPending}
+            onClick={() => void onSubmit()}
+          >
             {addMembers.isPending ? 'Adding...' : selected.length ? `Add ${selected.length} selected` : 'Add'}
           </Button>
         </DialogFooter>

@@ -1,7 +1,14 @@
 // React hooks (including TanStack Query hooks) for the qna (Q&A Discussion Platform) feature.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { qnaAnswersApi, qnaCommentsApi, qnaQuestionsApi, qnaSearchApi, qnaTagsApi, qnaVotesApi } from '../services';
+import {
+  qnaAnswersApi,
+  qnaCommentsApi,
+  qnaQuestionsApi,
+  qnaSearchApi,
+  qnaTagsApi,
+  qnaVotesApi,
+} from '../services';
 import type {
   CreateAnswerPayload,
   CreateCommentPayload,
@@ -252,7 +259,8 @@ export function useDeleteCommentMutation() {
 export function useToggleVoteMutation() {
   const invalidateQuestion = useInvalidateQnaQuestion();
   return useMutation({
-    mutationFn: ({ payload }: { questionId: string; payload: ToggleVotePayload }) => qnaVotesApi.toggle(payload),
+    mutationFn: ({ payload }: { questionId: string; payload: ToggleVotePayload }) =>
+      qnaVotesApi.toggle(payload),
     onSuccess: (_data, variables) => invalidateQuestion(variables.questionId),
   });
 }

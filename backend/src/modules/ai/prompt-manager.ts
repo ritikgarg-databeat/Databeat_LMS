@@ -130,6 +130,7 @@ export interface BuildSystemPromptInput {
   explanationLevel?: AiExplanationLevel | null;
   lessonContext?: LessonContext | null;
   learningScopeContext?: LearningScopeContext | null;
+  responseLanguage?: string;
 }
 
 export interface GuardedTutorResponse {
@@ -189,6 +190,11 @@ export const promptManager = {
       hasLessonContext,
     );
     if (featureInstruction) sections.push(`<requested_behavior>${featureInstruction}</requested_behavior>`);
+    if (input.responseLanguage) {
+      sections.push(
+        `<response_language>Write the answer naturally in ${input.responseLanguage}. Keep JSON keys and evidence source ids unchanged.</response_language>`,
+      );
+    }
     sections.push(RESPONSE_CONTRACT);
     return sections.join('\n\n');
   },

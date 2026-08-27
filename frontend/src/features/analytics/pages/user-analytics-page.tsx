@@ -44,14 +44,16 @@ function UserAnalyticsPage() {
 
   const activityTableView = useMemo(() => {
     if (!data) return { headers: [], rows: [] };
-    const rows = data.dailyActivity.slice(-ACTIVITY_TABLE_DAYS).map((point) => [
-      formatShortDate(point.date),
-      point.logins,
-      point.lessonsCompleted,
-      point.assessmentsSubmitted,
-      point.aiMessages,
-      point.qnaPosts,
-    ]);
+    const rows = data.dailyActivity
+      .slice(-ACTIVITY_TABLE_DAYS)
+      .map((point) => [
+        formatShortDate(point.date),
+        point.logins,
+        point.lessonsCompleted,
+        point.assessmentsSubmitted,
+        point.aiMessages,
+        point.qnaPosts,
+      ]);
     return {
       headers: ['Date', 'Logins', 'Lessons Completed', 'Assessments Submitted', 'AI Messages', 'Q&A Posts'],
       rows,
@@ -64,7 +66,10 @@ function UserAnalyticsPage() {
     const httpStatus = isAxiosError(error) ? error.response?.status : undefined;
     if (httpStatus === 403) {
       return (
-        <ErrorScreen title="Access denied" message="You can only view analytics for trainees assigned to you." />
+        <ErrorScreen
+          title="Access denied"
+          message="You can only view analytics for trainees assigned to you."
+        />
       );
     }
     if (httpStatus === 404) {
@@ -112,7 +117,11 @@ function UserAnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Completion" value={formatPercent(performance.completionPercentage)} icon={CheckCircle2} />
+        <StatCard
+          label="Completion"
+          value={formatPercent(performance.completionPercentage)}
+          icon={CheckCircle2}
+        />
         <StatCard
           label="Avg Score"
           value={performance.averageScore === null ? '—' : formatPercent(performance.averageScore)}
@@ -159,7 +168,9 @@ function UserAnalyticsPage() {
                     {COURSE_STATUS_LABEL[course.status]}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatHours(course.timeSpentSeconds)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatHours(course.timeSpentSeconds)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

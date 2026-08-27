@@ -6,9 +6,8 @@ belonging to a single lesson.
 Layering: `resources.routes.ts` → `resources.controller.ts` → `resources.service.ts` →
 `resources.repository.ts` (see ARCHITECTURE.md §3.1). `resources.dto.ts` defines request/response
 shapes, `resources.types.ts` defines internal domain shapes (including the file-backed vs.
-text-backed `ResourceType` subsets), `resources.interfaces.ts` defines the contracts
-controllers/services depend on, and `resources.validation.ts` holds the express-validator chains
-for this module's routes.
+text-backed `ResourceType` subsets), and `resources.validation.ts` holds the express-validator
+chains for this module's routes.
 
 This module works directly against `Lesson` / `CourseModule` / `Course` / `GroupMember` /
 `CourseGroupAssignment` via Prisma for its accessibility check — it deliberately does not import

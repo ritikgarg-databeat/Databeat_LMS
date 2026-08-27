@@ -53,7 +53,9 @@ export class ImpactMetricsRepository extends BaseRepository {
       where: {
         submittedAt: submittedAt ? { not: null, ...submittedAt } : { not: null },
         gradedAt: { not: null },
-        answers: { none: { assessmentQuestion: { snapshotType: { notIn: [...AUTO_GRADABLE_QUESTION_TYPES] } } } },
+        answers: {
+          none: { assessmentQuestion: { snapshotType: { notIn: [...AUTO_GRADABLE_QUESTION_TYPES] } } },
+        },
       },
       select: { userId: true, submittedAt: true, gradedAt: true },
     });
@@ -103,7 +105,10 @@ export class ImpactMetricsRepository extends BaseRepository {
   }
 
   findGroupById(groupId: string) {
-    return this.db.group.findUnique({ where: { id: groupId }, select: { id: true, name: true, trainerId: true } });
+    return this.db.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, trainerId: true },
+    });
   }
 
   async findGroupMemberUserIds(groupId: string, joinedBefore?: Date): Promise<string[]> {
@@ -126,11 +131,17 @@ export class ImpactMetricsRepository extends BaseRepository {
     userIds: string[],
     from?: string,
     to?: string,
-  ): Promise<{ lessonId: string; lessonTitle: string; userId: string; completedAt: Date; quizStatus: string | null }[]> {
+  ): Promise<
+    { lessonId: string; lessonTitle: string; userId: string; completedAt: Date; quizStatus: string | null }[]
+  > {
     if (userIds.length === 0) return [];
     const completedAt = dateRangeWhere(from, to);
     const completions = await this.db.lessonProgress.findMany({
-      where: { userId: { in: userIds }, status: 'COMPLETED', completedAt: completedAt ? { not: null, ...completedAt } : { not: null } },
+      where: {
+        userId: { in: userIds },
+        status: 'COMPLETED',
+        completedAt: completedAt ? { not: null, ...completedAt } : { not: null },
+      },
       select: {
         userId: true,
         lessonId: true,
@@ -151,8 +162,10 @@ export class ImpactMetricsRepository extends BaseRepository {
     const quizStatusByKey = new Map<string, string>();
     for (const attempt of quizAttempts) {
       const key = `${attempt.lessonId}:${attempt.userId}:${attempt.contentVersion}`;
-      const passed = attempt.status === 'SUBMITTED' && (attempt.percentage ?? 0) >= LESSON_QUIZ_PASS_PERCENTAGE;
-      if (passed || !quizStatusByKey.has(key)) quizStatusByKey.set(key, passed ? 'SUBMITTED' : attempt.status);
+      const passed =
+        attempt.status === 'SUBMITTED' && (attempt.percentage ?? 0) >= LESSON_QUIZ_PASS_PERCENTAGE;
+      if (passed || !quizStatusByKey.has(key))
+        quizStatusByKey.set(key, passed ? 'SUBMITTED' : attempt.status);
     }
 
     return completions.map((completion) => ({
@@ -193,7 +206,10 @@ export class ImpactMetricsRepository extends BaseRepository {
       where: {
         gradedAt: { not: null },
         assessmentQuestion: { snapshotType: { in: [...MANUAL_REVIEW_QUESTION_TYPES] } },
-        attempt: { userId: { in: userIds }, submittedAt: submittedAt ? { not: null, ...submittedAt } : { not: null } },
+        attempt: {
+          userId: { in: userIds },
+          submittedAt: submittedAt ? { not: null, ...submittedAt } : { not: null },
+        },
       },
       select: { gradedAt: true, attempt: { select: { submittedAt: true } } },
     });
@@ -203,7 +219,11 @@ export class ImpactMetricsRepository extends BaseRepository {
       .map((answer) => answer.gradedAt!.getTime() - answer.attempt.submittedAt!.getTime());
   }
 
-  async findActiveUserIdsInWindow(userIds: string[], windowStart: Date, windowEnd: Date): Promise<Set<string>> {
+  async findActiveUserIdsInWindow(
+    userIds: string[],
+    windowStart: Date,
+    windowEnd: Date,
+  ): Promise<Set<string>> {
     if (userIds.length === 0) return new Set();
 
     const [viewedLessons, touchedAssessments, aiConversations] = await Promise.all([
@@ -215,7 +235,10 @@ export class ImpactMetricsRepository extends BaseRepository {
       this.db.assessmentAttempt.findMany({
         where: {
           userId: { in: userIds },
-          OR: [{ startedAt: { gte: windowStart, lte: windowEnd } }, { submittedAt: { gte: windowStart, lte: windowEnd } }],
+          OR: [
+            { startedAt: { gte: windowStart, lte: windowEnd } },
+            { submittedAt: { gte: windowStart, lte: windowEnd } },
+          ],
         },
         select: { userId: true },
         distinct: ['userId'],

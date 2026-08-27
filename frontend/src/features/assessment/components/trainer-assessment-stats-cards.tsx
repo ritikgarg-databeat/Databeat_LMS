@@ -40,7 +40,12 @@ function TrainerAssessmentStatsCards() {
           icon={ClipboardList}
           isLoading={isLoading}
         />
-        <StatCard label="Published" value={data?.publishedAssessments ?? 0} icon={CheckCircle2} isLoading={isLoading} />
+        <StatCard
+          label="Published"
+          value={data?.publishedAssessments ?? 0}
+          icon={CheckCircle2}
+          isLoading={isLoading}
+        />
         <StatCard label="Draft" value={data?.draftAssessments ?? 0} icon={FileEdit} isLoading={isLoading} />
         {/* Pending grading is an actionable item for the trainer — accent it once there's work to do. */}
         <StatCard
@@ -50,7 +55,12 @@ function TrainerAssessmentStatsCards() {
           isLoading={isLoading}
           className={cn(pendingGrading > 0 && 'border-warning/60 bg-warning/10')}
         />
-        <StatCard label="Upcoming" value={data?.upcomingCount ?? 0} icon={CalendarClock} isLoading={isLoading} />
+        <StatCard
+          label="Upcoming"
+          value={data?.upcomingCount ?? 0}
+          icon={CalendarClock}
+          isLoading={isLoading}
+        />
       </div>
     </div>
   );

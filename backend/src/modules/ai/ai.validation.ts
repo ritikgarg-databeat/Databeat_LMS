@@ -1,6 +1,6 @@
 import { body, param, query } from 'express-validator';
 
-import { MAX_AI_MESSAGE_LENGTH } from '@/constants/ai';
+import { AI_RESPONSE_LANGUAGES, MAX_AI_MESSAGE_LENGTH } from '@/constants/ai';
 import { paginationQueryValidators } from '@/validators/common.validators';
 
 const AI_FEATURES = [
@@ -25,6 +25,10 @@ export const aiValidation = {
       .withMessage(`Message must be ${MAX_AI_MESSAGE_LENGTH} characters or fewer.`),
     body('feature').optional().isIn(AI_FEATURES).withMessage('Invalid feature.'),
     body('explanationLevel').optional().isIn(AI_EXPLANATION_LEVELS).withMessage('Invalid explanationLevel.'),
+    body('responseLanguage')
+      .optional()
+      .isIn(AI_RESPONSE_LANGUAGES)
+      .withMessage('Unsupported response language.'),
   ],
   listHistory: [...paginationQueryValidators, query('lessonId').optional().isUUID()],
   createVideo: [

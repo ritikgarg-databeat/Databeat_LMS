@@ -27,7 +27,11 @@ export class LessonQuizController extends BaseController {
   submit = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const result = await this.service.submit(req.params.id as string, req.user, req.body as SubmitLessonQuizDto);
+    const result = await this.service.submit(
+      req.params.id as string,
+      req.user,
+      req.body as SubmitLessonQuizDto,
+    );
     this.ok(res, result, 'Quiz submitted.');
   };
 }

@@ -27,7 +27,11 @@ export interface AddQuestionToAssessmentDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function AddQuestionToAssessmentDialog({ assessmentId, open, onOpenChange }: AddQuestionToAssessmentDialogProps) {
+function AddQuestionToAssessmentDialog({
+  assessmentId,
+  open,
+  onOpenChange,
+}: AddQuestionToAssessmentDialogProps) {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [marksByQuestionId, setMarksByQuestionId] = useState<Record<string, string>>({});
@@ -123,11 +127,19 @@ function AddQuestionToAssessmentDialog({ assessmentId, open, onOpenChange }: Add
                       disabled={isPending}
                       value={marksByQuestionId[question.id] ?? String(DEFAULT_MARKS)}
                       onChange={(event) =>
-                        setMarksByQuestionId((previous) => ({ ...previous, [question.id]: event.target.value }))
+                        setMarksByQuestionId((previous) => ({
+                          ...previous,
+                          [question.id]: event.target.value,
+                        }))
                       }
                     />
                   </div>
-                  <Button type="button" size="sm" disabled={isPending} onClick={() => void handleAdd(question.id)}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={() => void handleAdd(question.id)}
+                  >
                     {isPending ? 'Adding...' : 'Add'}
                   </Button>
                 </div>

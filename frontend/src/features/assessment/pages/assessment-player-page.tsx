@@ -3,20 +3,24 @@
 // self-enforcing countdown timer, autosaves answers on a short debounce, and submits (manually or
 // on timeout) behind a confirmation dialog.
 import { isAxiosError } from 'axios';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, ErrorScreen, LoadingScreen } from '@/components/shared';
+import { IntegrityWatermark } from '@/components/shared/integrity-watermark';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ROUTES } from '@/constants/routes';
+import { useAuth } from '@/hooks/use-auth';
+import { useContentProtection, type ProtectedAction } from '@/hooks/use-content-protection';
 import { getErrorMessage } from '@/utils/error';
 
 import { AssessmentTimer } from '../components/assessment-timer';
 import { QuestionRenderer } from '../components/question-renderer';
 import {
   useAssessmentQuery,
+  useRecordIntegrityEventMutation,
   useSaveAnswerMutation,
   useStartAttemptMutation,
   useSubmitAttemptMutation,
@@ -73,8 +77,13 @@ function answerToPayload(question: SanitizedAttemptQuestion, value: AnswerValue)
 function AssessmentPlayerPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const { data: assessment, isLoading: isAssessmentLoading, isError: isAssessmentError } = useAssessmentQuery(id);
+  const {
+    data: assessment,
+    isLoading: isAssessmentLoading,
+    isError: isAssessmentError,
+  } = useAssessmentQuery(id);
 
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [questions, setQuestions] = useState<SanitizedAttemptQuestion[]>([]);
@@ -82,6 +91,8 @@ function AssessmentPlayerPage() {
   const [startError, setStartError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [secureStarted, setSecureStarted] = useState(false);
+  const [needsFullscreen, setNeedsFullscreen] = useState(false);
 
   // `startAttempt` is only ever invoked from inside the mount effect below (never from a click
   // handler), while `submitAttempt` is only ever invoked from the confirm dialog / timer expiry.
@@ -95,6 +106,40 @@ function AssessmentPlayerPage() {
   const submitAttempt = useSubmitAttemptMutation();
   const saveAnswer = useSaveAnswerMutation();
   const uploadAnswer = useUploadAnswerMutation();
+  const recordIntegrity = useRecordIntegrityEventMutation();
+  const protectedActionAtRef = useRef<Record<string, number>>({});
+  const hasSubmittedRef = useRef(false);
+
+  const handleIntegrityEvent = useCallback(
+    (type: ProtectedAction | 'FULLSCREEN_EXIT' | 'TAB_HIDDEN' | 'WINDOW_BLUR') => {
+      if (!id || !attempt || attempt.status !== 'IN_PROGRESS' || hasSubmittedRef.current) return;
+      const last = protectedActionAtRef.current[type] ?? 0;
+      if (Date.now() - last < 1_500) return;
+      protectedActionAtRef.current[type] = Date.now();
+      recordIntegrity.mutate(
+        { assessmentId: id, type },
+        {
+          onSuccess: (result) => {
+            setAttempt(result.attempt);
+            if (result.autoSubmitted) {
+              hasSubmittedRef.current = true;
+              setSecureStarted(false);
+              toast.error('Assessment submitted after repeated integrity violations.');
+              if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+              navigate(`${ROUTES.TRAINEE.ASSESSMENTS}/${id}/result`, { replace: true });
+            } else if (type !== 'COPY_ATTEMPT') {
+              toast.warning(
+                `Assessment protection warning. ${result.warningsRemaining} warning${result.warningsRemaining === 1 ? '' : 's'} remaining.`,
+              );
+            }
+          },
+        },
+      );
+    },
+    [attempt, id, navigate, recordIntegrity],
+  );
+
+  useContentProtection(Boolean(secureStarted && attempt?.status === 'IN_PROGRESS'), handleIntegrityEvent);
 
   const startAttemptRef = useRef(startAttempt);
   useEffect(() => {
@@ -121,7 +166,7 @@ function AssessmentPlayerPage() {
   const startedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !secureStarted) return;
     const key = `${id}:${retryToken}`;
     if (startedKeyRef.current === key) return;
     startedKeyRef.current = key;
@@ -146,7 +191,34 @@ function AssessmentPlayerPage() {
         setStartError(getErrorMessage(error));
       }
     })();
-  }, [id, navigate, retryToken]);
+  }, [id, navigate, retryToken, secureStarted]);
+
+  useEffect(() => {
+    if (!secureStarted || !attempt || attempt.status !== 'IN_PROGRESS') return;
+    const onFullscreenChange = () => {
+      const exited = !document.fullscreenElement;
+      setNeedsFullscreen(exited);
+      if (exited) handleIntegrityEvent('FULLSCREEN_EXIT');
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) handleIntegrityEvent('TAB_HIDDEN');
+    };
+    const onBlur = () => handleIntegrityEvent('WINDOW_BLUR');
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [attempt, handleIntegrityEvent, secureStarted]);
 
   const debounceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -165,8 +237,12 @@ function AssessmentPlayerPage() {
       // saves were still pending rather than just discarding them — there's nothing left to await
       // once the component is gone, but firing the request is strictly better than silently
       // dropping the trainee's last edit.
-      const { id: currentId, answers: currentAnswers, questions: currentQuestions, saveAnswer: currentSaveAnswer } =
-        latestRef.current;
+      const {
+        id: currentId,
+        answers: currentAnswers,
+        questions: currentQuestions,
+        saveAnswer: currentSaveAnswer,
+      } = latestRef.current;
       for (const questionId of Object.keys(timers)) {
         clearTimeout(timers[questionId]);
         if (!currentId) continue;
@@ -181,8 +257,6 @@ function AssessmentPlayerPage() {
       }
     };
   }, []);
-
-  const hasSubmittedRef = useRef(false);
 
   /**
    * Flushes any answers still sitting in the autosave debounce window, AWAITING each one, so a
@@ -221,6 +295,8 @@ function AssessmentPlayerPage() {
     await flushPendingAnswers();
     submitAttempt.mutate(id, {
       onSuccess: () => {
+        setSecureStarted(false);
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
         navigate(`${ROUTES.TRAINEE.ASSESSMENTS}/${id}/result`, { replace: true });
       },
       onError: (error) => {
@@ -290,64 +366,121 @@ function AssessmentPlayerPage() {
   }
 
   if (isAssessmentLoading || !assessment || !attempt) {
+    if (!isAssessmentLoading && assessment && !secureStarted) {
+      return (
+        <div className="mx-auto max-w-2xl py-10">
+          <Card>
+            <CardHeader>
+              <CardTitle>{assessment.title}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <p className="text-sm text-muted-foreground">
+                This protected assessment runs in fullscreen. Leaving fullscreen, switching tabs, or
+                attempting screen capture is recorded. The third violation submits the assessment
+                automatically.
+              </p>
+              <Button
+                size="lg"
+                onClick={() => {
+                  if (!document.documentElement.requestFullscreen) {
+                    toast.error(
+                      'Fullscreen is not supported by this browser. Use a supported desktop browser.',
+                    );
+                    return;
+                  }
+                  void document.documentElement
+                    .requestFullscreen()
+                    .then(() => {
+                      setNeedsFullscreen(false);
+                      setSecureStarted(true);
+                    })
+                    .catch(() => toast.error('Fullscreen permission is required to start this assessment.'));
+                }}
+              >
+                Enter fullscreen and start
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
     return <LoadingScreen message="Preparing your assessment..." fullScreen={false} />;
   }
 
   return (
-    <div className="space-y-6 pb-24">
-      <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{assessment.title}</h1>
-          <p className="text-sm text-muted-foreground">
-            {answeredCount} of {questions.length} answered
-          </p>
-        </div>
-        <AssessmentTimer totalSeconds={totalSeconds} onExpire={() => void handleSubmit()} />
-      </div>
-
-      <div className="space-y-4">
-        {questions.map((question) => (
-          <Card key={question.id}>
-            <CardHeader>
-              <CardTitle className="flex items-baseline justify-between gap-2 text-base">
-                <span>
-                  Question {question.position}. {question.snapshotTitle}
-                </span>
-                <span className="shrink-0 text-sm font-normal text-muted-foreground">
-                  {question.marks} mark{question.marks === 1 ? '' : 's'}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <QuestionRenderer
-                question={question}
-                value={answers[question.id] ?? ''}
-                onChange={(value) => handleAnswerChange(question, value)}
-                onFileSelect={(file) => handleFileSelect(question, file)}
-                disabled={submitAttempt.isPending}
-              />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="flex justify-end">
-        <Button size="lg" onClick={() => setConfirmOpen(true)} disabled={submitAttempt.isPending}>
-          {submitAttempt.isPending ? 'Submitting...' : 'Submit'}
-        </Button>
-      </div>
-
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Submit assessment?"
-        description="Are you sure? You cannot change your answers after submitting."
-        confirmLabel="Submit"
-        onConfirm={() => {
-          setConfirmOpen(false);
-          void handleSubmit();
-        }}
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-background px-4 pb-24 sm:px-6">
+      <IntegrityWatermark
+        label={`${user?.firstName ?? 'Learner'} ${user?.lastName ?? ''} · ${user?.email ?? ''}`}
       />
+      {needsFullscreen ? (
+        <div className="sticky top-0 z-50 flex items-center justify-between gap-3 bg-destructive px-4 py-3 text-destructive-foreground">
+          <span>Fullscreen is required. The assessment timer is still running.</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              void document.documentElement.requestFullscreen().then(() => setNeedsFullscreen(false))
+            }
+          >
+            Return to fullscreen
+          </Button>
+        </div>
+      ) : null}
+      <div className="mx-auto max-w-5xl space-y-6 pt-4">
+        <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center justify-between gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">{assessment.title}</h1>
+            <p className="text-sm text-muted-foreground">
+              {answeredCount} of {questions.length} answered
+            </p>
+          </div>
+          <AssessmentTimer totalSeconds={totalSeconds} onExpire={() => void handleSubmit()} />
+        </div>
+
+        <div className="space-y-4">
+          {questions.map((question) => (
+            <Card key={question.id}>
+              <CardHeader>
+                <CardTitle className="flex items-baseline justify-between gap-2 text-base">
+                  <span>
+                    Question {question.position}. {question.snapshotTitle}
+                  </span>
+                  <span className="shrink-0 text-sm font-normal text-muted-foreground">
+                    {question.marks} mark{question.marks === 1 ? '' : 's'}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <QuestionRenderer
+                  question={question}
+                  value={answers[question.id] ?? ''}
+                  onChange={(value) => handleAnswerChange(question, value)}
+                  onFileSelect={(file) => handleFileSelect(question, file)}
+                  disabled={submitAttempt.isPending}
+                />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="flex justify-end">
+          <Button size="lg" onClick={() => setConfirmOpen(true)} disabled={submitAttempt.isPending}>
+            {submitAttempt.isPending ? 'Submitting...' : 'Submit'}
+          </Button>
+        </div>
+
+        <ConfirmDialog
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          title="Submit assessment?"
+          description="Are you sure? You cannot change your answers after submitting."
+          confirmLabel="Submit"
+          onConfirm={() => {
+            setConfirmOpen(false);
+            void handleSubmit();
+          }}
+        />
+      </div>
     </div>
   );
 }

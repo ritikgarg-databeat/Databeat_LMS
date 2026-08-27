@@ -78,7 +78,10 @@ export class AnthropicAiProvider implements AiProvider {
           'The AI Learning Assistant is receiving too many requests right now. Please try again shortly.',
         );
       }
-      if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
+      if (
+        error instanceof Anthropic.AuthenticationError ||
+        error instanceof Anthropic.PermissionDeniedError
+      ) {
         // Never surface "invalid API key" or similar internals to the client (Prompt 7 §
         // AI SECURITY — no sensitive information exposure); log the real cause server-side.
         logger.error('Anthropic API authentication/permission error', { message: error.message });
@@ -86,11 +89,15 @@ export class AnthropicAiProvider implements AiProvider {
       }
       if (error instanceof Anthropic.APIConnectionError) {
         logger.error('Anthropic API connection error', { message: error.message });
-        throw new ServiceUnavailableError('Could not reach the AI Learning Assistant. Please try again shortly.');
+        throw new ServiceUnavailableError(
+          'Could not reach the AI Learning Assistant. Please try again shortly.',
+        );
       }
       if (error instanceof Anthropic.APIError) {
         logger.error('Anthropic API error', { status: error.status, message: error.message });
-        throw new ServiceUnavailableError('The AI Learning Assistant ran into a problem. Please try again shortly.');
+        throw new ServiceUnavailableError(
+          'The AI Learning Assistant ran into a problem. Please try again shortly.',
+        );
       }
 
       logger.error('Unexpected error calling the AI provider', { error });

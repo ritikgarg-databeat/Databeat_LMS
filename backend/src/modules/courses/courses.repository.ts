@@ -1,7 +1,7 @@
 import type { CourseStatus, Prisma } from '@prisma/client';
 
 import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope, trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { CourseListFilters, CourseSortField, SortOrder } from './courses.types';
@@ -26,7 +26,7 @@ function buildWhere(filters: CourseListFilters): Prisma.CourseWhereInput {
 const summaryInclude = {
   department: { select: { id: true, name: true, code: true } },
   experienceLevel: { select: { id: true, name: true, code: true } },
-  createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+  createdBy: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.CourseInclude;
 
 // `modules` here is a minimal projection used only to sum lesson counts in the service layer —
@@ -34,6 +34,7 @@ const summaryInclude = {
 const listInclude = {
   ...summaryInclude,
   _count: { select: { groupAssignments: true, modules: true } },
+  groupAssignments: { select: { group: { select: { trainerId: true } } } },
   modules: { select: { _count: { select: { lessons: true } } } },
 } satisfies Prisma.CourseInclude;
 
@@ -44,7 +45,7 @@ const detailInclude = {
     include: { lessons: { orderBy: { order: 'asc' } } },
   },
   groupAssignments: {
-    include: { group: { select: { id: true, name: true, code: true } } },
+    include: { group: { select: { id: true, name: true, code: true, trainerId: true } } },
   },
 } satisfies Prisma.CourseInclude;
 
@@ -71,8 +72,10 @@ export class CoursesRepository extends BaseRepository {
     sortOrder: SortOrder = 'desc',
     trainerId?: string,
   ) {
-    const where = buildWhere(filters);
-    if (trainerId) Object.assign(where, trainerCourseScope(trainerId));
+    const baseWhere = buildWhere(filters);
+    const where: Prisma.CourseWhereInput = trainerId
+      ? { AND: [baseWhere, trainerCourseCatalogScope(trainerId)] }
+      : baseWhere;
     const [items, total] = await Promise.all([
       this.db.course.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: listInclude }),
       this.db.course.count({ where }),
@@ -176,6 +179,7 @@ export class CoursesRepository extends BaseRepository {
           experienceLevelId: source.experienceLevelId,
           estimatedDurationMinutes: source.estimatedDurationMinutes,
           difficulty: source.difficulty,
+          isMandatory: source.isMandatory,
           status: 'DRAFT',
           createdById: actorId,
         },
@@ -231,19 +235,23 @@ export class CoursesRepository extends BaseRepository {
 
   countAll(trainerId?: string) {
     return this.db.course.count({
-      where: { deletedAt: null, ...(trainerId ? trainerCourseScope(trainerId) : {}) },
+      where: trainerId
+        ? { AND: [{ deletedAt: null }, trainerCourseCatalogScope(trainerId)] }
+        : { deletedAt: null },
     });
   }
 
   countByStatus(status: CourseStatus, trainerId?: string) {
     return this.db.course.count({
-      where: { deletedAt: null, status, ...(trainerId ? trainerCourseScope(trainerId) : {}) },
+      where: trainerId
+        ? { AND: [{ deletedAt: null, status }, trainerCourseCatalogScope(trainerId)] }
+        : { deletedAt: null, status },
     });
   }
 
   async countAssignedGroups(trainerId?: string): Promise<number> {
     const distinctGroups = await this.db.courseGroupAssignment.findMany({
-      where: trainerId ? { course: trainerCourseScope(trainerId) } : undefined,
+      where: trainerId ? { group: { trainerId, deletedAt: null } } : undefined,
       distinct: ['groupId'],
       select: { groupId: true },
     });
@@ -254,7 +262,13 @@ export class CoursesRepository extends BaseRepository {
     const distinctLearners = await this.db.lessonProgress.findMany({
       where: {
         status: { not: 'NOT_STARTED' },
-        ...(trainerId ? { lesson: { module: { course: trainerCourseScope(trainerId) } } } : {}),
+        ...(trainerId
+          ? {
+              user: {
+                groupMemberships: { some: { group: { trainerId, status: 'ACTIVE', deletedAt: null } } },
+              },
+            }
+          : {}),
       },
       distinct: ['userId'],
       select: { userId: true },
@@ -270,9 +284,17 @@ export class CoursesRepository extends BaseRepository {
     return course !== null;
   }
 
-  listAssignments(courseId: string) {
+  async isVisibleToTrainer(courseId: string, trainerId: string): Promise<boolean> {
+    const course = await this.db.course.findFirst({
+      where: { AND: [{ id: courseId, deletedAt: null }, trainerCourseCatalogScope(trainerId)] },
+      select: { id: true },
+    });
+    return course !== null;
+  }
+
+  listAssignments(courseId: string, trainerId?: string) {
     return this.db.courseGroupAssignment.findMany({
-      where: { courseId },
+      where: { courseId, ...(trainerId ? { group: { trainerId, deletedAt: null } } : {}) },
       orderBy: { assignedAt: 'desc' },
       include: {
         group: { select: { id: true, name: true, code: true, _count: { select: { members: true } } } },
@@ -284,9 +306,17 @@ export class CoursesRepository extends BaseRepository {
     return this.db.courseGroupAssignment.findUnique({ where: { courseId_groupId: { courseId, groupId } } });
   }
 
-  createAssignment(courseId: string, groupId: string, assignedById: string) {
+  createAssignment(courseId: string, groupId: string, assignedById: string, isMandatory: boolean) {
     return this.db.courseGroupAssignment.create({
-      data: { courseId, groupId, assignedById },
+      data: { courseId, groupId, assignedById, isMandatory },
+      include: { group: { select: { id: true, name: true, code: true } } },
+    });
+  }
+
+  updateAssignment(courseId: string, groupId: string, isMandatory: boolean) {
+    return this.db.courseGroupAssignment.update({
+      where: { courseId_groupId: { courseId, groupId } },
+      data: { isMandatory },
       include: { group: { select: { id: true, name: true, code: true } } },
     });
   }
@@ -325,10 +355,46 @@ export class CoursesRepository extends BaseRepository {
     return this.db.course.findMany({ where: { id: { in: courseIds } }, include: learnerInclude });
   }
 
-  countCompletedLessons(userId: string, lessonIds: string[]) {
+  async isMandatoryForLearner(courseId: string, userId: string): Promise<boolean> {
+    const assignment = await this.db.courseGroupAssignment.findFirst({
+      where: {
+        courseId,
+        isMandatory: true,
+        group: activeGroupScope({ members: { some: { userId } } }),
+      },
+      select: { id: true },
+    });
+    return assignment !== null;
+  }
+
+  async findMandatoryCourseIdsForLearner(courseIds: string[], userId: string): Promise<Set<string>> {
+    if (courseIds.length === 0) return new Set();
+    const assignments = await this.db.courseGroupAssignment.findMany({
+      where: {
+        courseId: { in: courseIds },
+        isMandatory: true,
+        group: activeGroupScope({ members: { some: { userId } } }),
+      },
+      distinct: ['courseId'],
+      select: { courseId: true },
+    });
+    return new Set(assignments.map((assignment) => assignment.courseId));
+  }
+
+  async countCompletedLessons(userId: string, lessonIds: string[]) {
     if (lessonIds.length === 0) return Promise.resolve(0);
-    return this.db.lessonProgress.count({
+    const rows = await this.db.lessonProgress.findMany({
       where: { userId, lessonId: { in: lessonIds }, status: 'COMPLETED' },
+      select: { completedContentVersion: true, lesson: { select: { contentVersion: true } } },
+    });
+    return rows.filter((row) => row.completedContentVersion === row.lesson.contentVersion).length;
+  }
+
+  findPublishedLessons(courseId: string) {
+    return this.db.lesson.findMany({
+      where: { module: { courseId, isPublished: true }, isPublished: true },
+      orderBy: [{ module: { order: 'asc' } }, { order: 'asc' }],
+      select: { id: true, title: true },
     });
   }
 

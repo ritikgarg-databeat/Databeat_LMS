@@ -15,7 +15,10 @@ export const groupMembersValidation = {
 
   remove: [userIdParamValidator],
 
-  transfer: [userIdParamValidator, body('toGroupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('toGroupId'))],
+  transfer: [
+    userIdParamValidator,
+    body('toGroupId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('toGroupId')),
+  ],
 
   list: [
     ...paginationQueryValidators,

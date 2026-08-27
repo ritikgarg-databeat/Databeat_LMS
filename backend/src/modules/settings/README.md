@@ -1,14 +1,12 @@
 # Settings Module
 
 User-level preferences (theme, avatar, notification mutes) plus admin-only platform
-configuration (Prompt 9 § SETTINGS / § ADMIN SETTINGS).
+configuration.
 
 Layering: `settings.routes.ts` → `settings.controller.ts` → `settings.service.ts` →
 `settings.repository.ts` (see ARCHITECTURE.md §3.1). `settings.dto.ts` defines request-body
-shapes, `settings.types.ts` defines the response shapes the service layer returns,
-`settings.validation.ts` holds the express-validator chains for this module's routes. There is
-no `settings.interfaces.ts` — dropped as an unused stub, matching the convention every Prompt 7+
-module (qna, analytics, dashboard, reports, ai) already follows of not carrying that file.
+shapes, `settings.types.ts` defines the response shapes the service layer returns, and
+`settings.validation.ts` holds the express-validator chains for this module's routes.
 
 ## Why this module, and not users/auth
 

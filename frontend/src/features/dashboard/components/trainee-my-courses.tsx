@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ROUTES } from '@/constants/routes';
 import { ProgressMeter } from '@/features/analytics/components';
 import type { CourseProgressStatus, TraineeCourseProgress } from '@/features/analytics/types';
+import { MandatoryCourseBadge } from '@/features/classroom/components';
 
 const STATUS_LABEL: Record<CourseProgressStatus, string> = {
   NOT_STARTED: 'Not Started',
@@ -49,9 +50,12 @@ function TraineeMyCourses({ courses }: TraineeMyCoursesProps) {
             <Link key={course.courseId} to={`/trainee/classroom/${course.courseId}`}>
               <Card className="h-full transition-colors hover:border-primary">
                 <CardHeader className="space-y-2">
-                  <Badge variant={STATUS_BADGE_VARIANT[course.status]} className="w-fit">
-                    {STATUS_LABEL[course.status]}
-                  </Badge>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={STATUS_BADGE_VARIANT[course.status]} className="w-fit">
+                      {STATUS_LABEL[course.status]}
+                    </Badge>
+                    {course.isMandatory ? <MandatoryCourseBadge /> : null}
+                  </div>
                   <CardTitle className="text-base">{course.title}</CardTitle>
                 </CardHeader>
                 <CardContent>

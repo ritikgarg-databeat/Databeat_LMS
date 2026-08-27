@@ -20,6 +20,7 @@ backend/src/uploads/*
 # Logs
 *.log
 npm-debug.log*
+tmp-*.ts
 
 # Editor / OS
 .vscode/*
@@ -29,6 +30,7 @@ npm-debug.log*
 Thumbs.db
 *.local
 
-#Internal Data
-pitch
-deployment
+# Local/internal planning data
+deployment/
+imperfaction.md
+production_level.md

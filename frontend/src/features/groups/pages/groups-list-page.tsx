@@ -272,9 +272,11 @@ function GroupsListPage() {
                         <DropdownMenuItem onClick={() => setDuplicatingGroup(group)}>
                           Duplicate
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setAssigningTrainerGroup(group)}>
-                          Assign Trainer
-                        </DropdownMenuItem>
+                        {isAdminRoute ? (
+                          <DropdownMenuItem onClick={() => setAssigningTrainerGroup(group)}>
+                            Assign Trainer
+                          </DropdownMenuItem>
+                        ) : null}
                         <DropdownMenuItem onClick={() => setStatusTarget(group)}>
                           {group.status === 'ACTIVE' ? 'Archive' : 'Restore'}
                         </DropdownMenuItem>

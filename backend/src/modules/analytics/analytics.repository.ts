@@ -84,6 +84,7 @@ export interface LeaderboardPopulationCriteria {
   groupId?: string;
   departmentId?: string;
   courseId?: string;
+  assessmentId?: string;
 }
 
 // Data-access layer for the analytics module. Only this class may query Prisma directly (see
@@ -199,6 +200,13 @@ export class AnalyticsRepository extends BaseRepository {
       membershipConditions.push({
         groupMemberships: {
           some: { group: { courseAssignments: { some: { courseId: criteria.courseId } } } },
+        },
+      });
+    }
+    if (criteria.assessmentId) {
+      membershipConditions.push({
+        groupMemberships: {
+          some: { group: { assessmentGroupAssignments: { some: { assessmentId: criteria.assessmentId } } } },
         },
       });
     }
@@ -371,6 +379,13 @@ export class AnalyticsRepository extends BaseRepository {
       select: {
         id: true,
         title: true,
+        groupAssignments: {
+          where: {
+            isMandatory: true,
+            group: activeGroupScope({ members: { some: { userId } } }),
+          },
+          select: { id: true },
+        },
         modules: {
           where: { isPublished: true },
           select: {
@@ -378,10 +393,11 @@ export class AnalyticsRepository extends BaseRepository {
               where: { isPublished: true },
               select: {
                 id: true,
+                contentVersion: true,
                 progress: {
                   where: { userId },
                   take: 1,
-                  select: { status: true, timeSpentSeconds: true },
+                  select: { status: true, timeSpentSeconds: true, completedContentVersion: true },
                 },
               },
             },
@@ -429,7 +445,7 @@ export class AnalyticsRepository extends BaseRepository {
   findCourseSummary(courseId: string) {
     return this.db.course.findFirst({
       where: { id: courseId, deletedAt: null },
-      select: { id: true, title: true, status: true },
+      select: { id: true, title: true, status: true, createdById: true },
     });
   }
 
@@ -522,7 +538,7 @@ export class AnalyticsRepository extends BaseRepository {
   findAssessmentSummary(assessmentId: string) {
     return this.db.assessment.findFirst({
       where: { id: assessmentId, deletedAt: null },
-      select: { id: true, title: true, status: true },
+      select: { id: true, title: true, status: true, createdById: true },
     });
   }
 
@@ -673,6 +689,100 @@ export class AnalyticsRepository extends BaseRepository {
       where: { assessmentId },
       create: { assessmentId, ...payload },
       update: payload,
+    });
+  }
+
+  findOverviewCourses(filters: { trainerGroupIds?: string[]; groupId?: string; courseId?: string }) {
+    const allowedGroupIds = filters.groupId ? [filters.groupId] : filters.trainerGroupIds;
+    return this.db.course.findMany({
+      where: {
+        deletedAt: null,
+        ...(filters.courseId ? { id: filters.courseId } : {}),
+        ...(allowedGroupIds ? { groupAssignments: { some: { groupId: { in: allowedGroupIds } } } } : {}),
+      },
+      orderBy: { title: 'asc' },
+      select: { id: true, title: true },
+    });
+  }
+
+  findOverviewAssessments(filters: { trainerGroupIds?: string[]; groupId?: string; assessmentId?: string }) {
+    const allowedGroupIds = filters.groupId ? [filters.groupId] : filters.trainerGroupIds;
+    return this.db.assessment.findMany({
+      where: {
+        deletedAt: null,
+        ...(filters.assessmentId ? { id: filters.assessmentId } : {}),
+        ...(allowedGroupIds ? { groupAssignments: { some: { groupId: { in: allowedGroupIds } } } } : {}),
+      },
+      orderBy: { title: 'asc' },
+      select: { id: true, title: true },
+    });
+  }
+
+  findCourseAssignmentsForUsers(courseIds: string[], userIds: string[], groupIds?: string[]) {
+    if (!courseIds.length || !userIds.length) return Promise.resolve([]);
+    return this.db.courseGroupAssignment.findMany({
+      where: { courseId: { in: courseIds }, ...(groupIds ? { groupId: { in: groupIds } } : {}) },
+      select: {
+        courseId: true,
+        isMandatory: true,
+        group: {
+          select: {
+            members: { where: { userId: { in: userIds } }, select: { userId: true } },
+          },
+        },
+      },
+    });
+  }
+
+  findCourseLessonsWithProgress(courseIds: string[], userIds: string[]) {
+    if (!courseIds.length) return Promise.resolve([]);
+    return this.db.lesson.findMany({
+      where: { isPublished: true, module: { isPublished: true, courseId: { in: courseIds } } },
+      select: {
+        id: true,
+        contentVersion: true,
+        module: { select: { courseId: true } },
+        progress: {
+          where: { userId: { in: userIds } },
+          select: { userId: true, status: true, completedContentVersion: true },
+        },
+      },
+    });
+  }
+
+  findAssessmentAssignmentsForUsers(assessmentIds: string[], userIds: string[], groupIds?: string[]) {
+    if (!assessmentIds.length || !userIds.length) return Promise.resolve([]);
+    return this.db.assessmentGroupAssignment.findMany({
+      where: { assessmentId: { in: assessmentIds }, ...(groupIds ? { groupId: { in: groupIds } } : {}) },
+      select: {
+        assessmentId: true,
+        group: {
+          select: {
+            members: { where: { userId: { in: userIds } }, select: { userId: true } },
+          },
+        },
+      },
+    });
+  }
+
+  findAssessmentAttemptsForUsers(assessmentIds: string[], userIds: string[]) {
+    if (!assessmentIds.length || !userIds.length) return Promise.resolve([]);
+    return this.db.assessmentAttempt.findMany({
+      where: { assessmentId: { in: assessmentIds }, userId: { in: userIds } },
+      select: { assessmentId: true, userId: true, status: true, percentage: true, passed: true },
+    });
+  }
+
+  findIntegrityEventCounts(userIds: string[], since: Date, assessmentId?: string) {
+    if (!userIds.length) return Promise.resolve([]);
+    return this.db.assessmentIntegrityEvent.groupBy({
+      by: ['type'],
+      where: {
+        userId: { in: userIds },
+        createdAt: { gte: since },
+        ...(assessmentId ? { attempt: { assessmentId } } : {}),
+      },
+      _count: { _all: true },
     });
   }
 }

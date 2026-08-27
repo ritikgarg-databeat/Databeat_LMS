@@ -128,8 +128,8 @@ export async function buildLessonContext(lessonId: string): Promise<LessonContex
 
 /**
  * Builds the permitted topic catalog for the main tutor. Trainees see only published courses
- * assigned through their groups; trainers see their own/assigned courses; Super Admins see all
- * published courses. This catalog constrains relevance but is not treated as lesson evidence.
+ * assigned through their groups; trainers and Super Admins see the shared published catalogue.
+ * This catalog constrains relevance but is not treated as lesson evidence.
  */
 export async function buildLearningScopeContext(userId: string, role: Role): Promise<LearningScopeContext> {
   const courseWhere: Prisma.CourseWhereInput = {
@@ -141,14 +141,7 @@ export async function buildLearningScopeContext(userId: string, role: Role): Pro
             some: { group: activeGroupScope({ members: { some: { userId } } }) },
           },
         }
-      : role === 'TRAINER'
-        ? {
-            OR: [
-              { createdById: userId },
-              { groupAssignments: { some: { group: activeGroupScope({ trainerId: userId }) } } },
-            ],
-          }
-        : {}),
+      : {}),
   };
 
   const [user, courses] = await Promise.all([

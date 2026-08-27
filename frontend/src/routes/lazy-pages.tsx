@@ -29,7 +29,9 @@ export const AssessmentAnalyticsPage = lazy(() =>
   })),
 );
 export const CourseAnalyticsPage = lazy(() =>
-  import('@/features/analytics/pages/course-analytics-page').then((m) => ({ default: m.CourseAnalyticsPage })),
+  import('@/features/analytics/pages/course-analytics-page').then((m) => ({
+    default: m.CourseAnalyticsPage,
+  })),
 );
 export const GroupAnalyticsPage = lazy(() =>
   import('@/features/analytics/pages/group-analytics-page').then((m) => ({ default: m.GroupAnalyticsPage })),
@@ -46,19 +48,27 @@ export const UserAnalyticsPage = lazy(() =>
 
 // --- assessment ---
 export const AssessmentEditorPage = lazy(() =>
-  import('@/features/assessment/pages/assessment-editor-page').then((m) => ({ default: m.AssessmentEditorPage })),
+  import('@/features/assessment/pages/assessment-editor-page').then((m) => ({
+    default: m.AssessmentEditorPage,
+  })),
 );
 export const AssessmentListPage = lazy(() =>
   import('@/features/assessment/pages/assessment-list-page').then((m) => ({ default: m.AssessmentListPage })),
 );
 export const AssessmentPlayerPage = lazy(() =>
-  import('@/features/assessment/pages/assessment-player-page').then((m) => ({ default: m.AssessmentPlayerPage })),
+  import('@/features/assessment/pages/assessment-player-page').then((m) => ({
+    default: m.AssessmentPlayerPage,
+  })),
 );
 export const AssessmentResultPage = lazy(() =>
-  import('@/features/assessment/pages/assessment-result-page').then((m) => ({ default: m.AssessmentResultPage })),
+  import('@/features/assessment/pages/assessment-result-page').then((m) => ({
+    default: m.AssessmentResultPage,
+  })),
 );
 export const AssessmentResultsPage = lazy(() =>
-  import('@/features/assessment/pages/assessment-results-page').then((m) => ({ default: m.AssessmentResultsPage })),
+  import('@/features/assessment/pages/assessment-results-page').then((m) => ({
+    default: m.AssessmentResultsPage,
+  })),
 );
 export const AttemptGradingPage = lazy(() =>
   import('@/features/assessment/pages/attempt-grading-page').then((m) => ({ default: m.AttemptGradingPage })),
@@ -84,7 +94,9 @@ export const TimingObservationsPage = lazy(() =>
 
 // --- impact-metrics ---
 export const ImpactMetricsPage = lazy(() =>
-  import('@/features/impact-metrics/pages/impact-metrics-page').then((m) => ({ default: m.ImpactMetricsPage })),
+  import('@/features/impact-metrics/pages/impact-metrics-page').then((m) => ({
+    default: m.ImpactMetricsPage,
+  })),
 );
 
 // --- auth ---
@@ -133,15 +145,21 @@ export const AdminDashboardPage = lazy(() =>
   import('@/features/dashboard/pages/admin-dashboard-page').then((m) => ({ default: m.AdminDashboardPage })),
 );
 export const TraineeDashboardPage = lazy(() =>
-  import('@/features/dashboard/pages/trainee-dashboard-page').then((m) => ({ default: m.TraineeDashboardPage })),
+  import('@/features/dashboard/pages/trainee-dashboard-page').then((m) => ({
+    default: m.TraineeDashboardPage,
+  })),
 );
 export const TrainerDashboardPage = lazy(() =>
-  import('@/features/dashboard/pages/trainer-dashboard-page').then((m) => ({ default: m.TrainerDashboardPage })),
+  import('@/features/dashboard/pages/trainer-dashboard-page').then((m) => ({
+    default: m.TrainerDashboardPage,
+  })),
 );
 
 // --- departments ---
 export const DepartmentsListPage = lazy(() =>
-  import('@/features/departments/pages/departments-list-page').then((m) => ({ default: m.DepartmentsListPage })),
+  import('@/features/departments/pages/departments-list-page').then((m) => ({
+    default: m.DepartmentsListPage,
+  })),
 );
 
 // --- groups ---
@@ -180,6 +198,9 @@ export const QnaSearchPage = lazy(() =>
 export const ReportsPage = lazy(() =>
   import('@/features/reports/pages/reports-page').then((m) => ({ default: m.ReportsPage })),
 );
+export const LiveAnalysisPage = lazy(() =>
+  import('@/features/analytics/pages/live-analysis-page').then((m) => ({ default: m.LiveAnalysisPage })),
+);
 
 // --- settings ---
 export const AdminSettingsPage = lazy(() =>
@@ -195,6 +216,10 @@ export const UsersListPage = lazy(() =>
 );
 
 // --- top-level pages ---
-export const ForbiddenPage = lazy(() => import('@/pages/forbidden-page').then((m) => ({ default: m.ForbiddenPage })));
+export const ForbiddenPage = lazy(() =>
+  import('@/pages/forbidden-page').then((m) => ({ default: m.ForbiddenPage })),
+);
 export const HomePage = lazy(() => import('@/pages/home-page').then((m) => ({ default: m.HomePage })));
-export const NotFoundPage = lazy(() => import('@/pages/not-found-page').then((m) => ({ default: m.NotFoundPage })));
+export const NotFoundPage = lazy(() =>
+  import('@/pages/not-found-page').then((m) => ({ default: m.NotFoundPage })),
+);

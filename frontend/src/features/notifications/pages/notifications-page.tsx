@@ -77,7 +77,9 @@ function resolveNotificationLink(basePath: string, notification: Notification): 
     case 'calendar_event':
       return `${basePath}/calendar`;
     case 'qna_question':
-      return notification.relatedEntityId ? `${basePath}/qna/${notification.relatedEntityId}` : `${basePath}/qna`;
+      return notification.relatedEntityId
+        ? `${basePath}/qna/${notification.relatedEntityId}`
+        : `${basePath}/qna`;
     case 'course':
       return notification.relatedEntityId
         ? `${basePath}/classroom/${notification.relatedEntityId}`
@@ -91,7 +93,11 @@ function resolveNotificationLink(basePath: string, notification: Notification): 
 function NotificationsPage() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
-  const basePath = pathname.startsWith('/admin') ? '/admin' : pathname.startsWith('/trainee') ? '/trainee' : '/trainer';
+  const basePath = pathname.startsWith('/admin')
+    ? '/admin'
+    : pathname.startsWith('/trainee')
+      ? '/trainee'
+      : '/trainer';
   const { user } = useAuth();
   const canSendAnnouncements = user?.role === ROLES.TRAINER || user?.role === ROLES.SUPER_ADMIN;
 
@@ -137,14 +143,23 @@ function NotificationsPage() {
               New Announcement
             </Button>
           ) : null}
-          <Button variant="outline" size="sm" disabled={markAllRead.isPending} onClick={() => markAllRead.mutate()}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={markAllRead.isPending}
+            onClick={() => markAllRead.mutate()}
+          >
             Mark all as read
           </Button>
         </div>
       </div>
 
       {canSendAnnouncements && user ? (
-        <CreateAnnouncementDialog open={isAnnouncementOpen} onOpenChange={setIsAnnouncementOpen} role={user.role} />
+        <CreateAnnouncementDialog
+          open={isAnnouncementOpen}
+          onOpenChange={setIsAnnouncementOpen}
+          role={user.role}
+        />
       ) : null}
 
       <Tabs
@@ -202,12 +217,19 @@ function NotificationsPage() {
                         {!notification.isRead ? (
                           <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
                         ) : null}
-                        <p className={cn('truncate text-sm', !notification.isRead ? 'font-semibold' : 'font-medium')}>
+                        <p
+                          className={cn(
+                            'truncate text-sm',
+                            !notification.isRead ? 'font-semibold' : 'font-medium',
+                          )}
+                        >
                           {notification.title}
                         </p>
                       </div>
                       <p className="text-sm text-muted-foreground">{notification.message}</p>
-                      <p className="text-xs text-muted-foreground">{formatRelativeTime(notification.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatRelativeTime(notification.createdAt)}
+                      </p>
                     </div>
                   </button>
                   <Button

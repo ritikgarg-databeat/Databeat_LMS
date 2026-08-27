@@ -7,7 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { analyticsApi, dashboardApi } from '../services';
-import type { GroupsAnalyticsParams, LeaderboardParams } from '../types';
+import type { GroupsAnalyticsParams, LeaderboardParams, LiveAnalyticsParams } from '../types';
 
 const TRAINEE_DASHBOARD_QUERY_KEY = 'dashboard-trainee';
 const TRAINER_DASHBOARD_QUERY_KEY = 'dashboard-trainer';
@@ -18,6 +18,7 @@ const ANALYTICS_ME_QUERY_KEY = 'analytics-me';
 const ANALYTICS_LEADERBOARD_QUERY_KEY = 'analytics-leaderboard';
 const ANALYTICS_COURSE_QUERY_KEY = 'analytics-course';
 const ANALYTICS_ASSESSMENT_QUERY_KEY = 'analytics-assessment';
+const ANALYTICS_OVERVIEW_QUERY_KEY = 'analytics-overview';
 
 /* -------------------------------------------------------------------------- */
 /* Dashboards                                                                  */
@@ -46,6 +47,15 @@ export function useGroupsAnalyticsQuery(params?: GroupsAnalyticsParams) {
     queryKey: [ANALYTICS_GROUPS_QUERY_KEY, params],
     queryFn: () => analyticsApi.getGroups(params),
     placeholderData: (previous) => previous,
+  });
+}
+
+export function useLiveAnalyticsQuery(params: LiveAnalyticsParams) {
+  return useQuery({
+    queryKey: [ANALYTICS_OVERVIEW_QUERY_KEY, params],
+    queryFn: () => analyticsApi.getOverview(params),
+    placeholderData: (previous) => previous,
+    refetchInterval: 60_000,
   });
 }
 

@@ -50,7 +50,10 @@ function AuthDashboardMockup() {
         {/* Stat tiles. */}
         <div className="grid grid-cols-1 gap-2">
           {STAT_TILES.map(({ icon: Icon, label, value, series }) => (
-            <div key={label} className="flex items-center gap-3 rounded-lg bg-primary-foreground/10 px-3 py-2">
+            <div
+              key={label}
+              className="flex items-center gap-3 rounded-lg bg-primary-foreground/10 px-3 py-2"
+            >
               <span
                 className="flex size-8 shrink-0 items-center justify-center rounded-md"
                 style={{ backgroundColor: `var(--viz-series-${series})`, opacity: 0.9 }}
@@ -112,8 +115,7 @@ function BrandingPanel() {
           AI-Powered Learning Platform for Modern Teams
         </h2>
         <p className="text-sm text-primary-foreground/70">
-          Track progress, run assessments, and surface insights across every department — all
-          from one place.
+          Track progress, run assessments, and surface insights across every department — all from one place.
         </p>
       </div>
     </motion.div>

@@ -3,14 +3,6 @@
 // (title/status/visibility/author/tags with RBAC-gated edit/delete/status controls), the markdown
 // description, a vote button, attachments, the question's own top-level comments, the answers
 // list (pre-sorted server-side — pinned, then verified, then oldest), and an answer editor.
-//
-// TODO(orchestrator): point "Back to questions" at the real feed route once
-// question-feed-page.tsx is wired into routes/router.tsx (no `ROUTES.*.QNA` key exists yet).
-//
-// NOTE: `QuestionStatusBadge`/`QuestionVisibilityBadge` are imported directly from their files
-// (not the `../components` barrel) since `components/index.ts` is centrally composed later by
-// the orchestrator and isn't populated yet — same direct-file-import pattern used elsewhere in
-// this codebase (see `features/assessment/pages/attempt-grading-page.tsx`).
 import { ChevronLeft, Pencil, Trash2, Upload } from 'lucide-react';
 import { type ChangeEvent, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -25,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ROLES } from '@/constants/roles';
+import { ROUTES } from '@/constants/routes';
 import { useAuth } from '@/hooks/use-auth';
 import { formatDate } from '@/utils/date';
 import { getErrorMessage } from '@/utils/error';
@@ -67,7 +60,7 @@ function QuestionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const basePath = useLocation().pathname.startsWith('/trainer') ? '/trainer' : '/trainee';
+  const qnaBasePath = useLocation().pathname.startsWith('/trainer') ? ROUTES.TRAINER.QNA : ROUTES.TRAINEE.QNA;
 
   const { data: question, isLoading, isError, error, refetch } = useQnaQuestionQuery(id);
 
@@ -135,7 +128,7 @@ function QuestionDetailPage() {
     deleteQuestion.mutate(question.id, {
       onSuccess: () => {
         toast.success('Question deleted.');
-        navigate(`${basePath}/qna`);
+        navigate(qnaBasePath);
       },
       onError: (mutationError) => toast.error(getErrorMessage(mutationError)),
     });
@@ -195,7 +188,7 @@ function QuestionDetailPage() {
   return (
     <div className="space-y-6">
       <Button variant="ghost" size="sm" className="-ml-2" asChild>
-        <Link to={`${basePath}/qna`}>
+        <Link to={qnaBasePath}>
           <ChevronLeft /> Back to questions
         </Link>
       </Button>
@@ -236,7 +229,11 @@ function QuestionDetailPage() {
 
           {canModify ? (
             <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Select value={question.status} onValueChange={handleStatusChange} disabled={updateStatus.isPending}>
+              <Select
+                value={question.status}
+                onValueChange={handleStatusChange}
+                disabled={updateStatus.isPending}
+              >
                 <SelectTrigger className="h-8 w-auto min-w-28 text-xs" aria-label="Change question status">
                   <SelectValue />
                 </SelectTrigger>
@@ -277,7 +274,13 @@ function QuestionDetailPage() {
               >
                 {updateQuestion.isPending ? 'Saving...' : 'Save'}
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={handleCancelEdit} disabled={updateQuestion.isPending}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleCancelEdit}
+                disabled={updateQuestion.isPending}
+              >
                 Cancel
               </Button>
             </div>
@@ -315,7 +318,8 @@ function QuestionDetailPage() {
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploadAttachment.isPending}
               >
-                <Upload className="size-3.5" /> {uploadAttachment.isPending ? 'Uploading...' : 'Attach a file'}
+                <Upload className="size-3.5" />{' '}
+                {uploadAttachment.isPending ? 'Uploading...' : 'Attach a file'}
               </Button>
             </>
           ) : null}
@@ -339,7 +343,12 @@ function QuestionDetailPage() {
           {question.answers.length} Answer{question.answers.length === 1 ? '' : 's'}
         </h2>
         {question.answers.map((answer) => (
-          <AnswerCard key={answer.id} answer={answer} questionId={question.id} questionStatus={question.status} />
+          <AnswerCard
+            key={answer.id}
+            answer={answer}
+            questionId={question.id}
+            questionStatus={question.status}
+          />
         ))}
       </div>
 

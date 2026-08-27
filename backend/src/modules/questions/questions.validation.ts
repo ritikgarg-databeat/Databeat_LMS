@@ -18,8 +18,10 @@ import { paginationQueryValidators } from '@/validators/common.validators';
 // make `create`'s validation optional too (verified precedent: courses.validation.ts). Fields
 // below that are optional identically at every use site stay plain consts.
 const titleChain = () => body('title').trim().isLength({ min: 1, max: MAX_QUESTION_TITLE_LENGTH });
-const categoryChain = () => body('category').isIn(Object.values(QuestionCategory)).withMessage('category must be valid.');
-const difficultyChain = () => body('difficulty').isIn(Object.values(QuestionDifficulty)).withMessage('difficulty must be valid.');
+const categoryChain = () =>
+  body('category').isIn(Object.values(QuestionCategory)).withMessage('category must be valid.');
+const difficultyChain = () =>
+  body('difficulty').isIn(Object.values(QuestionDifficulty)).withMessage('difficulty must be valid.');
 
 // The remaining fields' presence/absence-per-type invariants (e.g. "options are required for
 // MCQ-family types but forbidden for SHORT_ANSWER") are discriminated-union-shaped and enforced
@@ -33,17 +35,28 @@ const explanationChain = body('explanation')
 const optionsChain = body('options')
   .optional()
   .isArray({ min: MIN_QUESTION_OPTIONS, max: MAX_QUESTION_OPTIONS })
-  .withMessage(`options must be an array of between ${MIN_QUESTION_OPTIONS} and ${MAX_QUESTION_OPTIONS} items.`);
-const optionTextChain = body('options.*.text').trim().isLength({ min: 1, max: MAX_QUESTION_OPTION_TEXT_LENGTH });
-const optionIsCorrectChain = body('options.*.isCorrect').isBoolean().withMessage('isCorrect must be a boolean.');
+  .withMessage(
+    `options must be an array of between ${MIN_QUESTION_OPTIONS} and ${MAX_QUESTION_OPTIONS} items.`,
+  );
+const optionTextChain = body('options.*.text')
+  .trim()
+  .isLength({ min: 1, max: MAX_QUESTION_OPTION_TEXT_LENGTH });
+const optionIsCorrectChain = body('options.*.isCorrect')
+  .isBoolean()
+  .withMessage('isCorrect must be a boolean.');
 
 const correctAnswersChain = body('correctAnswers')
   .optional()
   .isArray({ min: 1 })
   .withMessage('correctAnswers must be a non-empty array.');
-const correctAnswerItemChain = body('correctAnswers.*').trim().isLength({ min: 1, max: MAX_QUESTION_CORRECT_ANSWER_LENGTH });
+const correctAnswerItemChain = body('correctAnswers.*')
+  .trim()
+  .isLength({ min: 1, max: MAX_QUESTION_CORRECT_ANSWER_LENGTH });
 
-const starterCodeChain = body('starterCode').optional({ values: 'null' }).isString().isLength({ max: MAX_QUESTION_STARTER_CODE_LENGTH });
+const starterCodeChain = body('starterCode')
+  .optional({ values: 'null' })
+  .isString()
+  .isLength({ max: MAX_QUESTION_STARTER_CODE_LENGTH });
 const languageChain = body('language').optional({ values: 'null' }).isString().trim().isLength({ max: 100 });
 
 export const questionsValidation = {

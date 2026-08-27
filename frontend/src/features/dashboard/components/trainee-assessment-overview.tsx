@@ -43,7 +43,12 @@ function TraineeAssessmentOverview({ assessments }: TraineeAssessmentOverviewPro
           accentColor="var(--primary)"
         />
         <StatCard label="Taken" value={assessments.taken} icon={ClipboardList} accentColor="var(--primary)" />
-        <StatCard label="Passed" value={assessments.passed} icon={CheckCircle2} accentColor="var(--primary)" />
+        <StatCard
+          label="Passed"
+          value={assessments.passed}
+          icon={CheckCircle2}
+          accentColor="var(--primary)"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

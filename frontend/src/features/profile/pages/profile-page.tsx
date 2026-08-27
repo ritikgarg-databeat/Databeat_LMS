@@ -107,12 +107,7 @@ function ProfilePage() {
 
             <div className="space-y-2">
               <Label htmlFor="avatar">Avatar URL</Label>
-              <Input
-                id="avatar"
-                placeholder="https://..."
-                disabled={isSubmitting}
-                {...register('avatar')}
-              />
+              <Input id="avatar" placeholder="https://..." disabled={isSubmitting} {...register('avatar')} />
               {errors.avatar ? <p className="text-sm text-destructive">{errors.avatar.message}</p> : null}
             </div>
 

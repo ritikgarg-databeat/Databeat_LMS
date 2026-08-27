@@ -32,10 +32,13 @@ import type {
   LessonSummary,
   MyCourseSummary,
   ProgressSummary,
+  RecordResourceProgressPayload,
   ReorderLessonsPayload,
   ReorderModulesPayload,
+  ResourceProgressResult,
   SubmitLessonQuizPayload,
   UpdateCoursePayload,
+  UpdateCourseAssignmentPayload,
   UpdateCourseStatusPayload,
   UpdateLessonPayload,
   UpdateLessonStatusPayload,
@@ -47,7 +50,9 @@ import type {
 
 export const coursesApi = {
   async list(params: CourseListParams): Promise<PaginatedData<CourseSummary>> {
-    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<CourseSummary>>>('/courses', { params });
+    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<CourseSummary>>>('/courses', {
+      params,
+    });
     return data.data;
   },
 
@@ -109,6 +114,18 @@ export const coursesApi = {
   async unassignGroup(id: string, groupId: string): Promise<void> {
     await apiClient.delete(`/courses/${id}/assignments/${groupId}`);
   },
+
+  async updateAssignment(
+    id: string,
+    groupId: string,
+    payload: UpdateCourseAssignmentPayload,
+  ): Promise<CourseGroupAssignment> {
+    const { data } = await apiClient.patch<ApiSuccessResponse<CourseGroupAssignment>>(
+      `/courses/${id}/assignments/${groupId}`,
+      payload,
+    );
+    return data.data;
+  },
 };
 
 export const modulesApi = {
@@ -135,7 +152,10 @@ export const modulesApi = {
   },
 
   async updateStatus(id: string, payload: UpdateModuleStatusPayload): Promise<CourseModule> {
-    const { data } = await apiClient.patch<ApiSuccessResponse<CourseModule>>(`/modules/${id}/status`, payload);
+    const { data } = await apiClient.patch<ApiSuccessResponse<CourseModule>>(
+      `/modules/${id}/status`,
+      payload,
+    );
     return data.data;
   },
 
@@ -150,7 +170,9 @@ export const modulesApi = {
 
 export const lessonsApi = {
   async list(moduleId: string): Promise<LessonSummary[]> {
-    const { data } = await apiClient.get<ApiSuccessResponse<LessonSummary[]>>('/lessons', { params: { moduleId } });
+    const { data } = await apiClient.get<ApiSuccessResponse<LessonSummary[]>>('/lessons', {
+      params: { moduleId },
+    });
     return data.data;
   },
 
@@ -185,7 +207,9 @@ export const lessonsApi = {
 
 export const resourcesApi = {
   async list(lessonId: string): Promise<LessonResource[]> {
-    const { data } = await apiClient.get<ApiSuccessResponse<LessonResource[]>>(`/lessons/${lessonId}/resources`);
+    const { data } = await apiClient.get<ApiSuccessResponse<LessonResource[]>>(
+      `/lessons/${lessonId}/resources`,
+    );
     return data.data;
   },
 
@@ -227,6 +251,18 @@ export const resourcesApi = {
     });
     return data;
   },
+
+  async recordProgress(
+    lessonId: string,
+    resourceId: string,
+    payload: RecordResourceProgressPayload,
+  ): Promise<ResourceProgressResult> {
+    const { data } = await apiClient.post<ApiSuccessResponse<ResourceProgressResult>>(
+      `/lessons/${lessonId}/resources/${resourceId}/progress`,
+      payload,
+    );
+    return data.data;
+  },
 };
 
 /**
@@ -237,7 +273,9 @@ export const resourcesApi = {
  */
 export const progressApi = {
   async getForLesson(lessonId: string): Promise<LessonProgressView> {
-    const { data } = await apiClient.get<ApiSuccessResponse<LessonProgressView>>(`/lessons/${lessonId}/progress`);
+    const { data } = await apiClient.get<ApiSuccessResponse<LessonProgressView>>(
+      `/lessons/${lessonId}/progress`,
+    );
     return data.data;
   },
 
@@ -250,9 +288,12 @@ export const progressApi = {
   },
 
   async continueLearning(limit?: number): Promise<ContinueLearningItem[]> {
-    const { data } = await apiClient.get<ApiSuccessResponse<ContinueLearningItem[]>>('/progress/continue-learning', {
-      params: limit ? { limit } : undefined,
-    });
+    const { data } = await apiClient.get<ApiSuccessResponse<ContinueLearningItem[]>>(
+      '/progress/continue-learning',
+      {
+        params: limit ? { limit } : undefined,
+      },
+    );
     return data.data;
   },
 

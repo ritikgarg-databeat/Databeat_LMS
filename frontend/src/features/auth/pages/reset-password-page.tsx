@@ -11,11 +11,7 @@ import { ROUTES } from '@/constants/routes';
 import { getErrorMessage } from '@/utils/error';
 
 import { authApi } from '../services';
-import {
-  PASSWORD_POLICY_DESCRIPTION,
-  resetPasswordSchema,
-  type ResetPasswordFormValues,
-} from '../utils';
+import { PASSWORD_POLICY_DESCRIPTION, resetPasswordSchema, type ResetPasswordFormValues } from '../utils';
 
 function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -53,7 +49,9 @@ function ResetPasswordPage() {
     return (
       <div className="space-y-4 text-center">
         <h1 className="text-xl font-semibold">Password reset</h1>
-        <p className="text-sm text-muted-foreground">Your password was changed and all existing sessions were signed out.</p>
+        <p className="text-sm text-muted-foreground">
+          Your password was changed and all existing sessions were signed out.
+        </p>
         <Link to={ROUTES.LOGIN} className="text-sm text-primary hover:underline">
           Sign in
         </Link>
@@ -69,13 +67,27 @@ function ResetPasswordPage() {
       </div>
       <div className="space-y-2">
         <Label htmlFor="newPassword">New password</Label>
-        <Input id="newPassword" type="password" autoComplete="new-password" disabled={isSubmitting} {...register('newPassword')} />
+        <Input
+          id="newPassword"
+          type="password"
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          {...register('newPassword')}
+        />
         {errors.newPassword ? <p className="text-sm text-destructive">{errors.newPassword.message}</p> : null}
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">Confirm password</Label>
-        <Input id="confirmPassword" type="password" autoComplete="new-password" disabled={isSubmitting} {...register('confirmPassword')} />
-        {errors.confirmPassword ? <p className="text-sm text-destructive">{errors.confirmPassword.message}</p> : null}
+        <Input
+          id="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          {...register('confirmPassword')}
+        />
+        {errors.confirmPassword ? (
+          <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
+        ) : null}
       </div>
       <Button type="submit" className="w-full" disabled={isSubmitting}>
         {isSubmitting ? 'Resetting...' : 'Reset password'}

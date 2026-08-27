@@ -1,4 +1,10 @@
-import OpenAI, { APIConnectionError, APIError, AuthenticationError, PermissionDeniedError, RateLimitError } from 'openai';
+import OpenAI, {
+  APIConnectionError,
+  APIError,
+  AuthenticationError,
+  PermissionDeniedError,
+  RateLimitError,
+} from 'openai';
 
 import { env } from '@/config/env';
 import { AI_MAX_RESPONSE_TOKENS } from '@/constants/ai';
@@ -85,11 +91,15 @@ export class OpenAiProvider implements AiProvider {
       }
       if (error instanceof APIConnectionError) {
         logger.error('OpenAI API connection error', { message: error.message });
-        throw new ServiceUnavailableError('Could not reach the AI Learning Assistant. Please try again shortly.');
+        throw new ServiceUnavailableError(
+          'Could not reach the AI Learning Assistant. Please try again shortly.',
+        );
       }
       if (error instanceof APIError) {
         logger.error('OpenAI API error', { status: error.status, message: error.message });
-        throw new ServiceUnavailableError('The AI Learning Assistant ran into a problem. Please try again shortly.');
+        throw new ServiceUnavailableError(
+          'The AI Learning Assistant ran into a problem. Please try again shortly.',
+        );
       }
 
       logger.error('Unexpected error calling the AI provider', { error });

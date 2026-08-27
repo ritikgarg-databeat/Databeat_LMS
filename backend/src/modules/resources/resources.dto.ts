@@ -19,3 +19,15 @@ export interface CreateTextResourceDto {
   title: string;
   content: string;
 }
+
+export type ResourceProgressEventType = 'OPEN' | 'VIEW' | 'VIDEO_HEARTBEAT' | 'ACKNOWLEDGE';
+
+export interface RecordResourceProgressDto {
+  event: ResourceProgressEventType;
+  activeSecondsDelta?: number;
+  scrollPercentage?: number;
+  positionSeconds?: number;
+  durationSeconds?: number;
+  watchedFromSeconds?: number;
+  watchedToSeconds?: number;
+}

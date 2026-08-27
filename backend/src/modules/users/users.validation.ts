@@ -6,10 +6,7 @@ import { VALIDATION_MESSAGES } from '@/constants/validation-messages';
 import { paginationQueryValidators } from '@/validators/common.validators';
 
 const nameValidator = (field: string) =>
-  body(field)
-    .trim()
-    .isLength({ min: 1, max: 60 })
-    .withMessage(VALIDATION_MESSAGES.MIN_LENGTH(field, 1));
+  body(field).trim().isLength({ min: 1, max: 60 }).withMessage(VALIDATION_MESSAGES.MIN_LENGTH(field, 1));
 
 export const usersValidation = {
   create: [
@@ -51,16 +48,11 @@ export const usersValidation = {
   ],
 
   resetPassword: [
-    body('newPassword')
-      .optional()
-      .matches(PASSWORD_POLICY_REGEX)
-      .withMessage(PASSWORD_POLICY_DESCRIPTION),
+    body('newPassword').optional().matches(PASSWORD_POLICY_REGEX).withMessage(PASSWORD_POLICY_DESCRIPTION),
   ],
 
   changeRole: [
-    body('role')
-      .isIn([Role.TRAINER, Role.TRAINEE])
-      .withMessage('role must be TRAINER or TRAINEE.'),
+    body('role').isIn([Role.TRAINER, Role.TRAINEE]).withMessage('role must be TRAINER or TRAINEE.'),
   ],
 
   list: [

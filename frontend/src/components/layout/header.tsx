@@ -1,4 +1,5 @@
-import { Menu, Moon, Sun } from 'lucide-react';
+import { Download, Menu, Moon, Sun } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -18,11 +19,16 @@ import { useTheme } from '@/hooks/use-theme';
 export interface HeaderProps {
   onMenuClick?: () => void;
   breadcrumbArea?: React.ReactNode;
-  /** Populated once the Authentication feature lands; a placeholder is shown until then. */
+  /** Display name supplied by the authenticated dashboard layout. */
   userLabel?: string;
   /** The current user's `avatar` field (a relative storage path, not a directly-fetchable URL). */
   avatarPath?: string | null;
   onLogout?: () => void;
+}
+
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
 /** Top app bar: mobile menu toggle, breadcrumb slot, notifications, theme toggle, user menu. */
@@ -30,6 +36,21 @@ function Header({ onMenuClick, breadcrumbArea, userLabel = 'Guest', avatarPath, 
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { url: avatarUrl } = useAuthenticatedAvatarUrl(avatarPath);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    const handleInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const handleInstalled = () => setInstallPrompt(null);
+    window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+    };
+  }, []);
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-4">
@@ -44,6 +65,20 @@ function Header({ onMenuClick, breadcrumbArea, userLabel = 'Guest', avatarPath, 
       </Button>
 
       <div className="min-w-0 flex-1">{breadcrumbArea}</div>
+
+      {installPrompt ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Install Databeat LMS"
+          onClick={() => {
+            void installPrompt.prompt();
+            void installPrompt.userChoice.finally(() => setInstallPrompt(null));
+          }}
+        >
+          <Download className="size-4" />
+        </Button>
+      ) : null}
 
       <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle color theme">
         {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}

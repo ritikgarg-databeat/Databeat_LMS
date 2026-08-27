@@ -7,9 +7,8 @@ Layering: `assessment-attempts.routes.ts` → `assessment-attempts.controller.ts
 `assessment-attempts.service.ts` → `assessment-attempts.repository.ts` (see ARCHITECTURE.md
 §3.1). `assessment-attempts.dto.ts` defines request/response shapes, `assessment-attempts.types.ts`
 defines internal domain shapes (including the auto-gradable/manual-review `QuestionType`
-groupings and the sanitized-vs-full question view shapes), `assessment-attempts.interfaces.ts`
-defines the contracts controllers/services depend on, and `assessment-attempts.validation.ts`
-holds the express-validator chains for this module's routes.
+groupings and the sanitized-vs-full question view shapes), and
+`assessment-attempts.validation.ts` holds the express-validator chains for this module's routes.
 
 This module works directly against `Assessment` / `AssessmentQuestion` /
 `AssessmentGroupAssignment` / `Group` / `GroupMember` via Prisma for its own accessibility check
@@ -37,6 +36,16 @@ whether an inaccessible/nonexistent assessment exists — always a 403, never a 
 new attempt cannot be started before `assessment.availableFrom` or after `assessment.dueDate` —
 an existing attempt can be viewed after the boundary, but answer writes are rejected and the
 worker finalizes saved answers automatically.
+
+## Protected attempts and integrity evidence
+
+The learner UI requires fullscreen before starting, hides normal application navigation, adds a
+dynamic learner watermark, and intercepts common copy, print, and capture shortcuts on a
+best-effort basis. `POST /assessments/:id/attempts/mine/integrity-events` stores fullscreen exits,
+hidden tabs, window blur, screenshot-key attempts, and print attempts. Counted events are
+deduplicated within two seconds: the first two produce warnings and the third finalizes the
+attempt with `INTEGRITY_VIOLATION`. Browser controls cannot prevent operating-system or external
+camera capture; stronger enforcement requires managed devices or a secure examination browser.
 
 ## No retakes; resume is idempotent
 

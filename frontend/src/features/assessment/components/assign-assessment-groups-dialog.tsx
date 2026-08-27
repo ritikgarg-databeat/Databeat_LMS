@@ -33,19 +33,30 @@ export interface AssignAssessmentGroupsDialogProps {
 }
 
 /** Lists groups currently assigned to an assessment, and lets a trainer assign more ACTIVE groups. */
-function AssignAssessmentGroupsDialog({ assessmentId, open, onOpenChange }: AssignAssessmentGroupsDialogProps) {
+function AssignAssessmentGroupsDialog({
+  assessmentId,
+  open,
+  onOpenChange,
+}: AssignAssessmentGroupsDialogProps) {
   const [unassigning, setUnassigning] = useState<AssessmentGroupAssignmentSummary | null>(null);
 
   const { data: assignments, isLoading: isLoadingAssignments } = useAssessmentAssignmentsQuery(
     open ? assessmentId : undefined,
   );
   // Capped at the backend's page-size ceiling, same convention as assign-groups-dialog.tsx.
-  const { data: groupsPage, isLoading: isLoadingGroups } = useGroupsQuery({ page: 1, pageSize: 100, status: 'ACTIVE' });
+  const { data: groupsPage, isLoading: isLoadingGroups } = useGroupsQuery({
+    page: 1,
+    pageSize: 100,
+    status: 'ACTIVE',
+  });
 
   const assignGroup = useAssignGroupMutation();
   const unassignGroup = useUnassignGroupMutation();
 
-  const assignedGroupIds = useMemo(() => new Set((assignments ?? []).map((assignment) => assignment.id)), [assignments]);
+  const assignedGroupIds = useMemo(
+    () => new Set((assignments ?? []).map((assignment) => assignment.id)),
+    [assignments],
+  );
   const availableGroups = useMemo(
     () => (groupsPage?.items ?? []).filter((group) => !assignedGroupIds.has(group.id)),
     [groupsPage, assignedGroupIds],
@@ -120,7 +131,12 @@ function AssignAssessmentGroupsDialog({ assessmentId, open, onOpenChange }: Assi
                       <TableCell>{assignment.code}</TableCell>
                       <TableCell>{assignment.memberCount}</TableCell>
                       <TableCell>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => setUnassigning(assignment)}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setUnassigning(assignment)}
+                        >
                           Unassign
                         </Button>
                       </TableCell>
@@ -131,7 +147,11 @@ function AssignAssessmentGroupsDialog({ assessmentId, open, onOpenChange }: Assi
             )}
           </div>
 
-          <form noValidate className="space-y-2 border-t pt-4" onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
+          <form
+            noValidate
+            className="space-y-2 border-t pt-4"
+            onSubmit={(event) => void handleSubmit(onSubmit)(event)}
+          >
             <Label htmlFor="assign-assessment-group-groupId">Assign a group</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Controller

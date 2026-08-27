@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { ConfirmDialog, ErrorScreen } from '@/components/shared';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -118,8 +119,13 @@ function CourseEditorPage() {
             <h1 className="text-2xl font-semibold tracking-tight">{course.title}</h1>
             <CourseStatusBadge status={course.status} />
             <DifficultyBadge difficulty={course.difficulty} />
+            {course.isMandatory && course.canEdit ? (
+              <Badge variant="outline">Mandatory by default</Badge>
+            ) : null}
           </div>
-          {course.description ? <p className="max-w-2xl text-muted-foreground">{course.description}</p> : null}
+          {course.description ? (
+            <p className="max-w-2xl text-muted-foreground">{course.description}</p>
+          ) : null}
         </div>
 
         <DropdownMenu>
@@ -129,34 +135,42 @@ function CourseEditorPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setEditCourseOpen(true)}>Edit Course Details</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setAssignGroupsOpen(true)}>Assign to Groups</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate(`${coursesListPath}/${courseId}/analytics`)}>
-              View Analytics
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {course.status === 'DRAFT' ? (
+            {course.canEdit ? (
+              <DropdownMenuItem onClick={() => setEditCourseOpen(true)}>Edit Course Details</DropdownMenuItem>
+            ) : null}
+            {course.canAssign ? (
+              <DropdownMenuItem onClick={() => setAssignGroupsOpen(true)}>Assign to Groups</DropdownMenuItem>
+            ) : null}
+            {course.canEdit ? (
+              <DropdownMenuItem onClick={() => navigate(`${coursesListPath}/${courseId}/analytics`)}>
+                View Analytics
+              </DropdownMenuItem>
+            ) : null}
+            {course.canEdit ? <DropdownMenuSeparator /> : null}
+            {course.canEdit && course.status === 'DRAFT' ? (
               <>
                 <DropdownMenuItem onClick={() => setPendingStatus('PUBLISHED')}>Publish</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setPendingStatus('ARCHIVED')}>Archive</DropdownMenuItem>
               </>
             ) : null}
-            {course.status === 'PUBLISHED' ? (
+            {course.canEdit && course.status === 'PUBLISHED' ? (
               <>
                 <DropdownMenuItem onClick={() => setPendingStatus('DRAFT')}>Unpublish</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setPendingStatus('ARCHIVED')}>Archive</DropdownMenuItem>
               </>
             ) : null}
-            {course.status === 'ARCHIVED' ? (
+            {course.canEdit && course.status === 'ARCHIVED' ? (
               <DropdownMenuItem onClick={() => setPendingStatus('DRAFT')}>Restore to Draft</DropdownMenuItem>
             ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => setDeleteConfirmOpen(true)}
-            >
-              Delete
-            </DropdownMenuItem>
+            {course.canEdit ? <DropdownMenuSeparator /> : null}
+            {course.canEdit ? (
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                Delete
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -190,13 +204,15 @@ function CourseEditorPage() {
             <p className="text-xs font-medium uppercase text-muted-foreground">Assigned groups</p>
             <p className="text-sm">
               {course.assignedGroups.length}{' '}
-              <button
-                type="button"
-                className="text-primary underline-offset-2 hover:underline"
-                onClick={() => setAssignGroupsOpen(true)}
-              >
-                Manage
-              </button>
+              {course.canAssign ? (
+                <button
+                  type="button"
+                  className="text-primary underline-offset-2 hover:underline"
+                  onClick={() => setAssignGroupsOpen(true)}
+                >
+                  Manage
+                </button>
+              ) : null}
             </p>
           </div>
           <div>
@@ -209,25 +225,40 @@ function CourseEditorPage() {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Modules</h2>
-          <Button onClick={() => setCreateModuleOpen(true)}>
-            <Plus /> Add Module
-          </Button>
+          {course.canEdit ? (
+            <Button onClick={() => setCreateModuleOpen(true)}>
+              <Plus /> Add Module
+            </Button>
+          ) : null}
         </div>
 
-        <ModuleLessonTree courseId={course.id} modules={course.modules} />
+        {!course.canEdit ? (
+          <p className="text-sm text-muted-foreground">
+            Shared catalogue course — you can assign it to your groups. Only its owner can change the master
+            content.
+          </p>
+        ) : null}
+        <ModuleLessonTree courseId={course.id} modules={course.modules} readOnly={!course.canEdit} />
       </div>
 
       <CreateModuleDialog courseId={course.id} open={createModuleOpen} onOpenChange={setCreateModuleOpen} />
 
       <EditCourseDialog course={editCourseOpen ? course : null} onOpenChange={setEditCourseOpen} />
 
-      <AssignGroupsDialog courseId={course.id} open={assignGroupsOpen} onOpenChange={setAssignGroupsOpen} />
+      <AssignGroupsDialog
+        courseId={course.id}
+        open={assignGroupsOpen}
+        onOpenChange={setAssignGroupsOpen}
+        defaultMandatory={course.isMandatory}
+      />
 
       <ConfirmDialog
         open={pendingStatus !== null}
         onOpenChange={(open) => !open && setPendingStatus(null)}
         title={pendingStatus ? `${STATUS_ACTION_LABEL[pendingStatus]} course` : ''}
-        description={pendingStatus ? `${course.title} ${STATUS_CONFIRM_DESCRIPTION[pendingStatus]}` : undefined}
+        description={
+          pendingStatus ? `${course.title} ${STATUS_CONFIRM_DESCRIPTION[pendingStatus]}` : undefined
+        }
         confirmLabel={pendingStatus ? STATUS_ACTION_LABEL[pendingStatus] : 'Confirm'}
         destructive={pendingStatus === 'ARCHIVED'}
         onConfirm={() => void handleUpdateStatus()}

@@ -23,8 +23,7 @@ const badgeVariants = cva(
   },
 );
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {
+export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {
   /**
    * Renders a small ambient-pulsing dot before the label — reserved for genuine "live"/active-state
    * emphasis (e.g. an in-progress session, an open question). Opt-in and rare by design: this should

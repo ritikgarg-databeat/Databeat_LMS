@@ -105,6 +105,7 @@ export class DashboardService extends BaseService {
       myCourses: userAnalytics.courses.map((course) => ({
         courseId: course.courseId,
         title: course.title,
+        isMandatory: course.isMandatory,
         completionPercentage: course.completionPercentage,
         status: course.status,
       })),

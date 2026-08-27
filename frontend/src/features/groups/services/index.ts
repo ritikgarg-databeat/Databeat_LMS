@@ -135,9 +135,12 @@ export const groupMembersApi = {
  */
 export const departmentOptionsApi = {
   async list(): Promise<DepartmentOption[]> {
-    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<DepartmentOption>>>('/departments', {
-      params: { pageSize: 100, status: 'ACTIVE' },
-    });
+    const { data } = await apiClient.get<ApiSuccessResponse<PaginatedData<DepartmentOption>>>(
+      '/departments',
+      {
+        params: { pageSize: 100, status: 'ACTIVE' },
+      },
+    );
     return data.data.items;
   },
 };

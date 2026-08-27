@@ -1,5 +1,6 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma, Role } from '@prisma/client';
 
+import { trainerCourseCatalogScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 import { endOfDayInclusive } from '@/utils/date-range.util';
 
@@ -11,7 +12,9 @@ const viewInclude = {
   course: { select: { id: true, title: true } },
 } satisfies Prisma.TimingObservationInclude;
 
-export type TimingObservationWithRelations = Prisma.TimingObservationGetPayload<{ include: typeof viewInclude }>;
+export type TimingObservationWithRelations = Prisma.TimingObservationGetPayload<{
+  include: typeof viewInclude;
+}>;
 
 function buildWhere(filters: TimingObservationListFilters): Prisma.TimingObservationWhereInput {
   const where: Prisma.TimingObservationWhereInput = {};
@@ -40,7 +43,13 @@ export class TimingObservationsRepository extends BaseRepository {
   ): Promise<{ items: TimingObservationWithRelations[]; total: number }> {
     const where = buildWhere(filters);
     const [items, total] = await Promise.all([
-      this.db.timingObservation.findMany({ where, include: viewInclude, orderBy: { createdAt: 'desc' }, skip, take }),
+      this.db.timingObservation.findMany({
+        where,
+        include: viewInclude,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
       this.db.timingObservation.count({ where }),
     ]);
     return { items, total };
@@ -53,27 +62,63 @@ export class TimingObservationsRepository extends BaseRepository {
    * per manual timing exercise), so its total volume stays small enough that fetching every
    * matching row per stats request is the simplest correct approach.
    */
-  findAllForStats(
-    filters: TimingObservationListFilters,
-  ): Promise<{ trainerId: string; lessonId: string; manualDurationSeconds: number; aiAssistedDurationSeconds: number }[]> {
+  findAllForStats(filters: TimingObservationListFilters): Promise<
+    {
+      trainerId: string;
+      lessonId: string;
+      manualDurationSeconds: number;
+      aiAssistedDurationSeconds: number;
+    }[]
+  > {
     const where = buildWhere(filters);
     return this.db.timingObservation.findMany({
       where,
-      select: { trainerId: true, lessonId: true, manualDurationSeconds: true, aiAssistedDurationSeconds: true },
+      select: {
+        trainerId: true,
+        lessonId: true,
+        manualDurationSeconds: true,
+        aiAssistedDurationSeconds: true,
+      },
     });
   }
 
   /** Feature-local existence + relationship check: does `lessonId` actually belong to `courseId`? */
-  async findLessonWithCourse(lessonId: string): Promise<{ id: string; courseId: string } | null> {
+  async findLessonWithCourse(
+    lessonId: string,
+    actor: { id: string; role: Role },
+  ): Promise<{ id: string; courseId: string } | null> {
     const lesson = await this.db.lesson.findUnique({
       where: { id: lessonId },
-      select: { id: true, module: { select: { courseId: true } } },
+      select: {
+        id: true,
+        module: {
+          select: {
+            courseId: true,
+            course: { select: { createdById: true, status: true, deletedAt: true } },
+          },
+        },
+      },
     });
     if (!lesson) return null;
+    if (lesson.module.course.deletedAt !== null) return null;
+    if (
+      actor.role === 'TRAINER' &&
+      lesson.module.course.createdById !== actor.id &&
+      lesson.module.course.status !== 'PUBLISHED'
+    ) {
+      return null;
+    }
     return { id: lesson.id, courseId: lesson.module.courseId };
   }
 
-  findCourseById(courseId: string) {
-    return this.db.course.findUnique({ where: { id: courseId }, select: { id: true } });
+  findCourseById(courseId: string, actor: { id: string; role: Role }) {
+    return this.db.course.findFirst({
+      where: {
+        id: courseId,
+        deletedAt: null,
+        ...(actor.role === 'TRAINER' ? trainerCourseCatalogScope(actor.id) : {}),
+      },
+      select: { id: true },
+    });
   }
 }

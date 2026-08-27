@@ -5,11 +5,17 @@ import { UnauthorizedError } from '@/utils/app-error';
 import { parsePaginationParams } from '@/utils/pagination.util';
 import { assertValidRequest } from '@/utils/validation.util';
 
-import type { CreateTimingObservationDto, ListTimingObservationsQueryDto, StatsTimingObservationsQueryDto } from './timing-observations.dto';
+import type {
+  CreateTimingObservationDto,
+  ListTimingObservationsQueryDto,
+  StatsTimingObservationsQueryDto,
+} from './timing-observations.dto';
 import { TimingObservationsService } from './timing-observations.service';
 import type { TimingObservationListFilters } from './timing-observations.types';
 
-function toFilters(query: ListTimingObservationsQueryDto | StatsTimingObservationsQueryDto): TimingObservationListFilters {
+function toFilters(
+  query: ListTimingObservationsQueryDto | StatsTimingObservationsQueryDto,
+): TimingObservationListFilters {
   return {
     lessonId: query.lessonId,
     courseId: query.courseId,
@@ -40,7 +46,7 @@ export class TimingObservationsController extends BaseController {
 
     const query = req.query as ListTimingObservationsQueryDto;
     const { page, pageSize } = parsePaginationParams(query);
-    const result = await this.service.list(toFilters(query), page, pageSize);
+    const result = await this.service.list(toFilters(query), req.user, page, pageSize);
     this.ok(res, result);
   };
 
@@ -49,7 +55,7 @@ export class TimingObservationsController extends BaseController {
     if (!req.user) throw new UnauthorizedError();
 
     const query = req.query as StatsTimingObservationsQueryDto;
-    const stats = await this.service.stats(toFilters(query));
+    const stats = await this.service.stats(toFilters(query), req.user);
     this.ok(res, stats);
   };
 }

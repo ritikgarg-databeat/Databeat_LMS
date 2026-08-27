@@ -47,7 +47,10 @@ function TrainerGroupAnalyticsTable({ groups, isLoading }: TrainerGroupAnalytics
               {groups.map((group) => (
                 <TableRow key={group.groupId}>
                   <TableCell className="font-medium">
-                    <Link to={`${ROUTES.TRAINER.GROUPS}/${group.groupId}/analytics`} className="hover:underline">
+                    <Link
+                      to={`${ROUTES.TRAINER.GROUPS}/${group.groupId}/analytics`}
+                      className="hover:underline"
+                    >
                       {group.name}
                     </Link>
                   </TableCell>

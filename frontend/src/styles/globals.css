@@ -264,12 +264,22 @@
 @layer utilities {
   /* Diagonal brand gradient background — hero sections, CTA bands, marketing chrome. */
   .bg-brand-gradient {
-    background-image: linear-gradient(115deg, var(--gradient-from), var(--gradient-via) 55%, var(--gradient-to));
+    background-image: linear-gradient(
+      115deg,
+      var(--gradient-from),
+      var(--gradient-via) 55%,
+      var(--gradient-to)
+    );
   }
   /* Slow-drifting variant of the above — pairs with the `gradient-x` keyframe (200% bg-size
      required for the drift to be visible; reduced-motion users get the static gradient). */
   .bg-brand-gradient-animated {
-    background-image: linear-gradient(115deg, var(--gradient-from), var(--gradient-via) 55%, var(--gradient-to));
+    background-image: linear-gradient(
+      115deg,
+      var(--gradient-from),
+      var(--gradient-via) 55%,
+      var(--gradient-to)
+    );
     background-size: 200% 200%;
   }
   @media (prefers-reduced-motion: no-preference) {
@@ -279,7 +289,12 @@
   }
   /* Gradient text — headline emphasis. Requires the element to also have no explicit `color`. */
   .text-brand-gradient {
-    background-image: linear-gradient(115deg, var(--gradient-from), var(--gradient-via) 55%, var(--gradient-to));
+    background-image: linear-gradient(
+      115deg,
+      var(--gradient-from),
+      var(--gradient-via) 55%,
+      var(--gradient-to)
+    );
     background-clip: text;
     -webkit-background-clip: text;
     color: transparent;

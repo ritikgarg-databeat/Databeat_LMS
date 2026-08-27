@@ -3,7 +3,7 @@
 //   - SUPER_ADMIN/TRAINER ("preview" mode): read-only, no progress tracking, "Back to editor".
 //   - TRAINEE ("learn" mode): auto-tracks progress, "Mark as complete", "Back to course".
 import { CheckCircle2, ChevronLeft } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -27,6 +27,7 @@ import { getErrorMessage } from '@/utils/error';
 import { LessonContentRenderer } from '../components/lesson-content-renderer';
 import { LessonNavigation } from '../components/lesson-navigation';
 import { LessonQuizDialog } from '../components/lesson-quiz-dialog';
+import { MandatoryCourseBadge } from '../components/mandatory-course-badge';
 import { useLessonQuery, useLessonQuizMutation, useUpsertLessonProgressMutation } from '../hooks';
 import type { SanitizedQuizQuestion } from '../types';
 
@@ -70,6 +71,12 @@ function LessonViewerPage() {
   const lessonQuiz = useLessonQuizMutation();
   const [quizQuestions, setQuizQuestions] = useState<SanitizedQuizQuestion[] | null>(null);
   const [isQuizDialogOpen, setIsQuizDialogOpen] = useState(false);
+  const [resourceCompletion, setResourceCompletion] = useState<Record<string, boolean>>({});
+  const handleResourceProgressChange = useCallback((resourceId: string, completed: boolean) => {
+    setResourceCompletion((current) =>
+      current[resourceId] === completed ? current : { ...current, [resourceId]: completed },
+    );
+  }, []);
 
   // Stashed in a ref so the effects below can call the latest mutation without needing it in
   // their dependency arrays (the mutation object's identity isn't guaranteed stable render over
@@ -138,7 +145,9 @@ function LessonViewerPage() {
 
     const intervalId = setInterval(flush, PROGRESS_FLUSH_INTERVAL_MS);
     const activityEvents: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
-    activityEvents.forEach((eventName) => window.addEventListener(eventName, recordActivity, { passive: true }));
+    activityEvents.forEach((eventName) =>
+      window.addEventListener(eventName, recordActivity, { passive: true }),
+    );
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
@@ -165,7 +174,18 @@ function LessonViewerPage() {
     return <LoadingScreen message="Loading lesson..." fullScreen={false} />;
   }
 
-  const isCompleted = lesson.progress?.status === 'COMPLETED';
+  const isCompleted =
+    lesson.progress?.status === 'COMPLETED' &&
+    lesson.progress.completedContentVersion === lesson.contentVersion;
+  const isMandatory = mode === 'learn' && lesson.module.course.isMandatory;
+  const allResourcesComplete =
+    !isMandatory ||
+    lesson.resources.every(
+      (resource) =>
+        resourceCompletion[resource.id] ??
+        (resource.progress?.status === 'COMPLETED' &&
+          resource.progress.completedContentVersion === resource.contentVersion),
+    );
   const backHref = `${basePath}/classroom/${courseId}`;
   const backLabel = mode === 'preview' ? 'Back to editor' : 'Back to course';
 
@@ -245,6 +265,7 @@ function LessonViewerPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{lesson.title}</h1>
+            {lesson.module.course.isMandatory ? <MandatoryCourseBadge className="mt-2" /> : null}
             {lesson.description ? (
               <p className="mt-1 text-sm text-muted-foreground">{lesson.description}</p>
             ) : null}
@@ -265,9 +286,14 @@ function LessonViewerPage() {
               ) : (
                 <Button
                   onClick={() => void handleMarkComplete()}
-                  disabled={markComplete.isPending || lessonQuiz.isPending}
+                  disabled={markComplete.isPending || lessonQuiz.isPending || !allResourcesComplete}
                 >
-                  <CheckCircle2 /> {lessonQuiz.isPending ? 'Preparing quiz...' : 'Mark as complete'}
+                  <CheckCircle2 />{' '}
+                  {lessonQuiz.isPending
+                    ? 'Preparing quiz...'
+                    : !allResourcesComplete
+                      ? 'Complete resources first'
+                      : 'Mark as complete'}
                 </Button>
               )}
             </div>
@@ -279,7 +305,9 @@ function LessonViewerPage() {
         lessonId={lesson.id}
         resources={lesson.resources}
         lessonType={lesson.type}
-        onVideoEnded={mode === 'learn' ? handleVideoEnded : undefined}
+        mandatory={isMandatory}
+        onResourceProgressChange={handleResourceProgressChange}
+        onVideoEnded={mode === 'learn' && !isMandatory ? handleVideoEnded : undefined}
       />
 
       <LessonNavigation

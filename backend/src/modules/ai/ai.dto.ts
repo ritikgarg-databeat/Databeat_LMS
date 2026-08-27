@@ -10,6 +10,8 @@ export interface ChatRequestDto {
   message: string;
   feature?: AiFeature;
   explanationLevel?: AiExplanationLevel;
+  /** Whitelisted presentation language; grounding and guardrails remain unchanged. */
+  responseLanguage?: string;
 }
 
 export interface ListConversationsQueryDto {

@@ -68,7 +68,12 @@ export class QnaQuestionsController extends BaseController {
   update = async (req: Request, res: Response): Promise<void> => {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
-    const question = await this.service.update(req.params.id as string, req.body as UpdateQnaQuestionDto, req.user, req.ip);
+    const question = await this.service.update(
+      req.params.id as string,
+      req.body as UpdateQnaQuestionDto,
+      req.user,
+      req.ip,
+    );
     this.ok(res, question, 'Question updated successfully.');
   };
 
@@ -127,7 +132,10 @@ export class QnaQuestionsController extends BaseController {
       await pipeline(stream, res);
     } catch (error) {
       if (res.headersSent) {
-        logger.error('Qna attachment stream failed mid-response', { error, attachmentId: req.params.attachmentId });
+        logger.error('Qna attachment stream failed mid-response', {
+          error,
+          attachmentId: req.params.attachmentId,
+        });
         res.destroy();
         return;
       }

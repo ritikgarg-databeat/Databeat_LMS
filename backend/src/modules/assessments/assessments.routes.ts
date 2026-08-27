@@ -38,13 +38,31 @@ router.get('/stats', canManage, controller.stats);
 router.get('/mine', controller.mine);
 router.get('/:id', idParamValidator, controller.getById);
 router.patch('/:id', canManage, idParamValidator, assessmentsValidation.update, controller.update);
-router.patch('/:id/status', canManage, idParamValidator, assessmentsValidation.updateStatus, controller.updateStatus);
+router.patch(
+  '/:id/status',
+  canManage,
+  idParamValidator,
+  assessmentsValidation.updateStatus,
+  controller.updateStatus,
+);
 router.post('/:id/results/release', canManage, idParamValidator, controller.releaseResults);
-router.post('/:id/duplicate', canManage, idParamValidator, assessmentsValidation.duplicate, controller.duplicate);
+router.post(
+  '/:id/duplicate',
+  canManage,
+  idParamValidator,
+  assessmentsValidation.duplicate,
+  controller.duplicate,
+);
 router.delete('/:id', canManage, idParamValidator, controller.remove);
 
 router.get('/:id/assignments', canManage, idParamValidator, controller.listAssignments);
-router.post('/:id/assignments', canManage, idParamValidator, assessmentsValidation.assignGroup, controller.assignGroup);
+router.post(
+  '/:id/assignments',
+  canManage,
+  idParamValidator,
+  assessmentsValidation.assignGroup,
+  controller.assignGroup,
+);
 router.delete(
   '/:id/assignments/:groupId',
   canManage,
@@ -54,7 +72,13 @@ router.delete(
 );
 
 router.get('/:id/questions', canManage, idParamValidator, controller.listQuestions);
-router.post('/:id/questions', canManage, idParamValidator, assessmentsValidation.addQuestion, controller.addQuestion);
+router.post(
+  '/:id/questions',
+  canManage,
+  idParamValidator,
+  assessmentsValidation.addQuestion,
+  controller.addQuestion,
+);
 // Registered before `/:id/questions/:aqId` — otherwise Express would match "reorder" as :aqId.
 router.patch(
   '/:id/questions/reorder',

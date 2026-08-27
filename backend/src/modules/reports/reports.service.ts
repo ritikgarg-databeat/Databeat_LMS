@@ -58,10 +58,24 @@ const COURSES_EXPORT_HEADERS = [
   'Avg Time Spent (hours)',
 ];
 
+const MANDATORY_EXPORT_HEADERS = [
+  'Trainee Name',
+  'Email',
+  'Department',
+  'Groups',
+  'Mandatory Course',
+  'Compliance Status',
+  'Lessons Completed',
+  'Total Lessons',
+  'Compliance %',
+  'Last Activity',
+];
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** `Trainee Name` cell convention everywhere in this module. */
-const fullName = (user: { firstName: string; lastName: string }): string => `${user.firstName} ${user.lastName}`;
+const fullName = (user: { firstName: string; lastName: string }): string =>
+  `${user.firstName} ${user.lastName}`;
 
 const round1 = (value: number): number => Math.round(value * 10) / 10;
 
@@ -116,7 +130,7 @@ export class ReportsService extends BaseService {
         for (const lessonId of lessonIds) {
           const progress = userProgress?.get(lessonId);
           if (!progress) continue;
-          if (progress.status === 'COMPLETED') completed += 1;
+          if (this.isCurrentCompletion(progress, lessonId, computation.lessonVersionById)) completed += 1;
           timeSpentSeconds += progress.timeSpentSeconds;
           if (progress.lastViewedAt && (!lastActivity || progress.lastViewedAt > lastActivity)) {
             lastActivity = progress.lastViewedAt;
@@ -155,7 +169,8 @@ export class ReportsService extends BaseService {
 
     const sortedAttempts = [...attempts].sort(
       (a, b) =>
-        a.assessment.title.localeCompare(b.assessment.title) || fullName(a.user).localeCompare(fullName(b.user)),
+        a.assessment.title.localeCompare(b.assessment.title) ||
+        fullName(a.user).localeCompare(fullName(b.user)),
     );
 
     const rows: CsvCell[][] = sortedAttempts.map((attempt) => [
@@ -197,7 +212,9 @@ export class ReportsService extends BaseService {
 
     const activitySince = new Date(Date.now() - SEVEN_DAYS_MS);
     const recentLessonActivity = new Set(
-      (await this.repository.findUserIdsWithLessonActivitySince(memberIds, activitySince)).map((row) => row.userId),
+      (await this.repository.findUserIdsWithLessonActivitySince(memberIds, activitySince)).map(
+        (row) => row.userId,
+      ),
     );
 
     const rows: CsvCell[][] = groups.map((group) => {
@@ -229,7 +246,8 @@ export class ReportsService extends BaseService {
 
   /** `GET /reports/courses/export` — one row per published course in scope, sorted by title. */
   async exportCourses(actor: ReportActor): Promise<CsvExport> {
-    const trainerGroupIds = actor.role === 'TRAINER' ? await this.repository.findTrainerGroupIds(actor.id) : null;
+    const trainerGroupIds =
+      actor.role === 'TRAINER' ? await this.repository.findTrainerGroupIds(actor.id) : null;
     const courses = await this.repository.findPublishedCoursesWithAssignments(trainerGroupIds);
 
     // Per course, the groups whose members count as "assigned": ALL assigned groups for a
@@ -256,6 +274,7 @@ export class ReportsService extends BaseService {
 
     const lessons = await this.repository.findPublishedLessonsForCourses(courses.map((course) => course.id));
     const lessonIdsByCourse = this.groupLessonIdsByCourse(lessons);
+    const lessonVersionById = new Map(lessons.map((lesson) => [lesson.id, lesson.contentVersion]));
 
     const allTraineeIds = [...new Set(memberships.map((membership) => membership.userId))];
     const progressRows = await this.repository.findLessonProgressForUsers(
@@ -266,7 +285,9 @@ export class ReportsService extends BaseService {
 
     const rows: CsvCell[][] = courses.map((course) => {
       const assignedIds = [
-        ...new Set((groupIdsByCourse.get(course.id) ?? []).flatMap((groupId) => traineeIdsByGroup.get(groupId) ?? [])),
+        ...new Set(
+          (groupIdsByCourse.get(course.id) ?? []).flatMap((groupId) => traineeIdsByGroup.get(groupId) ?? []),
+        ),
       ];
       const lessonIds = lessonIdsByCourse.get(course.id) ?? [];
 
@@ -282,7 +303,9 @@ export class ReportsService extends BaseService {
           if (!progress) continue;
           touched = true;
           totalTimeSpentSeconds += progress.timeSpentSeconds;
-          if (progress.status === 'COMPLETED') completedLessons += 1;
+          if (this.isCurrentCompletion(progress, lessonId, lessonVersionById)) {
+            completedLessons += 1;
+          }
         }
         if (touched) started += 1;
         // "Completed" requires every published lesson COMPLETED — and at least one lesson,
@@ -304,6 +327,59 @@ export class ReportsService extends BaseService {
     });
 
     return { filename: csvFilename('courses-report'), csv: toCsv(COURSES_EXPORT_HEADERS, rows) };
+  }
+
+  /** `GET /reports/mandatory/export` - current-version compliance by trainee and mandatory course. */
+  async exportMandatoryCompliance(actor: ReportActor): Promise<CsvExport> {
+    const scopeGroupIds = await this.resolveScopedGroupIds(actor);
+    const trainees = await this.repository.findTraineesInGroups(scopeGroupIds);
+    const computation = await this.loadProgressComputation(trainees.map((trainee) => trainee.id));
+    const rows: CsvCell[][] = [];
+
+    for (const trainee of [...trainees].sort((a, b) => fullName(a).localeCompare(fullName(b)))) {
+      const groupNames = trainee.groupMemberships
+        .map((membership) => membership.group.name)
+        .sort((a, b) => a.localeCompare(b))
+        .join('; ');
+      const courses = (computation.coursesByUser.get(trainee.id) ?? [])
+        .filter((course) => course.isMandatory)
+        .sort((a, b) => a.title.localeCompare(b.title));
+
+      for (const course of courses) {
+        const lessonIds = computation.lessonIdsByCourse.get(course.id) ?? [];
+        const userProgress = computation.progressByUser.get(trainee.id);
+        let completed = 0;
+        let started = false;
+        let lastActivity: Date | null = null;
+        for (const lessonId of lessonIds) {
+          const progress = userProgress?.get(lessonId);
+          if (!progress) continue;
+          started = true;
+          if (this.isCurrentCompletion(progress, lessonId, computation.lessonVersionById)) completed += 1;
+          if (progress.lastViewedAt && (!lastActivity || progress.lastViewedAt > lastActivity)) {
+            lastActivity = progress.lastViewedAt;
+          }
+        }
+        const isComplete = lessonIds.length > 0 && completed === lessonIds.length;
+        rows.push([
+          fullName(trainee),
+          trainee.email,
+          trainee.department?.name ?? '',
+          groupNames,
+          course.title,
+          isComplete ? 'COMPLIANT' : started ? 'IN_PROGRESS' : 'NOT_STARTED',
+          completed,
+          lessonIds.length,
+          lessonIds.length === 0 ? 0 : Math.round((completed / lessonIds.length) * 100),
+          lastActivity,
+        ]);
+      }
+    }
+
+    return {
+      filename: csvFilename('mandatory-training-compliance'),
+      csv: toCsv(MANDATORY_EXPORT_HEADERS, rows),
+    };
   }
 
   /**
@@ -337,18 +413,25 @@ export class ReportsService extends BaseService {
    * accessible-course rule feature-locally (Prompt 5 § SECURITY; canonical copy:
    * progress.repository.ts#findAccessibleCourseIds — see reports.repository.ts).
    */
-  private async loadProgressComputation(userIds: string[], courseIdFilter?: string): Promise<ProgressComputation> {
+  private async loadProgressComputation(
+    userIds: string[],
+    courseIdFilter?: string,
+  ): Promise<ProgressComputation> {
     const memberships = await this.repository.findGroupMembershipsForUsers(userIds);
     const membershipGroupIds = [...new Set(memberships.map((membership) => membership.groupId))];
-    const assignments = await this.repository.findPublishedCourseAssignments(membershipGroupIds, courseIdFilter);
+    const assignments = await this.repository.findPublishedCourseAssignments(
+      membershipGroupIds,
+      courseIdFilter,
+    );
 
     const coursesByGroup = new Map<string, AccessibleCourse[]>();
     const courseIds = new Set<string>();
     for (const assignment of assignments) {
       courseIds.add(assignment.course.id);
+      const assignedCourse = { ...assignment.course, isMandatory: assignment.isMandatory };
       const list = coursesByGroup.get(assignment.groupId);
-      if (list) list.push(assignment.course);
-      else coursesByGroup.set(assignment.groupId, [assignment.course]);
+      if (list) list.push(assignedCourse);
+      else coursesByGroup.set(assignment.groupId, [assignedCourse]);
     }
 
     const coursesByUser = new Map<string, AccessibleCourse[]>();
@@ -365,7 +448,11 @@ export class ReportsService extends BaseService {
         coursesByUser.set(membership.userId, userCourses);
       }
       for (const course of groupCourses) {
-        if (seen.has(course.id)) continue;
+        if (seen.has(course.id)) {
+          const existing = userCourses.find((entry) => entry.id === course.id);
+          if (existing && course.isMandatory) existing.isMandatory = true;
+          continue;
+        }
         seen.add(course.id);
         userCourses.push(course);
       }
@@ -373,6 +460,7 @@ export class ReportsService extends BaseService {
 
     const lessons = await this.repository.findPublishedLessonsForCourses([...courseIds]);
     const lessonIdsByCourse = this.groupLessonIdsByCourse(lessons);
+    const lessonVersionById = new Map(lessons.map((lesson) => [lesson.id, lesson.contentVersion]));
 
     const progressRows = await this.repository.findLessonProgressForUsers(
       userIds,
@@ -380,7 +468,7 @@ export class ReportsService extends BaseService {
     );
     const progressByUser = this.groupProgressByUser(progressRows);
 
-    return { coursesByUser, lessonIdsByCourse, progressByUser };
+    return { coursesByUser, lessonIdsByCourse, lessonVersionById, progressByUser };
   }
 
   /**
@@ -393,7 +481,9 @@ export class ReportsService extends BaseService {
     const lessonIds = courses.flatMap((course) => computation.lessonIdsByCourse.get(course.id) ?? []);
     if (lessonIds.length === 0) return 0;
     const userProgress = computation.progressByUser.get(userId);
-    const completed = lessonIds.filter((lessonId) => userProgress?.get(lessonId)?.status === 'COMPLETED').length;
+    const completed = lessonIds.filter((lessonId) =>
+      this.isCurrentCompletion(userProgress?.get(lessonId), lessonId, computation.lessonVersionById),
+    ).length;
     return Math.round((completed / lessonIds.length) * 100);
   }
 
@@ -421,11 +511,22 @@ export class ReportsService extends BaseService {
       }
       userMap.set(row.lessonId, {
         status: row.status,
+        completedContentVersion: row.completedContentVersion,
         timeSpentSeconds: row.timeSpentSeconds,
         lastViewedAt: row.lastViewedAt,
       });
     }
     return progressByUser;
+  }
+
+  private isCurrentCompletion(
+    progress: LessonProgressCell | undefined,
+    lessonId: string,
+    lessonVersionById: ReadonlyMap<string, number>,
+  ): boolean {
+    return (
+      progress?.status === 'COMPLETED' && progress.completedContentVersion === lessonVersionById.get(lessonId)
+    );
   }
 }
 

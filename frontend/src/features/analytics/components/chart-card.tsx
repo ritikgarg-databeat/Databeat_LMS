@@ -38,7 +38,15 @@ export interface ChartCardProps {
  * Card wrapper for every chart in the analytics feature: title/description header, optional
  * header actions, first-load skeleton, and the chart ⇄ table accessibility toggle.
  */
-function ChartCard({ title, description, actions, isLoading, tableView, className, children }: ChartCardProps) {
+function ChartCard({
+  title,
+  description,
+  actions,
+  isLoading,
+  tableView,
+  className,
+  children,
+}: ChartCardProps) {
   const [view, setView] = useState<'chart' | 'table'>('chart');
   const showTable = view === 'table' && tableView !== undefined;
 

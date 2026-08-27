@@ -46,18 +46,10 @@ export class UsersService extends BaseService {
     sortBy: UserSortField,
     sortOrder: SortOrder,
   ): Promise<PaginatedData<SafeUser>> {
-    // Trainers default to seeing only trainees (§ USER MANAGEMENT TRAINER — "List trainees"),
-    // EXCEPT when they explicitly ask for `role=TRAINER` themselves — that's the legitimate
-    // "pick a trainer to assign to this group" dropdown (features/groups), not the trainee
-    // roster, and must return real trainers rather than silently substituting trainees. Any
-    // other explicit role request (or no role filter at all) from a Trainer still collapses to
-    // TRAINEE — they're never allowed to browse the trainee list scoped to something else, or
-    // to fish for SUPER_ADMIN accounts by requesting that role explicitly. Super Admin's
-    // "View all users" stays unrestricted unless it explicitly narrows by role itself.
+    // A Trainer can browse only TRAINEE accounts already in their managed groups. Requests for
+    // another role are collapsed to TRAINEE rather than exposing the staff directory.
     const effectiveFilters: UserListFilters =
-      actor.role === Role.TRAINER && filters.role !== Role.TRAINER
-        ? { ...filters, role: Role.TRAINEE }
-        : filters;
+      actor.role === Role.TRAINER ? { ...filters, role: Role.TRAINEE } : filters;
 
     const { items, total } = await this.repository.findMany(
       effectiveFilters,

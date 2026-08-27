@@ -92,9 +92,7 @@ function CreateUserDialog({ open, onOpenChange, manageRole }: CreateUserDialogPr
             <div className="space-y-2">
               <Label htmlFor="lastName">Last name</Label>
               <Input id="lastName" disabled={isSubmitting} {...register('lastName')} />
-              {errors.lastName ? (
-                <p className="text-sm text-destructive">{errors.lastName.message}</p>
-              ) : null}
+              {errors.lastName ? <p className="text-sm text-destructive">{errors.lastName.message}</p> : null}
             </div>
           </div>
 
@@ -107,9 +105,7 @@ function CreateUserDialog({ open, onOpenChange, manageRole }: CreateUserDialogPr
           <div className="space-y-2">
             <Label htmlFor="password">Initial password</Label>
             <Input id="password" type="password" disabled={isSubmitting} {...register('password')} />
-            {errors.password ? (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
-            ) : null}
+            {errors.password ? <p className="text-sm text-destructive">{errors.password.message}</p> : null}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

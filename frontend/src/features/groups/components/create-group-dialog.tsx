@@ -19,9 +19,15 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useAssignGroupMutation, useCoursesQuery } from '@/features/classroom/hooks';
+import { useAuth } from '@/hooks/use-auth';
 import { getErrorMessage } from '@/utils/error';
 
-import { useActiveDepartmentsOptions, useActiveExperienceLevelsOptions, useCreateGroupMutation, useTrainersOptions } from '../hooks';
+import {
+  useActiveDepartmentsOptions,
+  useActiveExperienceLevelsOptions,
+  useCreateGroupMutation,
+  useTrainersOptions,
+} from '../hooks';
 
 // Case-insensitive here — the value is uppercased on submit before being sent to the API,
 // which itself only accepts the uppercase form (see backend groups.validation.ts).
@@ -60,6 +66,8 @@ export interface CreateGroupDialogProps {
 }
 
 function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'SUPER_ADMIN';
   const [courseSearch, setCourseSearch] = useState('');
   const [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]);
 
@@ -67,7 +75,7 @@ function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
   const assignGroup = useAssignGroupMutation();
   const { data: departments } = useActiveDepartmentsOptions();
   const { data: experienceLevels } = useActiveExperienceLevelsOptions();
-  const { data: trainers } = useTrainersOptions();
+  const { data: trainers } = useTrainersOptions(isAdmin);
   // Capped at the backend's page-size ceiling, same convention as assign-groups-dialog.tsx's own
   // group picker. PUBLISHED only — a draft/archived course has nothing a trainee could see yet,
   // so assigning one to a brand-new group wouldn't do anything useful.
@@ -83,7 +91,8 @@ function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
     if (!query) return courses;
     return courses.filter(
       (course) =>
-        course.title.toLowerCase().includes(query) || (course.department?.name.toLowerCase().includes(query) ?? false),
+        course.title.toLowerCase().includes(query) ||
+        (course.department?.name.toLowerCase().includes(query) ?? false),
     );
   }, [coursesPage, courseSearch]);
 
@@ -110,7 +119,7 @@ function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
         code: values.code.toUpperCase(),
         departmentId: values.departmentId,
         experienceLevelId: values.experienceLevelId || undefined,
-        trainerId: values.trainerId || undefined,
+        trainerId: isAdmin ? values.trainerId || undefined : undefined,
         description: values.description || undefined,
         startDate: values.startDate || undefined,
         endDate: values.endDate || undefined,
@@ -124,7 +133,9 @@ function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
         // that's somehow already assigned or fails validation doesn't roll back the group
         // itself, which was already created successfully by this point.
         const results = await Promise.allSettled(
-          selectedCourseIds.map((courseId) => assignGroup.mutateAsync({ courseId, payload: { groupId: group.id } })),
+          selectedCourseIds.map((courseId) =>
+            assignGroup.mutateAsync({ courseId, payload: { groupId: group.id } }),
+          ),
         );
         const failed = results.filter((result) => result.status === 'rejected').length;
         const succeeded = results.length - failed;
@@ -165,11 +176,13 @@ function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
         </DialogHeader>
 
         <form noValidate className="space-y-4" onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
-          <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" disabled={isSubmitting} {...register('name')} />
-            {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
-          </div>
+          {isAdmin ? (
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input id="name" disabled={isSubmitting} {...register('name')} />
+              {errors.name ? <p className="text-sm text-destructive">{errors.name.message}</p> : null}
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <Label htmlFor="code">Code</Label>
@@ -272,9 +285,8 @@ function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps) {
           <div className="space-y-2">
             <Label>Courses to assign</Label>
             <p className="text-sm text-muted-foreground">
-              Optional — pick any published courses this group should have access to right away.
-              You can also assign more later from each course&rsquo;s own &ldquo;Assign to
-              Groups&rdquo; screen.
+              Optional — pick any published courses this group should have access to right away. You can also
+              assign more later from each course&rsquo;s own &ldquo;Assign to Groups&rdquo; screen.
             </p>
             <SearchBox value={courseSearch} onChange={setCourseSearch} placeholder="Search courses..." />
             <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">

@@ -43,7 +43,10 @@ const editLessonSchema = z.object({
   estimatedDurationMinutes: z
     .string()
     .optional()
-    .refine((value) => !value || /^[1-9]\d*$/.test(value), 'Estimated duration must be a positive whole number.'),
+    .refine(
+      (value) => !value || /^[1-9]\d*$/.test(value),
+      'Estimated duration must be a positive whole number.',
+    ),
 });
 type EditLessonFormValues = z.infer<typeof editLessonSchema>;
 
@@ -72,7 +75,8 @@ function EditLessonDialog({ lesson, onOpenChange }: EditLessonDialogProps) {
           title: lesson.title,
           description: lesson.description ?? '',
           type: lesson.type,
-          estimatedDurationMinutes: lesson.estimatedDurationMinutes !== null ? String(lesson.estimatedDurationMinutes) : '',
+          estimatedDurationMinutes:
+            lesson.estimatedDurationMinutes !== null ? String(lesson.estimatedDurationMinutes) : '',
         }
       : undefined,
   });
@@ -87,7 +91,9 @@ function EditLessonDialog({ lesson, onOpenChange }: EditLessonDialogProps) {
           title: values.title,
           description: values.description || null,
           type: values.type,
-          estimatedDurationMinutes: values.estimatedDurationMinutes ? Number(values.estimatedDurationMinutes) : null,
+          estimatedDurationMinutes: values.estimatedDurationMinutes
+            ? Number(values.estimatedDurationMinutes)
+            : null,
         },
       });
       toast.success('Lesson updated successfully.');
@@ -114,8 +120,15 @@ function EditLessonDialog({ lesson, onOpenChange }: EditLessonDialogProps) {
 
           <div className="space-y-2">
             <Label htmlFor="edit-lesson-description">Description</Label>
-            <Textarea id="edit-lesson-description" rows={3} disabled={isSubmitting} {...register('description')} />
-            {errors.description ? <p className="text-sm text-destructive">{errors.description.message}</p> : null}
+            <Textarea
+              id="edit-lesson-description"
+              rows={3}
+              disabled={isSubmitting}
+              {...register('description')}
+            />
+            {errors.description ? (
+              <p className="text-sm text-destructive">{errors.description.message}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">

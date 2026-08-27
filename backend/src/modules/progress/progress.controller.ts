@@ -41,7 +41,10 @@ export class ProgressController extends BaseController {
     assertValidRequest(req);
     if (!req.user) throw new UnauthorizedError();
     const query = req.query as ListContinueLearningQueryDto;
-    const limit = Math.min(MAX_CONTINUE_LEARNING_LIMIT, Math.max(1, Number(query.limit) || DEFAULT_CONTINUE_LEARNING_LIMIT));
+    const limit = Math.min(
+      MAX_CONTINUE_LEARNING_LIMIT,
+      Math.max(1, Number(query.limit) || DEFAULT_CONTINUE_LEARNING_LIMIT),
+    );
     const items = await this.service.getContinueLearning(req.user.id, limit);
     this.ok(res, items);
   };

@@ -68,8 +68,8 @@ function DuplicateGroupDialog({ group, onOpenChange }: DuplicateGroupDialogProps
         <DialogHeader>
           <DialogTitle>Duplicate {group.name}</DialogTitle>
           <DialogDescription>
-            Creates a copy with the same department, experience level, trainer, description, and
-            capacity — but no members.
+            Creates a copy with the same department, experience level, trainer, description, and capacity —
+            but no members.
           </DialogDescription>
         </DialogHeader>
 

@@ -20,5 +20,8 @@ export function redactSensitiveText(value: string): string {
     .replace(COMPACT_PHONE_PATTERN, '[redacted-phone]')
     .replace(FORMATTED_PHONE_PATTERN, '[redacted-phone]')
     .replace(LONG_NUMBER_PATTERN, '[redacted-number]')
-    .replace(SECRET_PATTERN, (_match, label: string, separator: string) => `${label}${separator}[redacted-secret]`);
+    .replace(
+      SECRET_PATTERN,
+      (_match, label: string, separator: string) => `${label}${separator}[redacted-secret]`,
+    );
 }

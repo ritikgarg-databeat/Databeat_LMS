@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 
-import { trainerCourseScope } from '@/policies/trainer-scope.policy';
+import { trainerCourseCatalogScope, trainerCourseScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { ReorderItem } from './modules.types';
@@ -69,6 +69,14 @@ export class ModulesRepository extends BaseRepository {
   async isCourseInTrainerScope(courseId: string, trainerId: string): Promise<boolean> {
     const course = await this.db.course.findFirst({
       where: { id: courseId, deletedAt: null, ...trainerCourseScope(trainerId) },
+      select: { id: true },
+    });
+    return course !== null;
+  }
+
+  async isCourseReadableByTrainer(courseId: string, trainerId: string): Promise<boolean> {
+    const course = await this.db.course.findFirst({
+      where: { AND: [{ id: courseId, deletedAt: null }, trainerCourseCatalogScope(trainerId)] },
       select: { id: true },
     });
     return course !== null;

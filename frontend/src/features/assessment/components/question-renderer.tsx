@@ -25,7 +25,13 @@ export interface QuestionRendererProps {
 }
 
 /** Branches on `snapshotType` to render the right input for a trainee taking an assessment. */
-function QuestionRenderer({ question, value, onChange, onFileSelect, disabled = false }: QuestionRendererProps) {
+function QuestionRenderer({
+  question,
+  value,
+  onChange,
+  onFileSelect,
+  disabled = false,
+}: QuestionRendererProps) {
   const { snapshotType, snapshotOptions } = question;
 
   if (snapshotType === 'SINGLE_CORRECT_MCQ' || snapshotType === 'TRUE_FALSE') {
@@ -152,8 +158,8 @@ function QuestionRenderer({ question, value, onChange, onFileSelect, disabled = 
       <div className="space-y-2">
         {currentFilename ? (
           <p className="text-sm text-muted-foreground">
-            Currently uploaded: <span className="font-medium text-foreground">{currentFilename}</span> — choose a
-            new file to replace it.
+            Currently uploaded: <span className="font-medium text-foreground">{currentFilename}</span> —
+            choose a new file to replace it.
           </p>
         ) : null}
         <Input

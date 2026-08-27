@@ -26,14 +26,14 @@ export class ModulesService extends BaseService {
   }
 
   async list(courseId: string, actor: Actor) {
-    await this.assertCourseInScope(courseId, actor);
+    await this.assertCourseReadable(courseId, actor);
     return this.repository.findByCourseId(courseId);
   }
 
   async getById(id: string, actor: Actor) {
     const module = await this.repository.findByIdWithLessons(id);
     if (!module) throw new NotFoundError('Module not found.');
-    await this.assertCourseInScope(module.courseId, actor);
+    await this.assertCourseReadable(module.courseId, actor);
     return module;
   }
 
@@ -157,6 +157,12 @@ export class ModulesService extends BaseService {
   private async assertCourseInScope(courseId: string, actor: Actor): Promise<void> {
     if (actor.role === 'TRAINER' && !(await this.repository.isCourseInTrainerScope(courseId, actor.id))) {
       throw new ForbiddenError("You don't have permission to manage this course.");
+    }
+  }
+
+  private async assertCourseReadable(courseId: string, actor: Actor): Promise<void> {
+    if (actor.role === 'TRAINER' && !(await this.repository.isCourseReadableByTrainer(courseId, actor.id))) {
+      throw new ForbiddenError("You don't have permission to view this course.");
     }
   }
 }

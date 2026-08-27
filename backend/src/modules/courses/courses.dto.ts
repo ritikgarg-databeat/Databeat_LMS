@@ -8,6 +8,7 @@ export interface CreateCourseDto {
   experienceLevelId?: string;
   estimatedDurationMinutes?: number;
   difficulty?: CourseDifficulty;
+  isMandatory?: boolean;
 }
 
 // `status` is deliberately absent — a course always starts DRAFT (see coursesService.create)
@@ -21,6 +22,7 @@ export interface UpdateCourseDto {
   experienceLevelId?: string | null;
   estimatedDurationMinutes?: number | null;
   difficulty?: CourseDifficulty;
+  isMandatory?: boolean;
 }
 
 export interface UpdateCourseStatusDto {
@@ -34,6 +36,11 @@ export interface DuplicateCourseDto {
 
 export interface AssignGroupDto {
   groupId: string;
+  isMandatory?: boolean;
+}
+
+export interface UpdateCourseAssignmentDto {
+  isMandatory: boolean;
 }
 
 export interface ListCoursesQueryDto {

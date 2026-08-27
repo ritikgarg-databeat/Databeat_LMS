@@ -1,13 +1,22 @@
 import type { Question, QuestionType, Role } from '@prisma/client';
 
-import { MAX_QUESTION_CORRECT_ANSWER_LENGTH, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS } from '@/constants/assessment';
+import {
+  MAX_QUESTION_CORRECT_ANSWER_LENGTH,
+  MAX_QUESTION_OPTIONS,
+  MIN_QUESTION_OPTIONS,
+} from '@/constants/assessment';
 import { auditLogService } from '@/services/audit-log.service';
 import { BaseService } from '@/services/base.service';
 import type { PaginatedData } from '@/types/common';
 import { BadRequestError, ConflictError, NotFoundError } from '@/utils/app-error';
 import { buildPaginationMeta } from '@/utils/pagination.util';
 
-import type { CreateQuestionDto, QuestionOptionInput, UpdateQuestionDto, UpdateQuestionStatusDto } from './questions.dto';
+import type {
+  CreateQuestionDto,
+  QuestionOptionInput,
+  UpdateQuestionDto,
+  UpdateQuestionStatusDto,
+} from './questions.dto';
 import { QuestionsRepository } from './questions.repository';
 import type { QuestionListFilters, QuestionSortField, SortOrder } from './questions.types';
 
@@ -40,7 +49,14 @@ export class QuestionsService extends BaseService {
     sortOrder: SortOrder,
     actor: Actor,
   ): Promise<PaginatedData<unknown>> {
-    const { items, total } = await this.repository.findMany(filters, actor, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(
+      filters,
+      actor,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+      sortOrder,
+    );
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
@@ -78,7 +94,12 @@ export class QuestionsService extends BaseService {
     return created;
   }
 
-  async update(id: string, dto: UpdateQuestionDto, actor: Actor, ipAddress?: string | null): Promise<Question> {
+  async update(
+    id: string,
+    dto: UpdateQuestionDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Question> {
     const existing = await this.findOrThrow(id, actor);
     this.assertTypeConditionalFields(existing.type, dto, true);
 
@@ -105,14 +126,22 @@ export class QuestionsService extends BaseService {
       // inside a `{ ...dto }` spread; a freshly-literal `.map()` result doesn't.
       metadata: {
         questionId: existing.id,
-        changes: { ...dto, options: dto.options?.map((option) => ({ text: option.text, isCorrect: option.isCorrect })) },
+        changes: {
+          ...dto,
+          options: dto.options?.map((option) => ({ text: option.text, isCorrect: option.isCorrect })),
+        },
       },
     });
 
     return updated;
   }
 
-  async updateStatus(id: string, dto: UpdateQuestionStatusDto, actor: Actor, ipAddress?: string | null): Promise<Question> {
+  async updateStatus(
+    id: string,
+    dto: UpdateQuestionStatusDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Question> {
     const existing = await this.findOrThrow(id, actor);
     if (existing.status === dto.status) {
       throw new ConflictError(`Question is already ${dto.status.toLowerCase()}.`);
@@ -157,7 +186,11 @@ export class QuestionsService extends BaseService {
    * invariants — a field that IS provided must still satisfy the same rules as create, and a
    * field that doesn't belong to this question's type is always rejected.
    */
-  private assertTypeConditionalFields(type: QuestionType, dto: TypeConditionalFields, isUpdate: boolean): void {
+  private assertTypeConditionalFields(
+    type: QuestionType,
+    dto: TypeConditionalFields,
+    isUpdate: boolean,
+  ): void {
     const isMcq = this.isMcqFamily(type);
     const isAnswerList = this.isAnswerListType(type);
     const isCodeSnippet = type === 'CODE_SNIPPET';
@@ -189,7 +222,9 @@ export class QuestionsService extends BaseService {
 
   private assertValidOptions(type: QuestionType, options: QuestionOptionInput[]): void {
     if (options.length < MIN_QUESTION_OPTIONS || options.length > MAX_QUESTION_OPTIONS) {
-      throw new BadRequestError(`Provide between ${MIN_QUESTION_OPTIONS} and ${MAX_QUESTION_OPTIONS} options.`);
+      throw new BadRequestError(
+        `Provide between ${MIN_QUESTION_OPTIONS} and ${MAX_QUESTION_OPTIONS} options.`,
+      );
     }
 
     if (type === 'TRUE_FALSE' && options.length !== 2) {
@@ -215,7 +250,9 @@ export class QuestionsService extends BaseService {
       throw new BadRequestError('Correct answers cannot be empty.');
     }
     if (correctAnswers.some((answer) => answer.length > MAX_QUESTION_CORRECT_ANSWER_LENGTH)) {
-      throw new BadRequestError(`Correct answers must be at most ${MAX_QUESTION_CORRECT_ANSWER_LENGTH} characters.`);
+      throw new BadRequestError(
+        `Correct answers must be at most ${MAX_QUESTION_CORRECT_ANSWER_LENGTH} characters.`,
+      );
     }
   }
 

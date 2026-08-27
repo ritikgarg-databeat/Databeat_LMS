@@ -1,12 +1,18 @@
 import { ResourceType } from '@prisma/client';
 import { body, param } from 'express-validator';
 
-import { MAX_CODE_SNIPPET_LENGTH, MAX_MARKDOWN_CONTENT_LENGTH, MAX_RESOURCE_TITLE_LENGTH } from '@/constants/classroom';
+import {
+  MAX_CODE_SNIPPET_LENGTH,
+  MAX_MARKDOWN_CONTENT_LENGTH,
+  MAX_RESOURCE_TITLE_LENGTH,
+} from '@/constants/classroom';
 import { VALIDATION_MESSAGES } from '@/constants/validation-messages';
 
 import { TEXT_BACKED_RESOURCE_TYPES } from './resources.types';
 
-const resourceIdParamValidator = param('resourceId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('resourceId'));
+const resourceIdParamValidator = param('resourceId')
+  .isUUID()
+  .withMessage(VALIDATION_MESSAGES.INVALID_ID('resourceId'));
 
 const titleChain = body('title')
   .trim()
@@ -37,10 +43,14 @@ export const resourcesValidation = {
       .bail()
       .custom((value: string, { req }) => {
         if (req.body?.type === ResourceType.MARKDOWN && value.length > MAX_MARKDOWN_CONTENT_LENGTH) {
-          throw new Error(`content must be at most ${MAX_MARKDOWN_CONTENT_LENGTH} characters for MARKDOWN resources.`);
+          throw new Error(
+            `content must be at most ${MAX_MARKDOWN_CONTENT_LENGTH} characters for MARKDOWN resources.`,
+          );
         }
         if (req.body?.type === ResourceType.CODE_SNIPPET && value.length > MAX_CODE_SNIPPET_LENGTH) {
-          throw new Error(`content must be at most ${MAX_CODE_SNIPPET_LENGTH} characters for CODE_SNIPPET resources.`);
+          throw new Error(
+            `content must be at most ${MAX_CODE_SNIPPET_LENGTH} characters for CODE_SNIPPET resources.`,
+          );
         }
         return true;
       }),
@@ -53,4 +63,15 @@ export const resourcesValidation = {
   remove: [resourceIdParamValidator],
 
   download: [resourceIdParamValidator],
+
+  progress: [
+    resourceIdParamValidator,
+    body('event').isIn(['OPEN', 'VIEW', 'VIDEO_HEARTBEAT', 'ACKNOWLEDGE']).withMessage('event is invalid.'),
+    body('activeSecondsDelta').optional().isInt({ min: 0, max: 60 }).toInt(),
+    body('scrollPercentage').optional().isInt({ min: 0, max: 100 }).toInt(),
+    body('positionSeconds').optional().isFloat({ min: 0 }).toFloat(),
+    body('durationSeconds').optional().isFloat({ min: 0.1, max: 86400 }).toFloat(),
+    body('watchedFromSeconds').optional().isFloat({ min: 0 }).toFloat(),
+    body('watchedToSeconds').optional().isFloat({ min: 0 }).toFloat(),
+  ],
 };

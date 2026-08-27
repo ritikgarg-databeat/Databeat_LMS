@@ -152,7 +152,10 @@ function AnswerCard({ answer, questionId }: AnswerCardProps) {
   };
 
   const handleDeleteComment = (commentId: string) => {
-    deleteComment.mutate({ id: commentId, questionId }, { onError: (error) => toast.error(getErrorMessage(error)) });
+    deleteComment.mutate(
+      { id: commentId, questionId },
+      { onError: (error) => toast.error(getErrorMessage(error)) },
+    );
   };
 
   return (
@@ -178,10 +181,21 @@ function AnswerCard({ answer, questionId }: AnswerCardProps) {
             disabled={updateAnswer.isPending}
           />
           <div className="flex gap-2">
-            <Button type="button" size="sm" onClick={handleSaveEdit} disabled={updateAnswer.isPending || !draftContent.trim()}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveEdit}
+              disabled={updateAnswer.isPending || !draftContent.trim()}
+            >
               {updateAnswer.isPending ? 'Saving...' : 'Save'}
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={handleCancelEdit} disabled={updateAnswer.isPending}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleCancelEdit}
+              disabled={updateAnswer.isPending}
+            >
               Cancel
             </Button>
           </div>
@@ -220,14 +234,26 @@ function AnswerCard({ answer, questionId }: AnswerCardProps) {
         ) : null}
 
         {isStaff ? (
-          <Button type="button" variant="ghost" size="sm" onClick={handleTogglePin} disabled={pinAnswer.isPending}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleTogglePin}
+            disabled={pinAnswer.isPending}
+          >
             {answer.isPinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
             {answer.isPinned ? 'Unpin' : 'Pin'}
           </Button>
         ) : null}
 
         {isStaff && !answer.isVerified ? (
-          <Button type="button" variant="outline" size="sm" onClick={handleVerify} disabled={verifyAnswer.isPending}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleVerify}
+            disabled={verifyAnswer.isPending}
+          >
             <CheckCircle2 className="size-3.5" /> {verifyAnswer.isPending ? 'Verifying...' : 'Verify'}
           </Button>
         ) : null}

@@ -73,7 +73,11 @@ function Sidebar({ items, header, footer, className, ...props }: SidebarProps) {
             onClick={toggleSidebarCollapsed}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {isCollapsed ? <PanelLeftOpen className="size-4" aria-hidden /> : <PanelLeftClose className="size-4" aria-hidden />}
+            {isCollapsed ? (
+              <PanelLeftOpen className="size-4" aria-hidden />
+            ) : (
+              <PanelLeftClose className="size-4" aria-hidden />
+            )}
           </Button>
         </div>
       </aside>
@@ -128,9 +132,7 @@ function SidebarNavLink({ href, label, Icon, isCollapsed, shouldReduceMotion }: 
             )
           ) : null}
           <Icon className={cn('relative size-4 shrink-0', isActive && 'text-primary')} aria-hidden />
-          {isCollapsed ? null : (
-            <span className={cn('relative', isActive && 'text-primary')}>{label}</span>
-          )}
+          {isCollapsed ? null : <span className={cn('relative', isActive && 'text-primary')}>{label}</span>}
         </>
       )}
     </NavLink>

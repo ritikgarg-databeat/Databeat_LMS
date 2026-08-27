@@ -26,7 +26,11 @@ const csvUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_MEMBER_IMPORT_FILE_SIZE_BYTES },
   fileFilter: (_req, file, callback) => {
-    if (!ACCEPTED_MEMBER_IMPORT_MIME_TYPES.includes(file.mimetype as (typeof ACCEPTED_MEMBER_IMPORT_MIME_TYPES)[number])) {
+    if (
+      !ACCEPTED_MEMBER_IMPORT_MIME_TYPES.includes(
+        file.mimetype as (typeof ACCEPTED_MEMBER_IMPORT_MIME_TYPES)[number],
+      )
+    ) {
       callback(new Error('Only CSV files are accepted.'));
       return;
     }

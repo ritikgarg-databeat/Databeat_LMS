@@ -41,11 +41,10 @@ export interface QnaAttachment {
   createdAt: string;
 }
 
-/** Raw row shape returned by `POST /qna/questions/:id/attachments` — a few more fields than the nested `QnaAttachment` summary. */
+/** Upload response shape; the server keeps its storage path private. */
 export interface AttachmentUploadResult extends QnaAttachment {
   questionId: string;
   answerId: string | null;
-  filePath: string;
   uploadedById: string;
 }
 

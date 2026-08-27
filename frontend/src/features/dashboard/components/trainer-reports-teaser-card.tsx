@@ -18,7 +18,10 @@ function TrainerReportsTeaserCard() {
             <p className="text-sm text-muted-foreground">Export CSV reports for offline analysis.</p>
           </div>
         </div>
-        <Link to={ROUTES.TRAINER.REPORTS} className="shrink-0 text-sm font-medium text-primary hover:underline">
+        <Link
+          to={ROUTES.TRAINER.REPORTS}
+          className="shrink-0 text-sm font-medium text-primary hover:underline"
+        >
           Export CSV reports →
         </Link>
       </CardContent>

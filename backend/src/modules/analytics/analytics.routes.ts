@@ -27,6 +27,7 @@ router.use(authenticate);
 // Static `/me` is registered before any `/:id`-style sibling (same precedent as
 // `GET /groups/mine` — see groups.routes.ts); the remaining routes are distinct prefixes.
 router.get('/me', controller.me);
+router.get('/overview', staffOnly, analyticsValidation.overview, controller.overview);
 router.get('/groups', staffOnly, analyticsValidation.groups, controller.groups);
 router.get('/groups/:id', staffOnly, idParamValidator, controller.groupById);
 router.get('/leaderboard', staffOnly, analyticsValidation.leaderboard, controller.leaderboard);

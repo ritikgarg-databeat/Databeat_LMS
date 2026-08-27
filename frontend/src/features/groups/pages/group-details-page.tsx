@@ -47,8 +47,6 @@ import {
 } from '../hooks';
 import type { GroupMember, GroupStatus } from '../types';
 
-const PLACEHOLDER_SECTIONS = ['Events', 'Courses & Assessments', 'Progress', 'Activity'];
-
 function GroupDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -91,9 +89,7 @@ function GroupDetailsPage() {
   if (isError) {
     const httpStatus = isAxiosError(error) ? error.response?.status : undefined;
     if (httpStatus === 403) {
-      return (
-        <ErrorScreen title="Access denied" message="You do not have access to this group." />
-      );
+      return <ErrorScreen title="Access denied" message="You do not have access to this group." />;
     }
     if (httpStatus === 404) {
       return <ErrorScreen title="Group not found" message="This group may have been deleted." />;
@@ -172,7 +168,9 @@ function GroupDetailsPage() {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>Duplicate</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setAssignTrainerOpen(true)}>Assign Trainer</DropdownMenuItem>
+            {isAdminRoute ? (
+              <DropdownMenuItem onClick={() => setAssignTrainerOpen(true)}>Assign Trainer</DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onClick={() => setStatusConfirmOpen(true)}>
               {group.status === 'ACTIVE' ? 'Archive' : 'Restore'}
             </DropdownMenuItem>
@@ -326,7 +324,8 @@ function GroupDetailsPage() {
                 </PaginationItem>
                 <PaginationItem>
                   <span className="px-2 text-sm text-muted-foreground">
-                    Page {members.meta.page} of {Math.max(1, Math.ceil(members.meta.total / members.meta.pageSize))}
+                    Page {members.meta.page} of{' '}
+                    {Math.max(1, Math.ceil(members.meta.total / members.meta.pageSize))}
                   </span>
                 </PaginationItem>
                 <PaginationItem>
@@ -344,19 +343,6 @@ function GroupDetailsPage() {
             </Pagination>
           </>
         )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {PLACEHOLDER_SECTIONS.map((title) => (
-          <Card key={title}>
-            <CardHeader>
-              <CardTitle className="text-base">{title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">Coming soon.</p>
-            </CardContent>
-          </Card>
-        ))}
       </div>
 
       <EditGroupDialog group={editOpen ? group : null} onOpenChange={setEditOpen} />

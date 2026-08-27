@@ -1,6 +1,7 @@
-import { BookOpen, ClipboardCheck, Download, Layers, TrendingUp } from 'lucide-react';
+import { BookOpen, ClipboardCheck, Download, Layers, ShieldCheck, TrendingUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -51,7 +52,14 @@ interface ReportCardShellProps {
 }
 
 /** Shared card chrome for the four export cards — icon/title/description/filters/download button. */
-function ReportCardShell({ icon: Icon, title, description, filters, isPending, onDownload }: ReportCardShellProps) {
+function ReportCardShell({
+  icon: Icon,
+  title,
+  description,
+  filters,
+  isPending,
+  onDownload,
+}: ReportCardShellProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-start gap-3 space-y-0">
@@ -179,8 +187,25 @@ function CourseCompletionReportCard() {
   );
 }
 
+function MandatoryComplianceReportCard() {
+  const { mutate, isPending } = useDownloadReportMutation();
+
+  return (
+    <ReportCardShell
+      icon={ShieldCheck}
+      title="Mandatory Training Compliance"
+      description="Audit-ready employee compliance, current progress, and last activity for mandatory courses."
+      isPending={isPending}
+      onDownload={() =>
+        mutate({ kind: 'mandatory' }, { onSuccess: () => toast.success('Compliance report downloaded') })
+      }
+    />
+  );
+}
+
 /** Reports page (Prompt 8) — four CSV exports, mounted later at `/trainer/reports`. */
 function ReportsPage() {
+  const isAdmin = useLocation().pathname.startsWith('/admin');
   const groupOptions = useGroupOptions();
   const courseOptions = useCourseOptions();
   const assessmentOptions = useAssessmentOptions();
@@ -189,7 +214,9 @@ function ReportsPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
-        <p className="text-muted-foreground">Export CSV reports for offline analysis.</p>
+        <p className="text-muted-foreground">
+          Export operational and compliance evidence for business review.
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -197,10 +224,13 @@ function ReportsPage() {
         <AssessmentResultsReportCard assessmentOptions={assessmentOptions} groupOptions={groupOptions} />
         <GroupPerformanceReportCard />
         <CourseCompletionReportCard />
+        <MandatoryComplianceReportCard />
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Exports respect your group assignments — you only see trainees in groups assigned to you.
+        {isAdmin
+          ? 'Exports include organization-wide data and respect the selected filters.'
+          : 'Exports respect your group assignments - you only see trainees in groups assigned to you.'}
       </p>
     </div>
   );

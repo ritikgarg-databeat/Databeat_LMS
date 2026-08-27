@@ -128,7 +128,9 @@ function AttemptGradingPage() {
           <div>
             <p className="text-xs font-medium uppercase text-muted-foreground">Result</p>
             {attempt.status === 'GRADED' && attempt.passed !== null ? (
-              <Badge variant={attempt.passed ? 'success' : 'destructive'}>{attempt.passed ? 'Pass' : 'Fail'}</Badge>
+              <Badge variant={attempt.passed ? 'success' : 'destructive'}>
+                {attempt.passed ? 'Pass' : 'Fail'}
+              </Badge>
             ) : (
               <p className="text-sm text-muted-foreground">—</p>
             )}
@@ -204,7 +206,12 @@ function AnswerBody({ answer }: { answer: AttemptAnswerDetail }) {
     case 'SINGLE_CORRECT_MCQ':
     case 'MULTIPLE_CORRECT':
     case 'TRUE_FALSE':
-      return <McqAnswerOptions options={question.snapshotOptions ?? []} selectedOptionIds={answer.selectedOptionIds} />;
+      return (
+        <McqAnswerOptions
+          options={question.snapshotOptions ?? []}
+          selectedOptionIds={answer.selectedOptionIds}
+        />
+      );
 
     case 'FILL_IN_THE_BLANK':
     case 'SQL_QUERY':
@@ -253,7 +260,9 @@ function AnswerBody({ answer }: { answer: AttemptAnswerDetail }) {
         <div className="space-y-1">
           <p className="text-xs font-medium uppercase text-muted-foreground">Submitted file</p>
           <p className="text-sm">
-            {answer.fileOriginalFilename ? `Submitted file: ${answer.fileOriginalFilename}` : 'No file submitted.'}
+            {answer.fileOriginalFilename
+              ? `Submitted file: ${answer.fileOriginalFilename}`
+              : 'No file submitted.'}
           </p>
         </div>
       );

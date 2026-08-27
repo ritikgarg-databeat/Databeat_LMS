@@ -6,6 +6,7 @@ import type {
   AddQuestionPayload,
   AssignGroupPayload,
   AttemptListParams,
+  AssessmentIntegrityEventType,
   CreateAssessmentPayload,
   CreateQuestionPayload,
   DuplicateAssessmentPayload,
@@ -198,12 +199,14 @@ function useInvalidateAssessmentAssignments() {
 
 function useInvalidateAttemptMine() {
   const queryClient = useQueryClient();
-  return (assessmentId: string) => void queryClient.invalidateQueries({ queryKey: [ATTEMPT_MINE_QUERY_KEY, assessmentId] });
+  return (assessmentId: string) =>
+    void queryClient.invalidateQueries({ queryKey: [ATTEMPT_MINE_QUERY_KEY, assessmentId] });
 }
 
 function useInvalidateAttemptsList() {
   const queryClient = useQueryClient();
-  return (assessmentId: string) => void queryClient.invalidateQueries({ queryKey: [ATTEMPTS_LIST_QUERY_KEY, assessmentId] });
+  return (assessmentId: string) =>
+    void queryClient.invalidateQueries({ queryKey: [ATTEMPTS_LIST_QUERY_KEY, assessmentId] });
 }
 
 function useInvalidateAttemptDetail() {
@@ -228,7 +231,8 @@ export function useUpdateQuestionMutation() {
   const invalidateList = useInvalidateQuestionsList();
   const invalidateQuestion = useInvalidateQuestion();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateQuestionPayload }) => questionsApi.update(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateQuestionPayload }) =>
+      questionsApi.update(id, payload),
     onSuccess: (_data, variables) => {
       invalidateList();
       invalidateQuestion(variables.id);
@@ -458,6 +462,16 @@ export function useSubmitAttemptMutation() {
       invalidateTraineeSurfaces();
       invalidateAssessmentsList();
     },
+  });
+}
+
+export function useRecordIntegrityEventMutation() {
+  return useMutation({
+    mutationFn: ({ assessmentId, type }: { assessmentId: string; type: AssessmentIntegrityEventType }) =>
+      assessmentAttemptsApi.recordIntegrityEvent(assessmentId, {
+        type,
+        occurredAt: new Date().toISOString(),
+      }),
   });
 }
 

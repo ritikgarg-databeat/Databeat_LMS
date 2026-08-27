@@ -42,7 +42,10 @@ function toDatetimeLocalValue(iso: string | null): string {
 // input/output types under react-hook-form's `useForm<T>` generic (see create-group-dialog.tsx).
 const editAssessmentSchema = z
   .object({
-    title: z.string().min(1, 'Title is required.').max(MAX_TITLE_LENGTH, `Title must be ${MAX_TITLE_LENGTH} characters or fewer.`),
+    title: z
+      .string()
+      .min(1, 'Title is required.')
+      .max(MAX_TITLE_LENGTH, `Title must be ${MAX_TITLE_LENGTH} characters or fewer.`),
     description: z
       .string()
       .max(MAX_DESCRIPTION_LENGTH, `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer.`)
@@ -120,7 +123,9 @@ function EditAssessmentDialog({ assessment, onOpenChange }: EditAssessmentDialog
           instructions: assessment.instructions ?? '',
           negativeMarkingEnabled: assessment.negativeMarkingEnabled,
           negativeMarksPerWrongAnswer:
-            assessment.negativeMarksPerWrongAnswer !== null ? String(assessment.negativeMarksPerWrongAnswer) : '',
+            assessment.negativeMarksPerWrongAnswer !== null
+              ? String(assessment.negativeMarksPerWrongAnswer)
+              : '',
           randomizeQuestions: assessment.randomizeQuestions,
           showResultImmediately: assessment.showResultImmediately,
         }
@@ -177,7 +182,9 @@ function EditAssessmentDialog({ assessment, onOpenChange }: EditAssessmentDialog
           <div className="space-y-2">
             <Label htmlFor="edit-description">Description</Label>
             <Textarea id="edit-description" rows={3} disabled={isSubmitting} {...register('description')} />
-            {errors.description ? <p className="text-sm text-destructive">{errors.description.message}</p> : null}
+            {errors.description ? (
+              <p className="text-sm text-destructive">{errors.description.message}</p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -224,7 +231,12 @@ function EditAssessmentDialog({ assessment, onOpenChange }: EditAssessmentDialog
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-dueDate">Due date</Label>
-              <Input id="edit-dueDate" type="datetime-local" disabled={isSubmitting} {...register('dueDate')} />
+              <Input
+                id="edit-dueDate"
+                type="datetime-local"
+                disabled={isSubmitting}
+                {...register('dueDate')}
+              />
               {errors.dueDate ? <p className="text-sm text-destructive">{errors.dueDate.message}</p> : null}
             </div>
           </div>
@@ -232,7 +244,9 @@ function EditAssessmentDialog({ assessment, onOpenChange }: EditAssessmentDialog
           <div className="space-y-2">
             <Label htmlFor="edit-instructions">Instructions</Label>
             <Textarea id="edit-instructions" rows={3} disabled={isSubmitting} {...register('instructions')} />
-            {errors.instructions ? <p className="text-sm text-destructive">{errors.instructions.message}</p> : null}
+            {errors.instructions ? (
+              <p className="text-sm text-destructive">{errors.instructions.message}</p>
+            ) : null}
           </div>
 
           <div className="space-y-3 rounded-md border p-3">

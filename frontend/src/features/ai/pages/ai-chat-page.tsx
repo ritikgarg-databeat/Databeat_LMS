@@ -16,6 +16,7 @@ import { ErrorScreen } from '@/components/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { ROUTES } from '@/constants/routes';
@@ -24,7 +25,14 @@ import { getErrorMessage } from '@/utils/error';
 
 import { ChatMessageBubble, SuggestedPrompts, TraineeVideoResponse } from '../components';
 import { useAiChatMutation, useAiConversationQuery, useAiVideoMutation } from '../hooks';
-import type { AiExplanationLevel, AiFeature, AiMessage, AiVideoGeneration, ChatResponse } from '../types';
+import type {
+  AiExplanationLevel,
+  AiFeature,
+  AiMessage,
+  AiResponseLanguage,
+  AiVideoGeneration,
+  ChatResponse,
+} from '../types';
 
 const AI_HISTORY_PATH = `${ROUTES.TRAINEE.AI_TUTOR}/history`;
 const DEFAULT_VIDEO_REQUEST = 'Create a short explanatory video for this lesson.';
@@ -54,6 +62,16 @@ const EXPLANATION_LEVEL_OPTIONS: { value: AiExplanationLevel; label: string }[] 
   { value: 'BEGINNER', label: 'Beginner' },
   { value: 'DETAILED', label: 'Detailed' },
   { value: 'INTERVIEW', label: 'Interview' },
+];
+
+const RESPONSE_LANGUAGES: AiResponseLanguage[] = [
+  'English',
+  'Hindi',
+  'Spanish',
+  'French',
+  'German',
+  'Portuguese',
+  'Japanese',
 ];
 
 /**
@@ -140,6 +158,7 @@ function AiChatPage() {
   const videoMutation = useAiVideoMutation();
   const [feature, setFeature] = useState<AiFeature>('CHAT');
   const [explanationLevel, setExplanationLevel] = useState<AiExplanationLevel | undefined>(undefined);
+  const [responseLanguage, setResponseLanguage] = useState<AiResponseLanguage>('English');
   const [inputValue, setInputValue] = useState('');
   const effectiveFeature: AiFeature =
     !effectiveLessonId && (feature === 'GENERATE_VIDEO' || feature === 'SUMMARIZE_LESSON') ? 'CHAT' : feature;
@@ -231,6 +250,7 @@ function AiChatPage() {
           message: trimmed,
           feature: sendFeature,
           explanationLevel: sendExplanationLevel,
+          responseLanguage,
         },
         callbacks,
       );
@@ -284,6 +304,7 @@ function AiChatPage() {
     seededConversationIdRef.current = undefined;
     setFeature('CHAT');
     setExplanationLevel(undefined);
+    setResponseLanguage('English');
     setInputValue('');
     setSearchParams({}, { replace: true });
   }
@@ -389,6 +410,21 @@ function AiChatPage() {
               {option.label}
             </Button>
           ))}
+          <Select
+            value={responseLanguage}
+            onValueChange={(value) => setResponseLanguage(value as AiResponseLanguage)}
+          >
+            <SelectTrigger className="ml-auto w-36" aria-label="Answer language">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RESPONSE_LANGUAGES.map((language) => (
+                <SelectItem key={language} value={language}>
+                  {language}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {effectiveFeature === 'EXPLAIN_TOPIC' ? (

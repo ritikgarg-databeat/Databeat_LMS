@@ -24,7 +24,8 @@ export interface EventTypeMeta {
 export const EVENT_TYPE_META: Record<CalendarEventType, EventTypeMeta> = {
   CLASS: {
     label: 'Class',
-    colorClassName: 'bg-blue-100 text-blue-800 border-blue-200 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-300',
+    colorClassName:
+      'bg-blue-100 text-blue-800 border-blue-200 dark:border-blue-800/60 dark:bg-blue-950/40 dark:text-blue-300',
   },
   LIVE_SESSION: {
     label: 'Live Session',
@@ -38,7 +39,8 @@ export const EVENT_TYPE_META: Record<CalendarEventType, EventTypeMeta> = {
   },
   DEADLINE: {
     label: 'Deadline',
-    colorClassName: 'bg-red-100 text-red-800 border-red-200 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300',
+    colorClassName:
+      'bg-red-100 text-red-800 border-red-200 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300',
   },
   HOLIDAY: {
     label: 'Holiday',

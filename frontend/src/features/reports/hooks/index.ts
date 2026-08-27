@@ -31,6 +31,8 @@ export function useDownloadReportMutation() {
           return reportsApi.downloadGroupsReport();
         case 'courses':
           return reportsApi.downloadCoursesReport();
+        case 'mandatory':
+          return reportsApi.downloadMandatoryReport();
       }
     },
     onError: (error) => toast.error(getErrorMessage(error)),

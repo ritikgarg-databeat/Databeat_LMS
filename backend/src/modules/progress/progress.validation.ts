@@ -22,9 +22,7 @@ export const progressValidation = {
       .toInt(),
   ],
 
-  continueLearning: [
-    query('limit').optional().isInt({ min: 1, max: MAX_CONTINUE_LEARNING_LIMIT }).toInt(),
-  ],
+  continueLearning: [query('limit').optional().isInt({ min: 1, max: MAX_CONTINUE_LEARNING_LIMIT }).toInt()],
 
   courseProgress: [param('courseId').isUUID().withMessage(VALIDATION_MESSAGES.INVALID_ID('courseId'))],
 };

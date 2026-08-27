@@ -22,10 +22,10 @@ const listInclude = {
 } satisfies Prisma.AssessmentInclude;
 
 const detailInclude = {
-  createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+  createdBy: { select: { id: true, firstName: true, lastName: true } },
   _count: { select: { questions: true } },
   groupAssignments: {
-    include: { group: { select: { id: true, name: true, code: true } } },
+    include: { group: { select: { id: true, name: true, code: true, trainerId: true } } },
   },
 } satisfies Prisma.AssessmentInclude;
 
@@ -54,7 +54,13 @@ export class AssessmentsRepository extends BaseRepository {
     const where = buildWhere(filters);
     if (trainerId) Object.assign(where, trainerAssessmentScope(trainerId));
     const [items, total] = await Promise.all([
-      this.db.assessment.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: listInclude }),
+      this.db.assessment.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { [sortBy]: sortOrder },
+        include: listInclude,
+      }),
       this.db.assessment.count({ where }),
     ]);
     return { items, total };
@@ -150,7 +156,21 @@ export class AssessmentsRepository extends BaseRepository {
     return this.db.assessmentAttempt.count({
       where: {
         status: 'PENDING_REVIEW',
-        ...(trainerId ? { assessment: trainerAssessmentScope(trainerId) } : {}),
+        ...(trainerId
+          ? {
+              assessment: {
+                ...trainerAssessmentScope(trainerId),
+                groupAssignments: {
+                  some: { group: { trainerId, status: 'ACTIVE', deletedAt: null } },
+                },
+              },
+              user: {
+                groupMemberships: {
+                  some: { group: { trainerId, status: 'ACTIVE', deletedAt: null } },
+                },
+              },
+            }
+          : {}),
       },
     });
   }
@@ -178,16 +198,28 @@ export class AssessmentsRepository extends BaseRepository {
     return assessment !== null;
   }
 
-  listAssignments(assessmentId: string) {
+  async isOwnedByTrainer(assessmentId: string, trainerId: string): Promise<boolean> {
+    const assessment = await this.db.assessment.findFirst({
+      where: { id: assessmentId, createdById: trainerId, deletedAt: null },
+      select: { id: true },
+    });
+    return assessment !== null;
+  }
+
+  listAssignments(assessmentId: string, trainerId?: string) {
     return this.db.assessmentGroupAssignment.findMany({
-      where: { assessmentId },
+      where: { assessmentId, ...(trainerId ? { group: { trainerId, deletedAt: null } } : {}) },
       orderBy: { assignedAt: 'desc' },
-      include: { group: { select: { id: true, name: true, code: true, _count: { select: { members: true } } } } },
+      include: {
+        group: { select: { id: true, name: true, code: true, _count: { select: { members: true } } } },
+      },
     });
   }
 
   findAssignment(assessmentId: string, groupId: string) {
-    return this.db.assessmentGroupAssignment.findUnique({ where: { assessmentId_groupId: { assessmentId, groupId } } });
+    return this.db.assessmentGroupAssignment.findUnique({
+      where: { assessmentId_groupId: { assessmentId, groupId } },
+    });
   }
 
   createAssignment(assessmentId: string, groupId: string, assignedById: string) {
@@ -195,7 +227,9 @@ export class AssessmentsRepository extends BaseRepository {
   }
 
   deleteAssignment(assessmentId: string, groupId: string) {
-    return this.db.assessmentGroupAssignment.delete({ where: { assessmentId_groupId: { assessmentId, groupId } } });
+    return this.db.assessmentGroupAssignment.delete({
+      where: { assessmentId_groupId: { assessmentId, groupId } },
+    });
   }
 
   /** userIds of every member of `groupId` — used to fan out the ASSESSMENT_ASSIGNED notification. */
@@ -290,7 +324,10 @@ export class AssessmentsRepository extends BaseRepository {
   }
 
   async sumMarks(assessmentId: string): Promise<number> {
-    const result = await this.db.assessmentQuestion.aggregate({ where: { assessmentId }, _sum: { marks: true } });
+    const result = await this.db.assessmentQuestion.aggregate({
+      where: { assessmentId },
+      _sum: { marks: true },
+    });
     return result._sum.marks ?? 0;
   }
 
@@ -307,7 +344,10 @@ export class AssessmentsRepository extends BaseRepository {
   async reorderQuestions(orderedIds: string[]): Promise<void> {
     await this.db.$transaction(async (tx) => {
       for (let index = 0; index < orderedIds.length; index += 1) {
-        await tx.assessmentQuestion.update({ where: { id: orderedIds[index] }, data: { order: -(index + 1) } });
+        await tx.assessmentQuestion.update({
+          where: { id: orderedIds[index] },
+          data: { order: -(index + 1) },
+        });
       }
       for (let index = 0; index < orderedIds.length; index += 1) {
         await tx.assessmentQuestion.update({ where: { id: orderedIds[index] }, data: { order: index } });

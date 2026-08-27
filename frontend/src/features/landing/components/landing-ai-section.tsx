@@ -66,14 +66,17 @@ function LandingAiSection() {
   return (
     <section className="bg-muted/40 px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
       <div className="mx-auto max-w-6xl">
-        <motion.div {...motionProps} className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
+        <motion.div
+          {...motionProps}
+          className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16"
+        >
           <div>
             <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Learning, with AI built in</h2>
             <p className="mt-3 max-w-md text-muted-foreground">
               Every lesson has an AI tutor grounded in the exact lesson you are viewing — not a generic
-              chatbot — and it keeps your conversation saved so you can resume it later. Try to mark a
-              lesson complete and it also generates a short quiz from the lesson content itself, a real
-              check that you engaged with the material.
+              chatbot — and it keeps your conversation saved so you can resume it later. Try to mark a lesson
+              complete and it also generates a short quiz from the lesson content itself, a real check that
+              you engaged with the material.
             </p>
 
             <ul className="mt-8 flex flex-col gap-4">
@@ -89,7 +92,7 @@ function LandingAiSection() {
           </div>
 
           {/* Chat mockup gets the most deliberate gradient/glow treatment on the page — this is
-           * the literal "AI" pitch, so a futuristic glow reads as intentional rather than noisy. */}
+           * the AI capability, so a futuristic glow reads as intentional rather than noisy. */}
           <div className="relative mx-auto w-full max-w-sm">
             <div
               aria-hidden="true"
@@ -107,7 +110,11 @@ function LandingAiSection() {
                  * reduced motion rather than left static, since a permanently-visible ellipsis
                  * next to a finished reply would read as broken, not decorative. */}
                 {!shouldReduceMotion ? (
-                  <motion.div variants={typingVariants} className="flex items-center gap-2" aria-hidden="true">
+                  <motion.div
+                    variants={typingVariants}
+                    className="flex items-center gap-2"
+                    aria-hidden="true"
+                  >
                     <div className="bg-brand-gradient flex size-7 shrink-0 items-center justify-center rounded-full">
                       <Sparkles className="size-3.5 text-primary-foreground" aria-hidden />
                     </div>
@@ -117,7 +124,12 @@ function LandingAiSection() {
                           key={dot}
                           className="size-1.5 rounded-full bg-muted-foreground/60"
                           animate={{ opacity: [0.3, 1, 0.3] }}
-                          transition={{ duration: 0.9, repeat: Infinity, delay: dot * 0.15, ease: 'easeInOut' }}
+                          transition={{
+                            duration: 0.9,
+                            repeat: Infinity,
+                            delay: dot * 0.15,
+                            ease: 'easeInOut',
+                          }}
                         />
                       ))}
                     </div>
@@ -129,9 +141,8 @@ function LandingAiSection() {
                     <Sparkles className="size-3.5 text-primary-foreground" aria-hidden />
                   </div>
                   <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-2 text-sm text-card-foreground">
-                    In the example from this lesson, an INNER join keeps only matching rows between the
-                    two tables, while a LEFT join also keeps every row from the first table even without
-                    a match.
+                    In the example from this lesson, an INNER join keeps only matching rows between the two
+                    tables, while a LEFT join also keeps every row from the first table even without a match.
                   </div>
                 </motion.div>
               </motion.div>

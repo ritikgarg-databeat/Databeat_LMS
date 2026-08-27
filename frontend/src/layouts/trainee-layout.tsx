@@ -26,9 +26,7 @@ const TRAINEE_NAV_ITEMS: SidebarNavItem[] = [
 
 /** Trainee area shell. */
 function TraineeLayout() {
-  return (
-    <DashboardLayout navItems={TRAINEE_NAV_ITEMS} brand={<BrandLogo label="Learn" />} />
-  );
+  return <DashboardLayout navItems={TRAINEE_NAV_ITEMS} brand={<BrandLogo label="Learn" />} />;
 }
 
 export { TraineeLayout };

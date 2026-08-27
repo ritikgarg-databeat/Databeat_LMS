@@ -36,7 +36,13 @@ export class GroupsService extends BaseService {
     sortOrder: SortOrder,
   ): Promise<PaginatedData<unknown>> {
     const scopedFilters = actor.role === 'TRAINER' ? { ...filters, trainerId: actor.id } : filters;
-    const { items, total } = await this.repository.findMany(scopedFilters, (page - 1) * pageSize, pageSize, sortBy, sortOrder);
+    const { items, total } = await this.repository.findMany(
+      scopedFilters,
+      (page - 1) * pageSize,
+      pageSize,
+      sortBy,
+      sortOrder,
+    );
     return { items, meta: buildPaginationMeta(page, pageSize, total) };
   }
 
@@ -213,7 +219,12 @@ export class GroupsService extends BaseService {
     });
   }
 
-  async duplicate(id: string, dto: DuplicateGroupDto, actor: Actor, ipAddress?: string | null): Promise<Group> {
+  async duplicate(
+    id: string,
+    dto: DuplicateGroupDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Group> {
     const source = await this.findOrThrow(id);
     this.assertGroupInScope(source, actor);
     await this.assertCodeAvailable(dto.code);
@@ -243,7 +254,12 @@ export class GroupsService extends BaseService {
     return created;
   }
 
-  async assignTrainer(id: string, dto: AssignTrainerDto, actor: Actor, ipAddress?: string | null): Promise<Group> {
+  async assignTrainer(
+    id: string,
+    dto: AssignTrainerDto,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<Group> {
     if (actor.role !== 'SUPER_ADMIN') {
       throw new ForbiddenError('Only a Super Admin can reassign group ownership.');
     }

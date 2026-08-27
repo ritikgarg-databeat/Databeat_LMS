@@ -1,6 +1,8 @@
 import type { Prisma, Role } from '@prisma/client';
 
-import { activeGroupMembershipWhere } from '@/policies/group-access.policy';
+import { activeGroupMembershipWhere, activeGroupScope } from '@/policies/group-access.policy';
+import { qnaQuestionAccessScope } from '@/policies/qna-access.policy';
+import { trainerCourseCatalogScope } from '@/policies/trainer-scope.policy';
 import { BaseRepository } from '@/repositories/base.repository';
 
 import type { QnaQuestionListFilters, QnaQuestionSortField } from './qna-questions.types';
@@ -121,7 +123,12 @@ export class QnaQuestionsRepository extends BaseRepository {
   ): Promise<Prisma.QnaQuestionWhereInput> {
     const where = buildFilterWhere(filters);
     if (filters.mine) where.authorId = actor.id;
-    if (actor.role === 'TRAINER' || actor.role === 'SUPER_ADMIN') return where;
+    if (actor.role === 'SUPER_ADMIN') return where;
+    if (actor.role === 'TRAINER') {
+      const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+      where.AND = [...existingAnd, qnaQuestionAccessScope(actor.id, actor.role, true)];
+      return where;
+    }
 
     const [user, memberships] = await Promise.all([
       this.db.user.findUnique({ where: { id: actor.id }, select: { departmentId: true } }),
@@ -237,16 +244,25 @@ export class QnaQuestionsRepository extends BaseRepository {
   }
 
   /** Feature-local existence check for the optional course/module/lesson linkage on create/update. */
-  findCourseById(courseId: string) {
-    return this.db.course.findUnique({ where: { id: courseId }, select: { id: true } });
+  findCourseById(courseId: string, actor: { id: string; role: Role }) {
+    return this.db.course.findFirst({
+      where: { id: courseId, ...this.courseAccessWhere(actor) },
+      select: { id: true },
+    });
   }
 
-  findModuleById(moduleId: string) {
-    return this.db.courseModule.findUnique({ where: { id: moduleId }, select: { id: true } });
+  findModuleById(moduleId: string, actor: { id: string; role: Role }) {
+    return this.db.courseModule.findFirst({
+      where: { id: moduleId, course: this.courseAccessWhere(actor) },
+      select: { id: true, courseId: true },
+    });
   }
 
-  findLessonById(lessonId: string) {
-    return this.db.lesson.findUnique({ where: { id: lessonId }, select: { id: true } });
+  findLessonById(lessonId: string, actor: { id: string; role: Role }) {
+    return this.db.lesson.findFirst({
+      where: { id: lessonId, module: { course: this.courseAccessWhere(actor) } },
+      select: { id: true, moduleId: true, module: { select: { courseId: true } } },
+    });
   }
 
   /** Feature-local existence check — the departments module owns Department but isn't a dependency here. */
@@ -260,6 +276,28 @@ export class QnaQuestionsRepository extends BaseRepository {
 
   findUserDepartmentId(userId: string) {
     return this.db.user.findUnique({ where: { id: userId }, select: { departmentId: true } });
+  }
+
+  async isGroupManagedByTrainer(groupId: string, trainerId: string): Promise<boolean> {
+    const group = await this.db.group.findFirst({
+      where: { id: groupId, trainerId, status: 'ACTIVE', deletedAt: null },
+      select: { id: true },
+    });
+    return group !== null;
+  }
+
+  async isDepartmentInTrainerScope(departmentId: string, trainerId: string): Promise<boolean> {
+    const [trainer, group] = await Promise.all([
+      this.db.user.findFirst({
+        where: { id: trainerId, role: 'TRAINER', departmentId, isActive: true },
+        select: { id: true },
+      }),
+      this.db.group.findFirst({
+        where: { trainerId, departmentId, status: 'ACTIVE', deletedAt: null },
+        select: { id: true },
+      }),
+    ]);
+    return trainer !== null || group !== null;
   }
 
   /**
@@ -278,7 +316,14 @@ export class QnaQuestionsRepository extends BaseRepository {
    * or genuinely nonexistent question is never accessible.
    */
   async isQuestionAccessibleToUser(questionId: string, userId: string, role: Role): Promise<boolean> {
-    if (role === 'TRAINER' || role === 'SUPER_ADMIN') return true;
+    if (role === 'SUPER_ADMIN') return true;
+    if (role === 'TRAINER') {
+      const scoped = await this.db.qnaQuestion.findFirst({
+        where: { id: questionId, ...qnaQuestionAccessScope(userId, role, true) },
+        select: { id: true },
+      });
+      return scoped !== null;
+    }
 
     const question = await this.db.qnaQuestion.findFirst({
       where: { id: questionId, deletedAt: null },
@@ -301,6 +346,20 @@ export class QnaQuestionsRepository extends BaseRepository {
       where: activeGroupMembershipWhere(userId, { id: question.groupId }),
     });
     return membership !== null;
+  }
+
+  private courseAccessWhere(actor: { id: string; role: Role }): Prisma.CourseWhereInput {
+    if (actor.role === 'SUPER_ADMIN') return { deletedAt: null };
+    if (actor.role === 'TRAINER') {
+      return { AND: [{ deletedAt: null }, trainerCourseCatalogScope(actor.id)] };
+    }
+    return {
+      status: 'PUBLISHED',
+      deletedAt: null,
+      groupAssignments: {
+        some: { group: activeGroupScope({ members: { some: { userId: actor.id } } }) },
+      },
+    };
   }
 }
 

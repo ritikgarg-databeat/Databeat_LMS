@@ -1,6 +1,5 @@
-// Simple Previous/Next lesson navigation, scoped to a single module's ordered lesson list.
-// Crossing into a sibling module isn't handled here — the lesson viewer page's own
-// "Back to course"/"Back to editor" link covers cross-module navigation instead.
+// Previous/Next lesson navigation. Learners move across the course's flattened published
+// module/lesson sequence; staff preview navigation remains scoped to the current module.
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -28,11 +27,14 @@ export interface LessonNavigationProps {
 interface OrderedSibling {
   id: string;
   title: string;
+  isLocked?: boolean;
 }
 
-/** Previous/Next buttons that jump between sibling lessons (by `order`) within the same module. */
+/** Previous/Next buttons for the role-appropriate ordered lesson sequence. */
 function LessonNavigation({ moduleId, currentLessonId, courseId, basePath, mode }: LessonNavigationProps) {
-  const { data: lessons, isLoading: lessonsLoading } = useLessonsQuery(mode === 'preview' ? moduleId : undefined);
+  const { data: lessons, isLoading: lessonsLoading } = useLessonsQuery(
+    mode === 'preview' ? moduleId : undefined,
+  );
   const { data: progress, isLoading: progressLoading } = useCourseProgressQuery(
     mode === 'learn' ? courseId : undefined,
   );
@@ -43,16 +45,24 @@ function LessonNavigation({ moduleId, currentLessonId, courseId, basePath, mode 
 
   const orderedLessons: OrderedSibling[] =
     mode === 'preview'
-      ? [...(lessons ?? [])].sort((a, b) => a.order - b.order).map((lesson) => ({ id: lesson.id, title: lesson.title }))
-      : (progress?.modules.find((courseModule) => courseModule.moduleId === moduleId)?.lessons.map((lesson) => ({
-          id: lesson.lessonId,
-          title: lesson.title,
-        })) ?? []);
+      ? [...(lessons ?? [])]
+          .sort((a, b) => a.order - b.order)
+          .map((lesson) => ({ id: lesson.id, title: lesson.title }))
+      : (progress?.modules.flatMap((courseModule) =>
+          courseModule.lessons.map((lesson) => ({
+            id: lesson.lessonId,
+            title: lesson.title,
+            isLocked: lesson.isLocked,
+          })),
+        ) ?? []);
 
   const currentIndex = orderedLessons.findIndex((lesson) => lesson.id === currentLessonId);
-  const previousLesson: OrderedSibling | undefined = currentIndex > 0 ? orderedLessons[currentIndex - 1] : undefined;
+  const previousLesson: OrderedSibling | undefined =
+    currentIndex > 0 ? orderedLessons[currentIndex - 1] : undefined;
   const nextLesson: OrderedSibling | undefined =
-    currentIndex >= 0 && currentIndex < orderedLessons.length - 1 ? orderedLessons[currentIndex + 1] : undefined;
+    currentIndex >= 0 && currentIndex < orderedLessons.length - 1
+      ? orderedLessons[currentIndex + 1]
+      : undefined;
 
   const lessonHref = (id: string) => `${basePath}/classroom/${courseId}/lessons/${id}`;
 
@@ -72,7 +82,7 @@ function LessonNavigation({ moduleId, currentLessonId, courseId, basePath, mode 
         </span>
       )}
 
-      {nextLesson ? (
+      {nextLesson && !nextLesson.isLocked ? (
         <Link to={lessonHref(nextLesson.id)} className={cn(buttonVariants({ variant: 'outline' }))}>
           <span className="max-w-40 truncate">{nextLesson.title}</span>
           <ChevronRight />

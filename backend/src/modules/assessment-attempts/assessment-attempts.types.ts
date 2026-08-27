@@ -1,8 +1,4 @@
-import {
-  QuestionType,
-  type AssessmentAttemptStatus,
-  type AssessmentSubmissionReason,
-} from '@prisma/client';
+import { QuestionType, type AssessmentAttemptStatus, type AssessmentSubmissionReason } from '@prisma/client';
 
 // Internal domain types for the assessment-attempts module.
 
@@ -22,7 +18,10 @@ export const OPTION_BASED_QUESTION_TYPES = [
  * collapse whitespace) the submitted `textAnswer` and checking it against the normalized
  * `snapshotCorrectAnswers` array for ANY match.
  */
-export const AUTO_GRADABLE_TEXT_QUESTION_TYPES = [QuestionType.FILL_IN_THE_BLANK, QuestionType.SQL_QUERY] as const;
+export const AUTO_GRADABLE_TEXT_QUESTION_TYPES = [
+  QuestionType.FILL_IN_THE_BLANK,
+  QuestionType.SQL_QUERY,
+] as const;
 
 /** Union of every type graded immediately at submit time (Prompt 6 § AUTO GRADING). */
 export const AUTO_GRADABLE_QUESTION_TYPES = [
@@ -84,6 +83,14 @@ export interface AttemptSummary {
   totalScore: number | null;
   percentage: number | null;
   passed: boolean | null;
+  integrityViolationCount: number;
+}
+
+export interface IntegrityEventResult {
+  violationCount: number;
+  warningsRemaining: number;
+  autoSubmitted: boolean;
+  attempt: AttemptSummary;
 }
 
 /**

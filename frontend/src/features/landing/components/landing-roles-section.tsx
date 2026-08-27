@@ -68,7 +68,7 @@ const itemVariants: Variants = {
 };
 
 /**
- * Three-persona breakdown (Super Admin / Trainer / Trainee) — the section that grounds the pitch
+ * Three-persona breakdown (Super Admin / Trainer / Trainee) — the section that grounds the product
  * in real day-to-day usage instead of abstract feature claims. Cards stagger left-to-right (and
  * stack top-to-bottom on mobile) in the same admin -> trainer -> trainee order, so the reveal
  * itself reads like an org chart. Each card gets a thin top border in its assigned accent so the
@@ -78,7 +78,12 @@ function LandingRolesSection() {
   const shouldReduceMotion = useReducedMotion();
   const containerMotionProps = shouldReduceMotion
     ? {}
-    : { initial: 'hidden', whileInView: 'visible', viewport: { once: true, amount: 0.2 }, variants: containerVariants };
+    : {
+        initial: 'hidden',
+        whileInView: 'visible',
+        viewport: { once: true, amount: 0.2 },
+        variants: containerVariants,
+      };
   const itemMotionProps = shouldReduceMotion ? {} : { variants: itemVariants };
   const hoverMotionProps = shouldReduceMotion ? {} : { whileHover: { y: -4 } };
 
@@ -88,15 +93,12 @@ function LandingRolesSection() {
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Built for every role</h2>
           <p className="mt-3 text-muted-foreground">
-            Super Admins, Trainers, and Trainees each get a workspace shaped around what they
-            actually do — not one dashboard trying to be everything.
+            Super Admins, Trainers, and Trainees each get a workspace shaped around what they actually do —
+            not one dashboard trying to be everything.
           </p>
         </div>
 
-        <motion.div
-          {...containerMotionProps}
-          className="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-3"
-        >
+        <motion.div {...containerMotionProps} className="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-3">
           {ROLES.map((role, index) => {
             /* Alternate between the two brand hues (same tokens used across the rest of the
              * landing page) so each persona reads as distinct without inventing a third color. */
@@ -126,7 +128,9 @@ function LandingRolesSection() {
                       variant="outline"
                       className={cn(
                         'w-fit',
-                        isAccent ? 'border-brand-accent/30 text-brand-accent' : 'border-primary/30 text-primary',
+                        isAccent
+                          ? 'border-brand-accent/30 text-brand-accent'
+                          : 'border-primary/30 text-primary',
                       )}
                     >
                       {role.tagline}

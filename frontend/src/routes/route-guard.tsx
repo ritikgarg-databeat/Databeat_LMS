@@ -56,7 +56,9 @@ function GuestOnlyRoute() {
   }
 
   if (isAuthenticated && user) {
-    const destination = user.mustChangePassword ? getChangePasswordPath(user.role) : getDashboardPath(user.role);
+    const destination = user.mustChangePassword
+      ? getChangePasswordPath(user.role)
+      : getDashboardPath(user.role);
     return <Navigate to={destination} replace />;
   }
 

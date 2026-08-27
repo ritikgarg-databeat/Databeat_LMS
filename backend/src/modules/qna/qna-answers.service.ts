@@ -84,8 +84,7 @@ export class QnaAnswersService extends BaseService {
     if (!answer) throw new NotFoundError('Answer not found.');
 
     const isOwner = answer.authorId === actor.id;
-    const isStaff = actor.role === 'TRAINER' || actor.role === 'SUPER_ADMIN';
-    if (!isOwner && !isStaff) throw new ForbiddenError("You don't have permission to edit this answer.");
+    if (!isOwner) await this.assertCanModerate(answer.questionId, actor, 'edit');
 
     const updated = await this.repository.update(id, { content: dto.content });
 
@@ -105,8 +104,7 @@ export class QnaAnswersService extends BaseService {
     if (!answer) throw new NotFoundError('Answer not found.');
 
     const isOwner = answer.authorId === actor.id;
-    const isStaff = actor.role === 'TRAINER' || actor.role === 'SUPER_ADMIN';
-    if (!isOwner && !isStaff) throw new ForbiddenError("You don't have permission to delete this answer.");
+    if (!isOwner) await this.assertCanModerate(answer.questionId, actor, 'delete');
 
     await this.repository.softDelete(id);
 
@@ -119,13 +117,15 @@ export class QnaAnswersService extends BaseService {
   }
 
   /** TRAINER/SUPER_ADMIN only — even the question's own (trainee) author may not pin. */
-  async pin(id: string, isPinned: boolean, actor: Actor, ipAddress?: string | null): Promise<QnaAnswerWithAuthor> {
-    if (actor.role !== 'TRAINER' && actor.role !== 'SUPER_ADMIN') {
-      throw new ForbiddenError("You don't have permission to pin answers.");
-    }
-
+  async pin(
+    id: string,
+    isPinned: boolean,
+    actor: Actor,
+    ipAddress?: string | null,
+  ): Promise<QnaAnswerWithAuthor> {
     const answer = await this.repository.findById(id);
     if (!answer) throw new NotFoundError('Answer not found.');
+    await this.assertCanModerate(answer.questionId, actor, 'pin');
 
     const updated = await this.repository.pin(id, isPinned);
 
@@ -152,12 +152,9 @@ export class QnaAnswersService extends BaseService {
     actor: Actor,
     ipAddress?: string | null,
   ): Promise<QnaAnswerWithAuthor> {
-    if (actor.role !== 'TRAINER' && actor.role !== 'SUPER_ADMIN') {
-      throw new ForbiddenError("You don't have permission to verify answers.");
-    }
-
     const question = await this.repository.findQuestionForAnswering(questionId);
     if (!question || question.deletedAt !== null) throw new NotFoundError('Question not found.');
+    await this.assertCanModerate(questionId, actor, 'verify');
 
     const answer = await this.repository.findById(dto.answerId);
     if (!answer || answer.questionId !== questionId) throw new NotFoundError('Answer not found.');
@@ -194,6 +191,19 @@ export class QnaAnswersService extends BaseService {
     }
 
     return verified;
+  }
+
+  private async assertCanModerate(
+    questionId: string,
+    actor: Actor,
+    action: 'edit' | 'delete' | 'pin' | 'verify',
+  ): Promise<void> {
+    if (actor.role === 'SUPER_ADMIN') return;
+    if (actor.role !== 'TRAINER') {
+      throw new ForbiddenError(`You don't have permission to ${action} this answer.`);
+    }
+    const accessible = await this.repository.isQuestionAccessibleToUser(questionId, actor.id, actor.role);
+    if (!accessible) throw new ForbiddenError(`You don't have permission to ${action} this answer.`);
   }
 }
 

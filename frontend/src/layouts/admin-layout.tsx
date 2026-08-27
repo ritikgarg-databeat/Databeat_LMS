@@ -1,8 +1,10 @@
 import {
+  BarChart3,
   BookOpen,
   Building2,
   CalendarDays,
   ClipboardList,
+  FileDown,
   HelpCircle,
   LayoutDashboard,
   Layers,
@@ -26,6 +28,8 @@ const ADMIN_NAV_ITEMS: SidebarNavItem[] = [
   { label: 'Trainers', href: `${ROUTES.ADMIN.ROOT}/trainers`, icon: Users },
   { label: 'Departments', href: ROUTES.ADMIN.DEPARTMENTS, icon: Building2 },
   { label: 'Groups', href: ROUTES.ADMIN.GROUPS, icon: Layers },
+  { label: 'Executive Analysis', href: ROUTES.ADMIN.LIVE_ANALYSIS, icon: BarChart3 },
+  { label: 'Reports', href: ROUTES.ADMIN.REPORTS, icon: FileDown },
   { label: 'Audit Log', href: ROUTES.ADMIN.AUDIT_LOG, icon: ShieldCheck },
   { label: 'Timing Observations', href: ROUTES.ADMIN.TIMING_OBSERVATIONS, icon: Timer },
   { label: 'Impact Metrics', href: ROUTES.ADMIN.IMPACT_METRICS, icon: TrendingUp },
@@ -34,9 +38,7 @@ const ADMIN_NAV_ITEMS: SidebarNavItem[] = [
 
 /** Super Admin area shell. */
 function AdminLayout() {
-  return (
-    <DashboardLayout navItems={ADMIN_NAV_ITEMS} brand={<BrandLogo label="Admin" />} />
-  );
+  return <DashboardLayout navItems={ADMIN_NAV_ITEMS} brand={<BrandLogo label="Admin" />} />;
 }
 
 export { AdminLayout };

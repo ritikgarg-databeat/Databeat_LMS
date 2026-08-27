@@ -8,9 +8,8 @@ so deleting or editing a bank question never changes an assessment that already 
 
 Layering: `questions.routes.ts` → `questions.controller.ts` → `questions.service.ts` →
 `questions.repository.ts` (see ARCHITECTURE.md §3.1). `questions.dto.ts` defines request/response
-shapes, `questions.types.ts` defines internal domain shapes, `questions.interfaces.ts` defines
-the contracts controllers/services depend on, and `questions.validation.ts` holds the
-express-validator chains for this module's routes.
+shapes, `questions.types.ts` defines internal domain shapes, and `questions.validation.ts` holds
+the express-validator chains for this module's routes.
 
 `QuestionsRepository.findByIdWithOptions(id)` is a stable cross-module contract consumed
 directly by the assessments module to snapshot a bank question's current content — keep its

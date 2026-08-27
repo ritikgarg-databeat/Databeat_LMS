@@ -4,7 +4,10 @@ import { BaseRepository } from '@/repositories/base.repository';
 
 import type { QuestionListFilters, QuestionSortField, SortOrder } from './questions.types';
 
-function buildWhere(filters: QuestionListFilters, actor?: { id: string; role: Role }): Prisma.QuestionWhereInput {
+function buildWhere(
+  filters: QuestionListFilters,
+  actor?: { id: string; role: Role },
+): Prisma.QuestionWhereInput {
   const where: Prisma.QuestionWhereInput = { deletedAt: null };
 
   // A trainer's question bank is private to that trainer. Assessment questions keep immutable
@@ -21,7 +24,7 @@ function buildWhere(filters: QuestionListFilters, actor?: { id: string; role: Ro
 }
 
 const summaryInclude = {
-  createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+  createdBy: { select: { id: true, firstName: true, lastName: true } },
 } satisfies Prisma.QuestionInclude;
 
 // Kept lightweight for the list view (Prompt 6 § GET /questions) — `_count.assessmentQuestions`
@@ -58,7 +61,13 @@ export class QuestionsRepository extends BaseRepository {
   ) {
     const where = buildWhere(filters, actor);
     const [items, total] = await Promise.all([
-      this.db.question.findMany({ where, skip, take, orderBy: { [sortBy]: sortOrder }, include: listInclude }),
+      this.db.question.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { [sortBy]: sortOrder },
+        include: listInclude,
+      }),
       this.db.question.count({ where }),
     ]);
     return { items, total };
