@@ -5,6 +5,7 @@ import { EmptyState } from '@/components/shared';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ROUTES } from '@/constants/routes';
 import { formatPercent } from '@/features/analytics/components';
 import type { LeaderboardEntry } from '@/features/analytics/types';
 import { cn } from '@/lib/utils';
@@ -12,6 +13,7 @@ import { cn } from '@/lib/utils';
 export interface TrainerLeaderboardCardProps {
   entries: LeaderboardEntry[] | undefined;
   isLoading: boolean;
+  basePath?: string;
 }
 
 const TROPHY_ACCENT: Record<number, string> = {
@@ -21,7 +23,11 @@ const TROPHY_ACCENT: Record<number, string> = {
 };
 
 /** Trainer dashboard "Top performers" leaderboard (Prompt 8) — compact ranked table. */
-function TrainerLeaderboardCard({ entries, isLoading }: TrainerLeaderboardCardProps) {
+function TrainerLeaderboardCard({
+  entries,
+  isLoading,
+  basePath = ROUTES.TRAINER.ROOT,
+}: TrainerLeaderboardCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -56,7 +62,7 @@ function TrainerLeaderboardCard({ entries, isLoading }: TrainerLeaderboardCardPr
                     </span>
                   </TableCell>
                   <TableCell className="font-medium">
-                    <Link to={`/trainer/users/${entry.userId}/analytics`} className="hover:underline">
+                    <Link to={`${basePath}/users/${entry.userId}/analytics`} className="hover:underline">
                       {entry.name}
                     </Link>
                   </TableCell>

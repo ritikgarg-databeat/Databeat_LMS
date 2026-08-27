@@ -6,10 +6,14 @@ import { ROUTES } from '@/constants/routes';
 
 export interface TrainerPendingGradingAlertProps {
   count: number;
+  assessmentsPath?: string;
 }
 
 /** Trainer dashboard pending-grading callout (Prompt 8) — only rendered when count > 0. */
-function TrainerPendingGradingAlert({ count }: TrainerPendingGradingAlertProps) {
+function TrainerPendingGradingAlert({
+  count,
+  assessmentsPath = ROUTES.TRAINER.ASSESSMENTS,
+}: TrainerPendingGradingAlertProps) {
   if (count <= 0) return null;
 
   return (
@@ -17,7 +21,7 @@ function TrainerPendingGradingAlert({ count }: TrainerPendingGradingAlertProps) 
       <ClipboardCheck aria-hidden />
       <AlertTitle>Grading needed</AlertTitle>
       <AlertDescription>
-        <Link to={ROUTES.TRAINER.ASSESSMENTS} className="hover:underline">
+        <Link to={assessmentsPath} className="hover:underline">
           {count} {count === 1 ? 'attempt' : 'attempts'} awaiting manual grading →
         </Link>
       </AlertDescription>

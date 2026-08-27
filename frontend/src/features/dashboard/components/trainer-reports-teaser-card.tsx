@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ROUTES } from '@/constants/routes';
 
 /** Trainer dashboard reports teaser (Prompt 8) — links to the CSV export page. */
-function TrainerReportsTeaserCard() {
+function TrainerReportsTeaserCard({ reportsPath = ROUTES.TRAINER.REPORTS }: { reportsPath?: string }) {
   return (
     <Card>
       <CardContent className="flex items-center justify-between gap-4 p-4">
@@ -18,10 +18,7 @@ function TrainerReportsTeaserCard() {
             <p className="text-sm text-muted-foreground">Export CSV reports for offline analysis.</p>
           </div>
         </div>
-        <Link
-          to={ROUTES.TRAINER.REPORTS}
-          className="shrink-0 text-sm font-medium text-primary hover:underline"
-        >
+        <Link to={reportsPath} className="shrink-0 text-sm font-medium text-primary hover:underline">
           Export CSV reports →
         </Link>
       </CardContent>

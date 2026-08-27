@@ -20,6 +20,9 @@ deployment, and detailed architecture remain in `README.md`, `DEPLOYMENT.md`, an
 ## Super Admin experience
 
 - Provision trainers, departments, groups, users, courses, and platform settings.
+- Use the Admin dashboard for an immediate organization-wide view of learning KPIs, group
+  performance, learner rankings, AI insights and usage, pending grading, and platform operations.
+- Open common administration areas directly from dashboard quick actions.
 - Review organization-wide Executive Learning Analysis with 7, 30, and 90-day filters.
 - View workforce reach, active adoption, learning hours, assessment outcomes, mandatory
   compliance, integrity events, and employees needing attention.

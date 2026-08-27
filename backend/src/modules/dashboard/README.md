@@ -1,10 +1,11 @@
 # Dashboard Module
 
 Two read-only aggregation endpoints — `GET /dashboard/trainee` and `GET /dashboard/trainer` —
-that compose data already owned by other modules into the exact payload shape the frontend
-foundation was built against (`frontend/src/features/analytics/types/index.ts`), plus an
-AI-generated (with graceful heuristic fallback) recommendations block cached in the
-`AnalyticsInsight` table.
+compose data already owned by other modules into the exact payload shape the frontend foundation
+was built against (`frontend/src/features/analytics/types/index.ts`). The staff endpoint serves
+both Trainers and Super Admins: Trainer results are restricted to active owned groups, while Super
+Admin results use organization-wide scope. It also includes an AI-generated recommendations block
+with a graceful heuristic fallback cached in the `AnalyticsInsight` table.
 
 The final per-user payload also has a 60-second in-process cache. Concurrent misses share one
 promise, preventing duplicate browser requests and rapid route changes from repeating the full
@@ -49,14 +50,14 @@ reusable home elsewhere (see the field-source table below).
 | Field                        | Source                                                                                                                                                  |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `groups`                     | `analyticsService.getGroupsAnalytics(actor, {})`, re-exported verbatim                                                                                  |
-| `overview.totalTrainees`     | `sum(groups[].traineeCount)` — see "Known limitations"                                                                                                  |
+| `overview.totalTrainees`     | **Feature-local distinct user count**: SUPER_ADMIN → all trainees; TRAINER → trainees in the trainer's active groups                                    |
 | `overview.totalGroups`       | `groups.length`                                                                                                                                         |
 | `overview.totalCourses`      | **Feature-local**: SUPER_ADMIN → all non-deleted courses; TRAINER → distinct courses assigned to their groups                                           |
 | `overview.activeAssessments` | **Feature-local**: SUPER_ADMIN → all published assessments; TRAINER → distinct published assessments assigned to their groups                           |
 | `overview.averageCompletion` | mean of `groups[].completionPercentage` (0 groups → 0)                                                                                                  |
 | `overview.averageScore`      | mean of `groups[].averageScore`, nulls skipped (0 non-null scores → `null`)                                                                             |
 | `leaderboard.items`          | `analyticsService.getLeaderboard({ limit: 10 }, actor)`                                                                                                 |
-| `insights`                   | `dashboardInsightsService.getGroupInsights` for the trainer's WORST-performing group — see "Insights scoping"                                           |
+| `insights`                   | `dashboardInsightsService.getGroupInsights` for the staff scope's WORST-performing group — see "Insights scoping"                                       |
 | `pendingGradingCount`        | `AssessmentsService#getStats(actor).pendingGradingCount` — Super Admin sees all; Trainer sees only assessments in their active creator/assignment scope |
 
 ## AI Insights (`dashboard-insights.service.ts`)
@@ -98,14 +99,14 @@ The AI path is instructed (system prompt) never to invent specifics beyond what'
 summary handed to it, so it inherits the same honesty constraint rather than a model
 hallucinating false precision the heuristic path deliberately avoids.
 
-### Insights scoping — trainee vs. trainer
+### Insights scoping — trainee vs. staff
 
 - **Trainee** (`getUserInsights`): scoped to exactly that user (`scopeType: 'USER'`) — the
   natural unit for a personal dashboard.
-- **Trainer** (`getGroupInsights`): the spec flags that a single `GROUP`-scoped insight isn't
-  quite right for a dashboard covering potentially many groups. This module's `dashboard.service.ts#buildTrainerInsights`
-  resolves that by picking the trainer's WORST-performing group (lowest `completionPercentage`,
-  tie-broken by lowest `averageScore`) and generating/caching ONE group-scoped insight for it —
+- **Trainer/Super Admin** (`getGroupInsights`): a single `GROUP`-scoped insight is selected from
+  the actor's authorized group scope. This module's `dashboard.service.ts#buildTrainerInsights`
+  picks the WORST-performing group (lowest `completionPercentage`, tie-broken by lowest
+  `averageScore`) and generates/caches ONE group-scoped insight for it —
   a "here's where to focus first" signal rather than either a diluted average-of-everything
   insight or N separate AI calls per dashboard load. The insight text always names the group
   (both the heuristic template and the AI prompt include `group.name`), so it reads as clearly
@@ -114,11 +115,6 @@ hallucinating false precision the heuristic path deliberately avoids.
 
 ## Known limitations (documented, not bugs)
 
-- **`overview.totalTrainees`** sums each group's `traineeCount` independently (mirroring how
-  `analyticsService.getGroupsAnalytics` computes each row). A trainee who is a member of two of
-  the trainer's groups is counted twice. A distinct-user count was skipped in favor of reusing
-  the already-fetched `groups` array with no extra query; revisit if double-counting becomes a
-  real-world problem.
 - **`assessments.upcoming`** is a heuristic, not a first-class "assigned" concept: PUBLISHED,
   non-deleted, assigned to one of the user's groups, `dueDate` in the future, AND no
   `AssessmentAttempt` row yet for this user. An assessment with no `dueDate` never appears here

@@ -84,6 +84,11 @@ what's actually here today: features, roles, setup, day-to-day development, and 
   peers answer, trainers can mark an answer verified. Organization, department, and group
   visibility is enforced consistently for questions, answers, comments, votes, tags, search, and
   attachments; linked course/module/lesson references are validated against the user's access.
+- **Role-focused dashboards** — the Admin landing dashboard combines organization-wide learning
+  KPIs, group performance, learner rankings, AI insights and usage, pending grading, reports, and
+  operational shortcuts. Trainers receive the same decision-oriented signals restricted to their
+  active groups, while trainees see assigned learning and personal progress. The initial staff
+  view uses one cached aggregate request; secondary operational panels load only when approached.
 - **Executive, Manager & Compliance analytics** — organization-wide Executive Analysis for
   Admins and group-scoped Team Performance for Trainers, with 7/30/90-day filters, workforce
   reach and adoption, transparent ROI estimates, completion and assessment charts, mandatory

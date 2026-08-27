@@ -83,6 +83,17 @@ export class DashboardRepository extends BaseRepository {
 
   // --- Trainer dashboard overview ---------------------------------------------------------------
 
+  /** Distinct trainee population for the organization or the trainer's active groups. */
+  countTraineesForGroups(groupIds?: string[]): Promise<number> {
+    if (groupIds && groupIds.length === 0) return Promise.resolve(0);
+    return this.db.user.count({
+      where: {
+        role: 'TRAINEE',
+        ...(groupIds ? { groupMemberships: { some: { groupId: { in: groupIds } } } } : {}),
+      },
+    });
+  }
+
   /** SUPER_ADMIN population for `overview.totalCourses`: every non-deleted course. */
   countAllCourses(): Promise<number> {
     return this.db.course.count({ where: { deletedAt: null } });

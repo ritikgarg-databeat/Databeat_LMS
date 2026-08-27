@@ -13,15 +13,22 @@ import { formatRelativeTime } from '@/utils/date';
 export interface TrainerGroupAnalyticsTableProps {
   groups: GroupAnalyticsRow[] | undefined;
   isLoading: boolean;
+  basePath?: string;
 }
 
 /** Trainer dashboard "Group Analytics" section (Prompt 8) — rollup row per assigned group. */
-function TrainerGroupAnalyticsTable({ groups, isLoading }: TrainerGroupAnalyticsTableProps) {
+function TrainerGroupAnalyticsTable({
+  groups,
+  isLoading,
+  basePath = ROUTES.TRAINER.ROOT,
+}: TrainerGroupAnalyticsTableProps) {
+  const groupsPath = `${basePath}/groups`;
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle>Group Analytics</CardTitle>
-        <Link to={ROUTES.TRAINER.GROUPS} className="text-sm text-primary hover:underline">
+        <Link to={groupsPath} className="text-sm text-primary hover:underline">
           All groups →
         </Link>
       </CardHeader>
@@ -47,10 +54,7 @@ function TrainerGroupAnalyticsTable({ groups, isLoading }: TrainerGroupAnalytics
               {groups.map((group) => (
                 <TableRow key={group.groupId}>
                   <TableCell className="font-medium">
-                    <Link
-                      to={`${ROUTES.TRAINER.GROUPS}/${group.groupId}/analytics`}
-                      className="hover:underline"
-                    >
+                    <Link to={`${groupsPath}/${group.groupId}/analytics`} className="hover:underline">
                       {group.name}
                     </Link>
                   </TableCell>

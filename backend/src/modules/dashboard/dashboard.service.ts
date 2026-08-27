@@ -158,9 +158,10 @@ export class DashboardService extends BaseService {
     const groupIds = groups.map((group) => group.groupId);
     const isSuperAdmin = actor.role === 'SUPER_ADMIN';
 
-    const [leaderboardEntries, totalCourses, activeAssessments, assessmentStats, insights] =
+    const [leaderboardEntries, totalTrainees, totalCourses, activeAssessments, assessmentStats, insights] =
       await Promise.all([
         this.analytics.getLeaderboard({ limit: 10 }, actor, groupIds),
+        this.repository.countTraineesForGroups(isSuperAdmin ? undefined : groupIds),
         isSuperAdmin ? this.repository.countAllCourses() : this.repository.countCoursesForGroups(groupIds),
         isSuperAdmin
           ? this.repository.countAllPublishedAssessments()
@@ -171,11 +172,7 @@ export class DashboardService extends BaseService {
 
     return {
       overview: {
-        // Sum of each group's traineeCount (documented simplification, README.md § Known
-        // limitations): a trainee in two of this trainer's groups is counted twice, mirroring
-        // how `analyticsService`'s own group rows are computed independently per group rather
-        // than from a single distinct-user query.
-        totalTrainees: groups.reduce((sum, group) => sum + group.traineeCount, 0),
+        totalTrainees,
         totalGroups: groups.length,
         totalCourses,
         activeAssessments,
