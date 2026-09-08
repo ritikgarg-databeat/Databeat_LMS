@@ -15,6 +15,18 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Allows the dev server to be reached through an ngrok (or similar) tunnel for
+    // sharing a live demo — ngrok's Host header wouldn't otherwise pass Vite's
+    // default host allowlist. Only relevant when tunneled; harmless locally.
+    allowedHosts: true,
+    proxy: {
+      // Lets the tunneled frontend reach the backend through the SAME public URL,
+      // so remote viewers never need a second tunnel or a hardcoded API origin.
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     chunkSizeWarningLimit: 300,

@@ -58,41 +58,23 @@ const DEMO_GROUPS = [
   },
 ] as const;
 
-// Deliberately NOT `@databeat.lms` (the domain used by this project's other seeded/test
-// accounts, e.g. `tara.trainer@databeat.lms`) so this data can never collide with them.
 const DEMO_TRAINER = {
-  firstName: 'Ananya',
-  lastName: 'Rao',
-  email: process.env.SEED_DEMO_TRAINER_EMAIL ?? 'ananya.rao@demo.databeat.lms',
-  password: process.env.SEED_DEMO_TRAINER_PASSWORD ?? 'DemoTrainer#2026',
+  firstName: 'Tara',
+  lastName: 'Trainer',
+  email: process.env.SEED_DEMO_TRAINER_EMAIL ?? 'tara.trainer@databeat.lms',
+  password: process.env.SEED_DEMO_TRAINER_PASSWORD ?? 'databeat@lms',
 };
 
-const DEMO_TRAINEE_PASSWORD = process.env.SEED_DEMO_TRAINEE_PASSWORD ?? 'DemoTrainee#2026';
+const DEMO_TRAINEE_PASSWORD = process.env.SEED_DEMO_TRAINEE_PASSWORD ?? 'databeat@lms';
 
 const DEMO_TRAINEES = [
   {
-    firstName: 'Rahul',
-    lastName: 'Verma',
-    email: 'rahul.verma@demo.databeat.lms',
+    firstName: 'Timmy',
+    lastName: 'Trainee',
+    email: 'timmy.trainee@databeat.lms',
     groupCode: 'MEDIA_FRESHERS_BATCH',
     departmentName: 'Media',
     experienceLevelCode: 'FRESHER',
-  },
-  {
-    firstName: 'Priya',
-    lastName: 'Nair',
-    email: 'priya.nair@demo.databeat.lms',
-    groupCode: 'MEDIA_FRESHERS_BATCH',
-    departmentName: 'Media',
-    experienceLevelCode: 'FRESHER',
-  },
-  {
-    firstName: 'Karan',
-    lastName: 'Mehta',
-    email: 'karan.mehta@demo.databeat.lms',
-    groupCode: 'MEDIA_DATA_EXPERIENCED_BATCH',
-    departmentName: 'Media Data',
-    experienceLevelCode: 'EXPERIENCED',
   },
 ] as const;
 
