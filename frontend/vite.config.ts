@@ -29,53 +29,15 @@ export default defineConfig({
     },
   },
   build: {
-    chunkSizeWarningLimit: 300,
-    rolldownOptions: {
-      output: {
-        codeSplitting: {
-          minSize: 20_000,
-          maxSize: 250_000,
-          groups: [
-            {
-              name: 'react-core',
-              test: /node_modules[\\/](?:react|react-dom|react-router|react-router-dom)[\\/]/,
-              priority: 50,
-            },
-            {
-              name: 'syntax-highlighting',
-              test: /node_modules[\\/](?:react-syntax-highlighter|refractor|prismjs)[\\/]/,
-              maxSize: 180_000,
-              priority: 40,
-            },
-            {
-              name: 'charts',
-              test: /node_modules[\\/](?:recharts|d3-|victory-vendor)[\\/]/,
-              maxSize: 200_000,
-              priority: 35,
-            },
-            {
-              name: 'markdown',
-              test: /node_modules[\\/](?:react-markdown|remark-|rehype-|unified|micromark|mdast-|hast-)[\\/]/,
-              maxSize: 180_000,
-              priority: 30,
-            },
-            {
-              name: 'ui-vendor',
-              test: /node_modules[\\/](?:@radix-ui|lucide-react|framer-motion)[\\/]/,
-              maxSize: 200_000,
-              priority: 20,
-            },
-            {
-              name: 'vendor',
-              test: /node_modules/,
-              entriesAware: true,
-              entriesAwareMergeThreshold: 10_000,
-              maxSize: 220_000,
-              priority: 10,
-            },
-          ],
-        },
-      },
-    },
+    // The previous manual `rolldownOptions.output.codeSplitting` (grouped by
+    // react-core/syntax-highlighting/charts/markdown/ui-vendor/vendor, each capped by
+    // `maxSize`) forced further size-based splits inside the "charts" group (recharts/d3-),
+    // which breaks their internal module-init order — reproducible in a real production
+    // build/preview as `Cannot read properties of undefined (reading 'axis')`, crashing the
+    // app on every route (the chunk is eagerly loaded, not chart-page-specific). Several
+    // narrower fixes (dropping the group's own `maxSize`, then raising it) still left the
+    // library split across multiple chunks, so falling back to the bundler's own default
+    // automatic chunking is the safe fix — it exists to respect dependency/init order.
+    chunkSizeWarningLimit: 600,
   },
 });
